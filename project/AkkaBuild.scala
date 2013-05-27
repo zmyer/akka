@@ -40,7 +40,7 @@ object AkkaBuild extends Build {
     organization := "com.typesafe.akka",
     version      := "2.2-SNAPSHOT",
     // Also change ScalaVersion in akka-sbt-plugin/sample/project/Build.scala
-    scalaVersion := System.getProperty("akka.scalaVersion", "2.10.1"),
+    scalaVersion := System.getProperty("akka.scalaVersion", "2.11.0-M3"),
     scalaBinaryVersion <<= (scalaVersion, scalaBinaryVersion)((v, bv) => System.getProperty("akka.scalaBinaryVersion", if (v contains "-") v else bv))
   )
 
@@ -58,15 +58,17 @@ object AkkaBuild extends Build {
       javacOptions in JavaDoc := Seq(),
       artifactName in packageDoc in JavaDoc := ((sv, mod, art) => "" + mod.name + "_" + sv.binary + "-" + mod.revision + "-javadoc.jar"),
       packageDoc in Compile <<= packageDoc in JavaDoc,
-      Dist.distExclude := Seq(actorTests.id, akkaSbtPlugin.id, docs.id, samples.id, osgi.id, osgiAries.id, channelsTests.id),
+      Dist.distExclude := Seq(actorTests.id, akkaSbtPlugin.id, docs.id, samples.id, osgi.id, osgiAries.id, channelsTests.id)
+/*
       // generate online version of docs
       sphinxInputs in Sphinx <<= sphinxInputs in Sphinx in LocalProject(docs.id) map { inputs => inputs.copy(tags = inputs.tags :+ "online") },
       // don't regenerate the pdf, just reuse the akka-docs version
       generatedPdf in Sphinx <<= generatedPdf in Sphinx in LocalProject(docs.id) map identity,
       generatedEpub in Sphinx <<= generatedEpub in Sphinx in LocalProject(docs.id) map identity
+*/
     ),
     aggregate = Seq(actor, testkit, actorTests, dataflow, remote, remoteTests, camel, cluster, slf4j, agent, transactor,
-      mailboxes, zeroMQ, kernel, akkaSbtPlugin, osgi, osgiAries, docs, contrib, samples, channels, channelsTests,
+      mailboxes, kernel, akkaSbtPlugin, osgi, osgiAries, docs, contrib, samples, channels, channelsTests,
       multiNodeTestkit)
   )
 
@@ -256,6 +258,7 @@ object AkkaBuild extends Build {
     )
   )
 
+/*
   lazy val zeroMQ = Project(
     id = "akka-zeromq",
     base = file("akka-zeromq"),
@@ -265,6 +268,7 @@ object AkkaBuild extends Build {
       previousArtifact := akkaPreviousArtifact("akka-zeromq")
     )
   )
+*/
 
   lazy val kernel = Project(
     id = "akka-kernel",
@@ -475,7 +479,7 @@ object AkkaBuild extends Build {
     id = "akka-docs",
     base = file("akka-docs"),
     dependencies = Seq(actor, testkit % "test->test", mailboxesCommon % "compile;test->test", channels,
-      remote % "compile;test->test", cluster, slf4j, agent, dataflow, transactor, fileMailbox, zeroMQ, camel, osgi, osgiAries),
+      remote % "compile;test->test", cluster, slf4j, agent, dataflow, transactor, fileMailbox, camel, osgi, osgiAries),
     settings = defaultSettings ++ site.settings ++ site.sphinxSupport() ++ site.publishSite ++ sphinxPreprocessing ++ cpsPlugin ++ Seq(
       sourceDirectory in Sphinx <<= baseDirectory / "rst",
       sphinxPackages in Sphinx <+= baseDirectory { _ / "_sphinx" / "pygments" },
@@ -500,6 +504,7 @@ object AkkaBuild extends Build {
       testOptions += Tests.Argument(TestFrameworks.JUnit, "-v", "-a")
     )
   )
+
 
   lazy val contrib = Project(
     id = "akka-contrib",
@@ -956,7 +961,7 @@ object Dependencies {
       val logback      = "ch.qos.logback"              % "logback-classic"              % "1.0.7"            % "test" // EPL 1.0 / LGPL 2.1
       val mockito      = "org.mockito"                 % "mockito-all"                  % "1.8.1"            % "test" // MIT
       // changing the scalatest dependency must be reflected in akka-docs/rst/dev/multi-jvm-testing.rst
-      val scalatest    = "org.scalatest"              %% "scalatest"                    % "1.9.1"            % "test" // ApacheV2
+      val scalatest    = "org.scalatest"              %% "scalatest"                    % "1.9.1b"            % "test" // ApacheV2
       val scalacheck   = "org.scalacheck"             %% "scalacheck"                   % "1.10.0"           % "test" // New BSD
       val ariesProxy   = "org.apache.aries.proxy"      % "org.apache.aries.proxy.impl"  % "0.3"              % "test" // ApacheV2
       val pojosr       = "com.googlecode.pojosr"       % "de.kalpatec.pojosr.framework" % "0.1.4"            % "test" // ApacheV2
