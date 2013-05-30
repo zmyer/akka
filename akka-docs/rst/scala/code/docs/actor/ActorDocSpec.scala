@@ -243,19 +243,19 @@ class ActorDocSpec extends AkkaSpec(Map("akka.loglevel" -> "INFO")) {
     //#creating-props
 
     //#creating-props-deprecated
-    // DEPRECATED: encourages to close over enclosing class
+    // DEPRECATED: old case class signature
     val props4 = Props(
       creator = { () ⇒ new MyActor },
       dispatcher = "my-dispatcher")
 
-    // DEPRECATED: encourages to close over enclosing class
+    // DEPRECATED due to duplicate functionality with Props.apply()
     val props5 = props1.withCreator(new MyActor)
 
-    // DEPRECATED: encourages to close over enclosing class
-    val props6 = Props(new MyActor)
-
     // DEPRECATED due to duplicate functionality with Props.apply()
-    val props7 = props1.withCreator(classOf[MyActor])
+    val props6 = props1.withCreator(classOf[MyActor])
+
+    // NOT RECOMMENDED: encourages to close over enclosing class
+    val props7 = Props(new MyActor)
     //#creating-props-deprecated
   }
 
@@ -265,7 +265,7 @@ class ActorDocSpec extends AkkaSpec(Map("akka.loglevel" -> "INFO")) {
 
     // ActorSystem is a heavy object: create only one per application
     val system = ActorSystem("mySystem")
-    val myActor = system.actorOf(Props[MyActor].withDispatcher("my-dispatcher"), "myactor2")
+    val myActor = system.actorOf(Props[MyActor], "myactor2")
     //#system-actorOf
     shutdown(system)
   }

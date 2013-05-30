@@ -85,18 +85,21 @@ for a migration period):
 
 .. includecode:: code/docs/actor/ActorDocSpec.scala#creating-props-deprecated
 
-The last one is deprecated because its functionality is available in full
-through :meth:`Props.apply()`.
+The first one is deprecated because the case class structure changed between
+Akka 2.1 and 2.2.
 
-The first three are deprecated because the captured closure is a local class
-which means that it implicitly carries a reference to the enclosing class. This
-can easily make the resulting :class:`Props` non-serializable, e.g. when the
-enclosing class is an :class:`Actor`. Akka advocates location transparency,
-meaning that an application written with actors should just work when it is
-deployed over multiple network nodes, and non-serializable actor factories
-would break this principle. In case indirect actor creation is needed—for
-example when using dependency injection—there is the possibility to use an
-:class:`IndirectActorProducer` as described below.
+The two variants in the middle are deprecated because :class:`Props` are
+primarily concerned with actor creation and thus the “creator” part should be
+explicitly set when creating an instance. In case you want to deploy one actor
+in the same was as another, simply use
+``Props(...).withDeploy(otherProps.deploy)``.
+
+The last one is not technically deprecated, but it is not recommended because
+it encourages to close over the enclosing scope, resulting in non-serializable
+:class:`Props` and possibly race conditions (breaking the actor encapsulation).
+We will provide a macro-based solution in a future release which allows similar
+syntax without the headaches, at which point this variant will be properly
+deprecated.
 
 There were two use-cases for these methods: passing constructor arguments to
 the actor—which is solved by the newly introduced
@@ -165,9 +168,11 @@ Creating Actors with Factory Methods
 ------------------------------------
 
 If your UntypedActor has a constructor that takes parameters then those need to
-be part of the :class:`Props` as well, as described `above <Props>`_. But there
+be part of the :class:`Props` as well, as described `above`__. But there
 are cases when a factory method must be used, for example when the actual
 constructor arguments are determined by a dependency injection framework.
+
+__ Props_
 
 .. includecode:: code/docs/actor/ActorDocSpec.scala
    :include: creating-indirectly
@@ -795,8 +800,9 @@ order as they have been received originally.
 
   Please note that the ``Stash`` can only be used together with actors
   that have a deque-based mailbox. For this, configure the
-  ``mailbox-type`` of the dispatcher to be a deque-based mailbox, such as
-  ``akka.dispatch.UnboundedDequeBasedMailbox`` (see :ref:`dispatchers-scala`).
+  ``mailbox-type`` of the dispatcher or in the deployment of the actor
+  to be a deque-based mailbox, such as ``akka.dispatch.UnboundedDequeBasedMailbox``
+  (see :ref:`mailboxes-scala`).
 
 Here is an example of the ``Stash`` in action:
 
