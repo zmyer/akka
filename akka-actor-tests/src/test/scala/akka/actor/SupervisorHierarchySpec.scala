@@ -78,12 +78,10 @@ object SupervisorHierarchySpec {
     extends DispatcherConfigurator(config, prerequisites) {
 
     private val instance: MessageDispatcher =
-      new Dispatcher(prerequisites,
+      new Dispatcher(this,
         config.getString("id"),
         config.getInt("throughput"),
         Duration(config.getNanoseconds("throughput-deadline-time"), TimeUnit.NANOSECONDS),
-        mailboxType,
-        mailBoxTypeConfigured,
         configureExecutor(),
         Duration(config.getMilliseconds("shutdown-timeout"), TimeUnit.MILLISECONDS)) {
 
@@ -406,6 +404,7 @@ object SupervisorHierarchySpec {
     }
 
     var children = Vector.empty[ActorRef]
+    var activeChildren = Vector.empty[ActorRef]
     var idleChildren = Vector.empty[ActorRef]
     var pingChildren = Set.empty[ActorRef]
 
@@ -419,8 +418,8 @@ object SupervisorHierarchySpec {
         Ping(ref)
       case x ⇒
         // fail one child
-        val pick = ((if (x >= 0.25) x - 0.25 else x) * 4 * children.size).toInt
-        Fail(children(pick), if (x > 0.25) Restart else Resume)
+        val pick = ((if (x >= 0.25) x - 0.25 else x) * 4 * activeChildren.size).toInt
+        Fail(activeChildren(pick), if (x > 0.25) Restart else Resume)
     })
 
     var hierarchy: ActorRef = _
@@ -466,11 +465,12 @@ object SupervisorHierarchySpec {
       case Init -> Stress ⇒
         self ! Work
         idleChildren = children
+        activeChildren = children
         // set timeout for completion of the whole test (i.e. including Finishing and Stopping)
-        setTimer("phase", StateTimeout, 50.seconds.dilated, false)
+        setTimer("phase", StateTimeout, 70.seconds.dilated, false)
     }
 
-    val workSchedule = 250.millis
+    val workSchedule = 50.millis
 
     private def random012: Int = Random.nextFloat match {
       case x if x > 0.1  ⇒ 0
@@ -481,6 +481,7 @@ object SupervisorHierarchySpec {
       val deadGuy = path.elements
       val deadGuySize = deadGuy.size
       val isChild = (other: ActorRef) ⇒ other.path.elements.take(deadGuySize) == deadGuy
+      activeChildren = activeChildren filterNot isChild
       idleChildren = idleChildren filterNot isChild
       pingChildren = pingChildren filterNot isChild
     }
@@ -517,7 +518,9 @@ object SupervisorHierarchySpec {
       case Event(StateTimeout, todo) ⇒
         log.info("dumping state due to StateTimeout")
         log.info("children: " + children.size + " pinged: " + pingChildren.size + " idle: " + idleChildren.size + " work: " + todo)
+        pingChildren foreach println
         println(system.asInstanceOf[ActorSystemImpl].printTree)
+        pingChildren foreach getErrorsUp
         ignoreNotResumedLogs = false
         hierarchy ! Dump(2)
         goto(Failed)
@@ -673,6 +676,7 @@ object SupervisorHierarchySpec {
 
     whenUnhandled {
       case Event(Ready(ref), _) ⇒
+        activeChildren :+= ref
         children :+= ref
         idleChildren :+= ref
         stay
@@ -707,6 +711,8 @@ object SupervisorHierarchySpec {
 @org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) with DefaultTimeout with ImplicitSender {
   import SupervisorHierarchySpec._
+
+  override def expectedTestDuration = 2.minutes
 
   "A Supervisor Hierarchy" must {
 
@@ -870,7 +876,7 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
 
       fsm ! Init
 
-      expectMsg(70 seconds, "stressTestSuccessful")
+      expectMsg(90 seconds, "stressTestSuccessful")
       expectMsg("stressTestStopped")
     }
   }

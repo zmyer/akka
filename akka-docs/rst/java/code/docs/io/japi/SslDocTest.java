@@ -57,7 +57,8 @@ public class SslDocTest {
     final LoggingAdapter log = Logging
         .getLogger(getContext().system(), getSelf());
 
-    public SslClient(InetSocketAddress remote, SSLContext sslContext, ActorRef listener) {
+    public SslClient(InetSocketAddress remote, SSLContext sslContext, 
+        ActorRef listener) {
       this.remote = remote;
       this.sslContext = sslContext;
       this.listener = listener;
@@ -91,7 +92,7 @@ public class SslDocTest {
 
         // create handler for pipeline, setting ourselves as payload recipient
         final ActorRef handler = getContext().actorOf(
-            TcpPipelineHandler.create(init, getSender(), getSelf()));
+            TcpPipelineHandler.props(init, getSender(), getSelf()));
         
         // register the SSL handler with the connection
         getSender().tell(TcpMessage.register(handler), getSelf());
@@ -156,7 +157,7 @@ public class SslDocTest {
         
         // create handler for pipeline, setting ourselves as payload recipient
         final ActorRef handler = getContext().actorOf(
-            TcpPipelineHandler.create(init, getSender(), getSelf()));
+            TcpPipelineHandler.props(init, getSender(), getSelf()));
         
         // register the SSL handler with the connection
         getSender().tell(TcpMessage.register(handler), getSelf());

@@ -191,7 +191,8 @@ private[akka] class RemoteActorRefProvider(
       failureDetector,
       heartbeatInterval = WatchHeartBeatInterval,
       unreachableReaperInterval = WatchUnreachableReaperInterval,
-      heartbeatExpectedResponseAfter = WatchHeartbeatExpectedResponseAfter), "remote-watcher")
+      heartbeatExpectedResponseAfter = WatchHeartbeatExpectedResponseAfter),
+      "remote-watcher")
   }
 
   protected def createRemoteWatcherFailureDetector(system: ExtendedActorSystem): FailureDetectorRegistry[Address] = {
@@ -268,17 +269,23 @@ private[akka] class RemoteActorRefProvider(
         case d @ Deploy(_, _, _, RemoteScope(addr), _, _) ⇒
           if (hasAddress(addr)) {
             local.actorOf(system, props, supervisor, path, false, deployment.headOption, false, async)
-          } else {
+          } else if (props.deploy.scope == LocalScope) {
+            throw new ConfigurationException(s"configuration requested remote deployment for local-only Props at [$path]")
+          } else try {
             try {
-              val localAddress = transport.localAddressForRemote(addr)
-              val rpath = (RootActorPath(addr) / "remote" / localAddress.protocol / localAddress.hostPort / path.elements).
-                withUid(path.uid)
-              new RemoteActorRef(transport, localAddress, rpath, supervisor, Some(props), Some(d))
+              // for consistency we check configuration of dispatcher and mailbox locally
+              val dispatcher = system.dispatchers.lookup(props.dispatcher)
+              system.mailboxes.getMailboxType(props, dispatcher.configurator.config)
             } catch {
-              case NonFatal(e) ⇒
-                log.error(e, "Error while looking up address [{}]", addr)
-                new EmptyLocalActorRef(this, path, eventStream)
+              case NonFatal(e) ⇒ throw new ConfigurationException(
+                s"configuration problem while creating [$path] with dispatcher [${props.dispatcher}] and mailbox [${props.mailbox}]", e)
             }
+            val localAddress = transport.localAddressForRemote(addr)
+            val rpath = (RootActorPath(addr) / "remote" / localAddress.protocol / localAddress.hostPort / path.elements).
+              withUid(path.uid)
+            new RemoteActorRef(transport, localAddress, rpath, supervisor, Some(props), Some(d))
+          } catch {
+            case NonFatal(e) ⇒ throw new IllegalArgumentException(s"remote deployment failed for [$path]", e)
           }
 
         case _ ⇒ local.actorOf(system, props, supervisor, path, systemService, deployment.headOption, false, async)

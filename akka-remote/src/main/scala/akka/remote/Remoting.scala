@@ -89,7 +89,7 @@ private[remote] object Remoting {
     }
 
     def receive = {
-      case RegisterTransportActor(props, name) ⇒ sender ! context.actorOf(props, name)
+      case RegisterTransportActor(props, name) ⇒ sender ! context.actorOf(props.withDeploy(Deploy.local), name)
     }
   }
 
@@ -155,7 +155,7 @@ private[remote] class Remoting(_system: ExtendedActorSystem, _provider: RemoteAc
       case None ⇒
         log.info("Starting remoting")
         val manager: ActorRef = system.asInstanceOf[ActorSystemImpl].systemActorOf(
-          Props(classOf[EndpointManager], provider.remoteSettings.config, log), Remoting.EndpointManagerName)
+          Props(classOf[EndpointManager], provider.remoteSettings.config, log).withDeploy(Deploy.local), Remoting.EndpointManagerName)
         endpointManager = Some(manager)
 
         try {
@@ -208,7 +208,7 @@ private[remote] class Remoting(_system: ExtendedActorSystem, _provider: RemoteAc
   override def quarantine(remoteAddress: Address, uid: Int): Unit = endpointManager match {
     case Some(manager) ⇒ manager ! Quarantine(remoteAddress, uid)
     case _ ⇒ throw new RemoteTransportExceptionNoStackTrace(
-      s"Attempted to quarantine addres [$remoteAddress] with uid [$uid] but Remoting is not running", null)
+      s"Attempted to quarantine address [$remoteAddress] with uid [$uid] but Remoting is not running", null)
   }
 
   // Not used anywhere only to keep compatibility with RemoteTransport interface
@@ -374,6 +374,8 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
     Some(context.system.scheduler.schedule(pruneInterval, pruneInterval, self, Prune))
   else None
 
+  var pendingReadHandoffs = Map[ActorRef, AkkaProtocolHandle]()
+
   override val supervisorStrategy =
     OneForOneStrategy(loggingEnabled = false) {
       case InvalidAssociation(localAddress, remoteAddress, _) ⇒
@@ -505,34 +507,42 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
       }
 
     case InboundAssociation(handle: AkkaProtocolHandle) ⇒ endpoints.readOnlyEndpointFor(handle.remoteAddress) match {
-      case Some(endpoint) ⇒ endpoint ! EndpointWriter.TakeOver(handle)
+      case Some(endpoint) ⇒
+        endpoint ! EndpointWriter.TakeOver(handle)
       case None ⇒
         if (endpoints.isQuarantined(handle.remoteAddress, handle.handshakeInfo.uid)) handle.disassociate()
-        else {
-          val writing = settings.UsePassiveConnections && !endpoints.hasWritableEndpointFor(handle.remoteAddress)
-          eventPublisher.notifyListeners(AssociatedEvent(handle.localAddress, handle.remoteAddress, true))
-          val endpoint = createEndpoint(
-            handle.remoteAddress,
-            handle.localAddress,
-            transportMapping(handle.localAddress),
-            settings,
-            Some(handle),
-            writing)
-          if (writing)
-            endpoints.registerWritableEndpoint(handle.remoteAddress, endpoint)
-          else {
-            endpoints.registerReadOnlyEndpoint(handle.remoteAddress, endpoint)
-            endpoints.writableEndpointWithPolicyFor(handle.remoteAddress) match {
-              case Some(Pass(_)) ⇒ // Leave it alone
-              case _ ⇒
-                // Since we just communicated with the guy we can lift gate, quarantine, etc. New writer will be
-                // opened at first write.
-                endpoints.removePolicy(handle.remoteAddress)
+        else endpoints.writableEndpointWithPolicyFor(handle.remoteAddress) match {
+          case Some(Pass(ep)) ⇒
+            pendingReadHandoffs += ep -> handle
+            ep ! EndpointWriter.StopReading(ep)
+          case _ ⇒
+            val writing = settings.UsePassiveConnections && !endpoints.hasWritableEndpointFor(handle.remoteAddress)
+            eventPublisher.notifyListeners(AssociatedEvent(handle.localAddress, handle.remoteAddress, true))
+            val endpoint = createEndpoint(
+              handle.remoteAddress,
+              handle.localAddress,
+              transportMapping(handle.localAddress),
+              settings,
+              Some(handle),
+              writing)
+            if (writing)
+              endpoints.registerWritableEndpoint(handle.remoteAddress, endpoint)
+            else {
+              endpoints.registerReadOnlyEndpoint(handle.remoteAddress, endpoint)
+              endpoints.writableEndpointWithPolicyFor(handle.remoteAddress) match {
+                case Some(Pass(_)) ⇒ // Leave it alone
+                case _ ⇒
+                  // Since we just communicated with the guy we can lift gate, quarantine, etc. New writer will be
+                  // opened at first write.
+                  endpoints.removePolicy(handle.remoteAddress)
+              }
             }
-          }
         }
     }
+    case EndpointWriter.StoppedReading(endpoint) ⇒
+      acceptPendingReader(takingOverFrom = endpoint)
     case Terminated(endpoint) ⇒
+      acceptPendingReader(takingOverFrom = endpoint)
       endpoints.unregisterEndpoint(endpoint)
     case Prune ⇒
       endpoints.prune()
@@ -609,6 +619,22 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
     })
   }
 
+  private def acceptPendingReader(takingOverFrom: ActorRef): Unit = {
+    if (pendingReadHandoffs.contains(takingOverFrom)) {
+      val handle = pendingReadHandoffs(takingOverFrom)
+      pendingReadHandoffs -= takingOverFrom
+      eventPublisher.notifyListeners(AssociatedEvent(handle.localAddress, handle.remoteAddress, true))
+      val endpoint = createEndpoint(
+        handle.remoteAddress,
+        handle.localAddress,
+        transportMapping(handle.localAddress),
+        settings,
+        Some(handle),
+        writing = false)
+      endpoints.registerReadOnlyEndpoint(handle.remoteAddress, endpoint)
+    }
+  }
+
   private def createEndpoint(remoteAddress: Address,
                              localAddress: Address,
                              transport: Transport,
@@ -617,16 +643,16 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
                              writing: Boolean): ActorRef = {
     assert(transportMapping contains localAddress)
 
-    if (writing) context.watch(context.actorOf(ReliableDeliverySupervisor(
+    if (writing) context.watch(context.actorOf(ReliableDeliverySupervisor.props(
       handleOption,
       localAddress,
       remoteAddress,
       transport,
       endpointSettings,
       AkkaPduProtobufCodec,
-      receiveBuffers).withDispatcher("akka.remote.writer-dispatcher"),
+      receiveBuffers).withDispatcher("akka.remote.writer-dispatcher").withDeploy(Deploy.local),
       "reliableEndpointWriter-" + AddressUrlEncoder(remoteAddress) + "-" + endpointId.next()))
-    else context.watch(context.actorOf(EndpointWriter(
+    else context.watch(context.actorOf(EndpointWriter.props(
       handleOption,
       localAddress,
       remoteAddress,
@@ -634,7 +660,7 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
       endpointSettings,
       AkkaPduProtobufCodec,
       receiveBuffers,
-      reliableDeliverySupervisor = None).withDispatcher("akka.remote.writer-dispatcher"),
+      reliableDeliverySupervisor = None).withDispatcher("akka.remote.writer-dispatcher").withDeploy(Deploy.local),
       "endpointWriter-" + AddressUrlEncoder(remoteAddress) + "-" + endpointId.next()))
   }
 

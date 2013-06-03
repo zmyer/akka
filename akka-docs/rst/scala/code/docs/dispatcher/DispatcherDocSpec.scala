@@ -191,7 +191,8 @@ object DispatcherDocSpec {
   import akka.dispatch.RequiresMessageQueue
   import akka.dispatch.BoundedMessageQueueSemantics
 
-  class MyBoundedActor extends MyActor with RequiresMessageQueue[BoundedMessageQueueSemantics]
+  class MyBoundedActor extends MyActor
+    with RequiresMessageQueue[BoundedMessageQueueSemantics]
   //#required-mailbox-class
 
   //#mailbox-implementation-example
@@ -202,8 +203,7 @@ object DispatcherDocSpec {
     import akka.dispatch.{
       Envelope,
       MessageQueue,
-      QueueBasedMessageQueue,
-      UnboundedMessageQueueSemantics
+      UnboundedQueueBasedMessageQueue
     }
 
     // This constructor signature must exist, it will be called by Akka
@@ -212,7 +212,7 @@ object DispatcherDocSpec {
     // The create method is called to create the MessageQueue
     final override def create(owner: Option[ActorRef],
                               system: Option[ActorSystem]): MessageQueue =
-      new QueueBasedMessageQueue with UnboundedMessageQueueSemantics {
+      new UnboundedQueueBasedMessageQueue {
         final val queue = new ConcurrentLinkedQueue[Envelope]()
       }
   }
@@ -301,7 +301,8 @@ class DispatcherDocSpec extends AkkaSpec(DispatcherDocSpec.config) {
           case x ⇒ log.info(x.toString)
         }
       }
-      val a = system.actorOf(Props(classOf[Logger], this).withDispatcher("prio-dispatcher"))
+      val a = system.actorOf(Props(classOf[Logger], this).withDispatcher(
+        "prio-dispatcher"))
 
       /*
        * Logs:

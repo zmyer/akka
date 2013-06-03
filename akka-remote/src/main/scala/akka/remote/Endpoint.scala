@@ -82,11 +82,11 @@ private[remote] class DefaultMessageDispatcher(private val system: ExtendedActor
           // if it was originally addressed to us but is in fact remote from our point of view (i.e. remote-deployed)
           r.!(payload)(sender)
         else
-          log.error("dropping message {} for non-local recipient {} arriving at {} inbound addresses are {}",
-            payloadClass, r, recipientAddress, provider.transport.addresses)
+          log.error("dropping message [{}] for non-local recipient [{}] arriving at [{}] inbound addresses are [{}]",
+            payloadClass, r, recipientAddress, provider.transport.addresses.mkString(", "))
 
-      case r ⇒ log.error("dropping message {} for unknown recipient {} arriving at {} inbound addresses are {}",
-        payloadClass, r, recipientAddress, provider.transport.addresses)
+      case r ⇒ log.error("dropping message [{}] for unknown recipient [{}] arriving at [{}] inbound addresses are [{}]",
+        payloadClass, r, recipientAddress, provider.transport.addresses.mkString(", "))
 
     }
   }
@@ -147,7 +147,7 @@ private[remote] object ReliableDeliverySupervisor {
   case object Ungate
   case class GotUid(uid: Int)
 
-  def apply(
+  def props(
     handleOrActive: Option[AkkaProtocolHandle],
     localAddress: Address,
     remoteAddress: Address,
@@ -243,7 +243,8 @@ private[remote] class ReliableDeliverySupervisor(
     case Terminated(_) ⇒
       currentHandle = None
       context.become(idle)
-    case GotUid(u) ⇒ uid = Some(u)
+    case GotUid(u)                     ⇒ uid = Some(u)
+    case s: EndpointWriter.StopReading ⇒ writer forward s
   }
 
   def gated: Receive = {
@@ -255,7 +256,8 @@ private[remote] class ReliableDeliverySupervisor(
       } else context.become(idle)
     case s @ Send(msg: SystemMessage, _, _, _) ⇒ tryBuffer(s.copy(seqOpt = Some(nextSeq())))
     case s: Send                               ⇒ context.system.deadLetters ! s
-    case FlushAndStop                          ⇒ context.stop(self)
+    case EndpointWriter.FlushAndStop           ⇒ context.stop(self)
+    case EndpointWriter.StopReading(w)         ⇒ sender ! EndpointWriter.StoppedReading(w)
     case _                                     ⇒ // Ignore
   }
 
@@ -265,7 +267,8 @@ private[remote] class ReliableDeliverySupervisor(
       resendAll()
       handleSend(s)
       context.become(receive)
-    case FlushAndStop ⇒ context.stop(self)
+    case EndpointWriter.FlushAndStop   ⇒ context.stop(self)
+    case EndpointWriter.StopReading(w) ⇒ sender ! EndpointWriter.StoppedReading(w)
   }
 
   def flushWait: Receive = {
@@ -299,7 +302,7 @@ private[remote] class ReliableDeliverySupervisor(
     }
 
   private def createWriter(): ActorRef = {
-    context.watch(context.actorOf(EndpointWriter(
+    context.watch(context.actorOf(EndpointWriter.props(
       handleOrActive = currentHandle,
       localAddress = localAddress,
       remoteAddress = remoteAddress,
@@ -308,7 +311,7 @@ private[remote] class ReliableDeliverySupervisor(
       AkkaPduProtobufCodec,
       receiveBuffers = receiveBuffers,
       reliableDeliverySupervisor = Some(self))
-      .withDispatcher("akka.remote.writer-dispatcher"),
+      .withDispatcher("akka.remote.writer-dispatcher").withDeploy(Deploy.local),
       "endpointWriter"))
   }
 }
@@ -339,7 +342,7 @@ private[remote] abstract class EndpointActor(
  */
 private[remote] object EndpointWriter {
 
-  def apply(
+  def props(
     handleOrActive: Option[AkkaProtocolHandle],
     localAddress: Address,
     remoteAddress: Address,
@@ -362,6 +365,8 @@ private[remote] object EndpointWriter {
   case object BackoffTimer
   case object FlushAndStop
   case object AckIdleCheckTimer
+  case class StopReading(writer: ActorRef)
+  case class StoppedReading(writer: ActorRef)
 
   case class OutboundAck(ack: Ack)
 
@@ -533,15 +538,23 @@ private[remote] class EndpointWriter(
       stash()
       stay()
 
+    case _: StopReading ⇒
+      stash()
+      stay()
   }
 
   whenUnhandled {
     case Event(Terminated(r), _) if r == reader.orNull ⇒
       publishAndThrow(new EndpointDisassociatedException("Disassociated"))
+    case Event(s: StopReading, _) ⇒
+      reader match {
+        case Some(r) ⇒ r forward s
+        case None    ⇒ stash()
+      }
+      stay()
     case Event(TakeOver(newHandle), _) ⇒
       // Shutdown old reader
       handle foreach { _.disassociate() }
-      reader foreach context.stop
       handle = Some(newHandle)
       goto(Handoff)
     case Event(FlushAndStop, _) ⇒
@@ -580,8 +593,8 @@ private[remote] class EndpointWriter(
   private def startReadEndpoint(handle: AkkaProtocolHandle): Some[ActorRef] = {
     val newReader =
       context.watch(context.actorOf(
-        EndpointReader(localAddress, remoteAddress, transport, settings, codec,
-          msgDispatch, inbound, reliableDeliverySupervisor, receiveBuffers),
+        EndpointReader.props(localAddress, remoteAddress, transport, settings, codec,
+          msgDispatch, inbound, reliableDeliverySupervisor, receiveBuffers).withDeploy(Deploy.local),
         "endpointReader-" + AddressUrlEncoder(remoteAddress) + "-" + readerId.next()))
     handle.readHandlerPromise.success(ActorHandleEventListener(newReader))
     Some(newReader)
@@ -592,8 +605,8 @@ private[remote] class EndpointWriter(
       Serialization.currentTransportInformation.withValue(Serialization.Information(h.localAddress, extendedSystem)) {
         (MessageSerializer.serialize(extendedSystem, msg.asInstanceOf[AnyRef]))
       }
-    case None ⇒ throw new EndpointException("Internal error: No handle was present during serialization of" +
-      "outbound message.")
+    case None ⇒
+      throw new EndpointException("Internal error: No handle was present during serialization of outbound message.")
   }
 
 }
@@ -603,7 +616,7 @@ private[remote] class EndpointWriter(
  */
 private[remote] object EndpointReader {
 
-  def apply(
+  def props(
     localAddress: Address,
     remoteAddress: Address,
     transport: Transport,
@@ -632,7 +645,7 @@ private[remote] class EndpointReader(
   val reliableDeliverySupervisor: Option[ActorRef],
   val receiveBuffers: ConcurrentHashMap[Link, AckedReceiveBuffer[Message]]) extends EndpointActor(localAddress, remoteAddress, transport, settings, codec) {
 
-  import EndpointWriter.OutboundAck
+  import EndpointWriter.{ OutboundAck, StopReading, StoppedReading }
 
   val provider = RARP(context.system).provider
   var ackedReceiveBuffer = new AckedReceiveBuffer[Message]
@@ -646,8 +659,9 @@ private[remote] class EndpointReader(
     }
   }
 
-  override def postStop(): Unit = {
+  override def postStop(): Unit = saveState()
 
+  def saveState(): Unit = {
     @tailrec
     def updateSavedState(key: Link, expectedState: AckedReceiveBuffer[Message]): Unit = {
       if (expectedState eq null) {
@@ -661,7 +675,8 @@ private[remote] class EndpointReader(
   }
 
   override def receive: Receive = {
-    case Disassociated ⇒ context.stop(self)
+    case Disassociated ⇒
+      context.stop(self)
 
     case InboundPayload(p) if p.size <= transport.maximumPayloadBytes ⇒
       val (ackOption, msgOption) = tryDecodeMessageAndAck(p)
@@ -682,6 +697,24 @@ private[remote] class EndpointReader(
       publishError(new OversizedPayloadException(s"Discarding oversized payload received: " +
         s"max allowed size [${transport.maximumPayloadBytes}] bytes, actual size [${oversized.size}] bytes."))
 
+    case StopReading(writer) ⇒
+      saveState()
+      context.become(notReading)
+      sender ! StoppedReading(writer)
+
+  }
+
+  def notReading: Receive = {
+    case Disassociated ⇒ context.stop(self)
+
+    case StopReading(newHandle) ⇒
+      sender ! StoppedReading(newHandle)
+
+    case InboundPayload(p) ⇒
+      val (ackOption, _) = tryDecodeMessageAndAck(p)
+      for (ack ← ackOption; reliableDelivery ← reliableDeliverySupervisor) reliableDelivery ! ack
+
+    case _ ⇒
   }
 
   private def deliverAndAck(): Unit = {

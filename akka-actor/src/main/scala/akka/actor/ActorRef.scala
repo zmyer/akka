@@ -271,6 +271,8 @@ private[akka] case object Nobody extends MinimalActorRef {
 private[akka] class LocalActorRef private[akka] (
   _system: ActorSystemImpl,
   _props: Props,
+  _dispatcher: MessageDispatcher,
+  _mailboxType: MailboxType,
   _supervisor: InternalActorRef,
   override val path: ActorPath)
   extends ActorRefWithCell with LocalRef {
@@ -285,11 +287,11 @@ private[akka] class LocalActorRef private[akka] (
    * actorCell before we call init and start, since we can start using "this"
    * object from another thread as soon as we run init.
    */
-  private val actorCell: ActorCell = newActorCell(_system, this, _props, _supervisor)
-  actorCell.init(sendSupervise = true)
+  private val actorCell: ActorCell = newActorCell(_system, this, _props, _dispatcher, _supervisor)
+  actorCell.init(sendSupervise = true, _mailboxType)
 
-  protected def newActorCell(system: ActorSystemImpl, ref: InternalActorRef, props: Props, supervisor: InternalActorRef): ActorCell =
-    new ActorCell(system, ref, props, supervisor)
+  protected def newActorCell(system: ActorSystemImpl, ref: InternalActorRef, props: Props, dispatcher: MessageDispatcher, supervisor: InternalActorRef): ActorCell =
+    new ActorCell(system, ref, props, dispatcher, supervisor)
 
   protected def actorContext: ActorContext = actorCell
 
@@ -550,12 +552,27 @@ private[akka] class VirtualPathContainer(
   def addChild(name: String, ref: InternalActorRef): Unit = {
     children.put(name, ref) match {
       case null ⇒ // okay
-      case old  ⇒ log.warning("{} replacing child {} ({} -> {})", path, name, old, ref)
+      case old ⇒
+        // this can happen from RemoteSystemDaemon if a new child is created
+        // before the old is removed from RemoteSystemDaemon children
+        log.debug("{} replacing child {} ({} -> {})", path, name, old, ref)
     }
   }
 
   def removeChild(name: String): Unit =
     if (children.remove(name) eq null) log.warning("{} trying to remove non-child {}", path, name)
+
+  /**
+   * Remove a named child if it matches the ref.
+   */
+  protected def removeChild(name: String, ref: ActorRef): Unit = {
+    val current = getChild(name)
+    if (current eq null)
+      log.warning("{} trying to remove non-child {}", path, name)
+    else if (current == ref)
+      children.remove(name, current) // remove when same value
+
+  }
 
   def getChild(name: String): InternalActorRef = children.get(name)
 
