@@ -3,10 +3,12 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import akka.actor.Actor._
@@ -14,12 +16,10 @@ import akka.testkit.{ TestKit, EventFilter, filterEvents, filterException, AkkaS
 import akka.dispatch.Dispatchers
 import akka.pattern.ask
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SupervisorTreeSpec extends AkkaSpec with ImplicitSender with DefaultTimeout {
 
-  "In a 3 levels deep supervisor tree (linked in the constructor) we" must {
-
-    "be able to kill the middle actor and see itself and its child restarted" in {
+  
+    @Test def `must be able to kill the middle actor and see itself and its child restarted`: Unit = {
       EventFilter[ActorKilledException](occurrences = 1) intercept {
         within(5 seconds) {
           val p = Props(new Actor {
@@ -42,4 +42,3 @@ class SupervisorTreeSpec extends AkkaSpec with ImplicitSender with DefaultTimeou
       }
     }
   }
-}

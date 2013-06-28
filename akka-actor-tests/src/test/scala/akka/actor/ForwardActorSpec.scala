@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -29,13 +33,11 @@ object ForwardActorSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ForwardActorSpec extends AkkaSpec {
   import ForwardActorSpec._
   implicit val ec = system.dispatcher
-  "A Forward Actor" must {
-
-    "forward actor reference when invoking forward on tell" in {
+  
+    @Test def `must forward actor reference when invoking forward on tell`: Unit = {
       val replyTo = system.actorOf(Props(new Actor { def receive = { case ExpectedMessage ⇒ testActor ! ExpectedMessage } }))
 
       val chain = createForwardingChain(system)
@@ -44,10 +46,9 @@ class ForwardActorSpec extends AkkaSpec {
       expectMsg(5 seconds, ExpectedMessage)
     }
 
-    "forward actor reference when invoking forward on ask" in {
+    @Test def `must forward actor reference when invoking forward on ask`: Unit = {
       val chain = createForwardingChain(system)
       chain.ask(ExpectedMessage)(5 seconds) pipeTo testActor
       expectMsg(5 seconds, ExpectedMessage)
     }
   }
-}

@@ -3,6 +3,10 @@
  */
 package akka.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import akka.actor.Actor
 import akka.testkit._
@@ -40,7 +44,6 @@ object ResizerSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with ImplicitSender {
 
   import akka.routing.ResizerSpec._
@@ -53,49 +56,48 @@ class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with 
   def routeeSize(router: ActorRef): Int =
     Await.result(router ? CurrentRoutees, remaining).asInstanceOf[RouterRoutees].routees.size
 
-  "DefaultResizer" must {
-
-    "use settings to evaluate capacity" in {
+  
+    @Test def `must use settings to evaluate capacity`: Unit = {
       val resizer = DefaultResizer(
         lowerBound = 2,
         upperBound = 3)
 
       val c1 = resizer.capacity(immutable.IndexedSeq.empty[ActorRef])
-      c1 must be(2)
+      assertThat(c1, equalTo(2))
 
       val current = immutable.IndexedSeq(system.actorOf(Props[TestActor]), system.actorOf(Props[TestActor]))
       val c2 = resizer.capacity(current)
-      c2 must be(0)
+      assertThat(c2, equalTo(0))
     }
 
-    "use settings to evaluate rampUp" in {
+    @Test def `must use settings to evaluate rampUp`: Unit = {
       val resizer = DefaultResizer(
         lowerBound = 2,
         upperBound = 10,
         rampupRate = 0.2)
 
-      resizer.rampup(pressure = 9, capacity = 10) must be(0)
-      resizer.rampup(pressure = 5, capacity = 5) must be(1)
-      resizer.rampup(pressure = 6, capacity = 6) must be(2)
+      assertThat(resizer.rampup(pressure = 9, capacity = 10), equalTo(0))
+      assertThat(resizer.rampup(pressure = 5, capacity = 5), equalTo(1))
+      assertThat(resizer.rampup(pressure = 6, capacity = 6), equalTo(2))
     }
 
-    "use settings to evaluate backoff" in {
+    @Test def `must use settings to evaluate backoff`: Unit = {
       val resizer = DefaultResizer(
         lowerBound = 2,
         upperBound = 10,
         backoffThreshold = 0.3,
         backoffRate = 0.1)
 
-      resizer.backoff(pressure = 10, capacity = 10) must be(0)
-      resizer.backoff(pressure = 4, capacity = 10) must be(0)
-      resizer.backoff(pressure = 3, capacity = 10) must be(0)
-      resizer.backoff(pressure = 2, capacity = 10) must be(-1)
-      resizer.backoff(pressure = 0, capacity = 10) must be(-1)
-      resizer.backoff(pressure = 1, capacity = 9) must be(-1)
-      resizer.backoff(pressure = 0, capacity = 9) must be(-1)
+      assertThat(resizer.backoff(pressure = 10, capacity = 10), equalTo(0))
+      assertThat(resizer.backoff(pressure = 4, capacity = 10), equalTo(0))
+      assertThat(resizer.backoff(pressure = 3, capacity = 10), equalTo(0))
+      assertThat(resizer.backoff(pressure = 2, capacity = 10), equalTo(-1))
+      assertThat(resizer.backoff(pressure = 0, capacity = 10), equalTo(-1))
+      assertThat(resizer.backoff(pressure = 1, capacity = 9), equalTo(-1))
+      assertThat(resizer.backoff(pressure = 0, capacity = 9), equalTo(-1))
     }
 
-    "be possible to define programmatically" in {
+    @Test def `must be possible to define programmatically`: Unit = {
       val latch = new TestLatch(3)
 
       val resizer = DefaultResizer(
@@ -110,10 +112,10 @@ class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with 
       Await.ready(latch, remaining)
 
       // messagesPerResize is 10 so there is no risk of additional resize
-      routeeSize(router) must be(2)
+      assertThat(routeeSize(router), equalTo(2))
     }
 
-    "be possible to define in configuration" in {
+    @Test def `must be possible to define in configuration`: Unit = {
       val latch = new TestLatch(3)
 
       val router = system.actorOf(Props[TestActor].withRouter(FromConfig()), "router1")
@@ -124,10 +126,10 @@ class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with 
 
       Await.ready(latch, remaining)
 
-      routeeSize(router) must be(2)
+      assertThat(routeeSize(router), equalTo(2))
     }
 
-    "grow as needed under pressure" in {
+    @Test def `must grow as needed under pressure`: Unit = {
       // make sure the pool starts at the expected lower limit and grows to the upper as needed
       // as influenced by the backlog of blocking pooled actors
 
@@ -151,7 +153,7 @@ class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with 
       router ! "echo"
       expectMsg("reply")
 
-      routeeSize(router) must be(resizer.lowerBound)
+      assertThat(routeeSize(router), equalTo(resizer.lowerBound))
 
       def loop(loops: Int, d: FiniteDuration) = {
         for (m ← 0 until loops) {
@@ -166,14 +168,14 @@ class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with 
 
       // 2 more should go thru without triggering more
       loop(2, 200 millis)
-      routeeSize(router) must be(resizer.lowerBound)
+      assertThat(routeeSize(router), equalTo(resizer.lowerBound))
 
       // a whole bunch should max it out
       loop(20, 500 millis)
-      routeeSize(router) must be(resizer.upperBound)
+      assertThat(routeeSize(router), equalTo(resizer.upperBound))
     }
 
-    "backoff" in within(10 seconds) {
+    @Test def `must backoff`: Unit = within(10 seconds) {
 
       val resizer = DefaultResizer(
         lowerBound = 2,
@@ -212,5 +214,3 @@ class ResizerSpec extends AkkaSpec(ResizerSpec.config) with DefaultTimeout with 
     }
 
   }
-
-}

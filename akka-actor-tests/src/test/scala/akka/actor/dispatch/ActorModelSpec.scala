@@ -3,6 +3,10 @@
  */
 package akka.actor.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import java.rmi.RemoteException
@@ -10,8 +14,6 @@ import java.util.concurrent.{ TimeUnit, CountDownLatch, ConcurrentHashMap }
 import java.util.concurrent.atomic.{ AtomicLong, AtomicInteger }
 
 import org.junit.runner.RunWith
-import org.scalatest.Assertions.{ fail, assert }
-import org.scalatest.junit.JUnitRunner
 
 import com.typesafe.config.Config
 
@@ -261,7 +263,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
 
   "A " + dispatcherType must {
 
-    "dynamically handle its own life cycle" in {
+    @Test def `must dynamically handle its own life cycle`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       assertDispatcher(dispatcher)(stops = 0)
       val a = newTestActor(dispatcher.id)
@@ -291,7 +293,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
       assertDispatcher(dispatcher)(stops = 3)
     }
 
-    "process messages one at a time" in {
+    @Test def `must process messages one at a time`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       val start, oneAtATime = new CountDownLatch(1)
       val a = newTestActor(dispatcher.id)
@@ -311,7 +313,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
       assertRefDefaultZero(a)(registers = 1, unregisters = 1, msgsReceived = 3, msgsProcessed = 3)
     }
 
-    "handle queueing from multiple threads" in {
+    @Test def `must handle queueing from multiple threads`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       val counter = new CountDownLatch(200)
       val a = newTestActor(dispatcher.id)
@@ -338,7 +340,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
       }).start()
     }
 
-    "not process messages for a suspended actor" in {
+    @Test def `must not process messages for a suspended actor`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       val a = newTestActor(dispatcher.id).asInstanceOf[InternalActorRef]
       awaitStarted(a)
@@ -358,7 +360,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
         suspensions = 1, resumes = 1)
     }
 
-    "handle waves of actors" in {
+    @Test def `must handle waves of actors`: Unit = {
       val dispatcher = interceptedDispatcher()
       val props = Props[DispatcherActor].withDispatcher(dispatcher.id)
 
@@ -392,7 +394,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
                   val team = dispatcher.team
                   val mq = dispatcher.messageQueue
 
-                  System.err.println("Teammates left: " + team.size + " stopLatch: " + stopLatch.getCount + " inhab:" + dispatcher.inhabitants)
+                  System.err.println(@Test def `must Teammates left: " + team.size + " stopLatch: " + stopLatch.getCount + `: Unit =hab:" + dispatcher.inhabitants)
                   team.toArray sorted new Ordering[AnyRef] {
                     def compare(l: AnyRef, r: AnyRef) = (l, r) match { case (ll: ActorCell, rr: ActorCell) ⇒ ll.self.path compareTo rr.self.path }
                   } foreach {
@@ -420,7 +422,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
       }
     }
 
-    "continue to process messages when a thread gets interrupted and throws an exception" in {
+    @Test def `must continue to process messages when a thread gets interrupted and throws an exception`: Unit = {
       filterEvents(
         EventFilter[InterruptedException](),
         EventFilter[ActorInterruptedException](),
@@ -455,7 +457,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
         }
     }
 
-    "continue to process messages without failure when a thread gets interrupted and doesn't throw an exception" in {
+    @Test def `must continue to process messages without failure when a thread gets interrupted and doesn't throw an exception`: Unit = {
       filterEvents(EventFilter[InterruptedException]()) {
         implicit val dispatcher = interceptedDispatcher()
         val a = newTestActor(dispatcher.id)
@@ -477,7 +479,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
       }
     }
 
-    "continue to process messages when exception is thrown" in {
+    @Test def `must continue to process messages when exception is thrown`: Unit = {
       filterEvents(EventFilter[IndexOutOfBoundsException](), EventFilter[RemoteException]()) {
         implicit val dispatcher = interceptedDispatcher()
         val a = newTestActor(dispatcher.id)
@@ -497,7 +499,7 @@ abstract class ActorModelSpec(config: String) extends AkkaSpec(config) with Defa
       }
     }
 
-    "not double-deregister" in {
+    @Test def `must not double-deregister`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       for (i ← 1 to 1000) system.actorOf(Props.empty)
       val a = newTestActor(dispatcher.id)
@@ -540,7 +542,6 @@ object DispatcherModelSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class DispatcherModelSpec extends ActorModelSpec(DispatcherModelSpec.config) {
   import ActorModelSpec._
 
@@ -554,7 +555,7 @@ class DispatcherModelSpec extends ActorModelSpec(DispatcherModelSpec.config) {
   override def dispatcherType = "Dispatcher"
 
   "A " + dispatcherType must {
-    "process messages in parallel" in {
+    @Test def `must process messages in parallel`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       val aStart, aStop, bParallel = new CountDownLatch(1)
       val a, b = newTestActor(dispatcher.id)
@@ -612,7 +613,6 @@ object BalancingDispatcherModelSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class BalancingDispatcherModelSpec extends ActorModelSpec(BalancingDispatcherModelSpec.config) {
   import ActorModelSpec._
 
@@ -626,7 +626,7 @@ class BalancingDispatcherModelSpec extends ActorModelSpec(BalancingDispatcherMod
   override def dispatcherType = "Balancing Dispatcher"
 
   "A " + dispatcherType must {
-    "process messages in parallel" in {
+    @Test def `must process messages in parallel`: Unit = {
       implicit val dispatcher = interceptedDispatcher()
       val aStart, aStop, bParallel = new CountDownLatch(1)
       val a, b = newTestActor(dispatcher.id)
@@ -648,4 +648,3 @@ class BalancingDispatcherModelSpec extends ActorModelSpec(BalancingDispatcherMod
       assertRefDefaultZero(b)(registers = 1, unregisters = 1, msgsReceived = 1, msgsProcessed = 1)
     }
   }
-}

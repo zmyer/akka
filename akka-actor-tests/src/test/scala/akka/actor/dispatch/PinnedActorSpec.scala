@@ -1,11 +1,14 @@
 package akka.actor.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.{ CountDownLatch, TimeUnit }
 
 import akka.testkit._
 import akka.actor.{ Props, Actor }
 import akka.testkit.AkkaSpec
-import org.scalatest.BeforeAndAfterEach
 import akka.dispatch.{ PinnedDispatcher, Dispatchers }
 import scala.concurrent.Await
 import akka.pattern.ask
@@ -26,15 +29,13 @@ object PinnedActorSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class PinnedActorSpec extends AkkaSpec(PinnedActorSpec.config) with BeforeAndAfterEach with DefaultTimeout {
   import PinnedActorSpec._
 
   private val unit = TimeUnit.MILLISECONDS
 
-  "A PinnedActor" must {
-
-    "support tell" in {
+  
+    @Test def `must support tell`: Unit = {
       var oneWay = new CountDownLatch(1)
       val actor = system.actorOf(Props(new Actor { def receive = { case "OneWay" ⇒ oneWay.countDown() } }).withDispatcher("pinned-dispatcher"))
       val result = actor ! "OneWay"
@@ -42,10 +43,9 @@ class PinnedActorSpec extends AkkaSpec(PinnedActorSpec.config) with BeforeAndAft
       system.stop(actor)
     }
 
-    "support ask/reply" in {
+    @Test def `must support ask/reply`: Unit = {
       val actor = system.actorOf(Props[TestActor].withDispatcher("pinned-dispatcher"))
       assert("World" === Await.result(actor ? "Hello", timeout.duration))
       system.stop(actor)
     }
   }
-}

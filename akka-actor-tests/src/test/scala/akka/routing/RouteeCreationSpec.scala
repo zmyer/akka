@@ -4,6 +4,10 @@
 
 package akka.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit.AkkaSpec
 import akka.actor.Props
 import akka.actor.Actor
@@ -13,9 +17,8 @@ import scala.concurrent.duration._
 
 class RouteeCreationSpec extends AkkaSpec {
 
-  "Creating Routees" must {
-
-    "result in visible routees" in {
+  
+    @Test def `must result in visible routees`: Unit = {
       val N = 100
       system.actorOf(Props(new Actor {
         testActor ! system.actorFor(self.path)
@@ -29,7 +32,7 @@ class RouteeCreationSpec extends AkkaSpec {
       }
     }
 
-    "allow sending to context.parent" in {
+    @Test def `must allow sending to context.parent`: Unit = {
       val N = 100
       system.actorOf(Props(new Actor {
         context.parent ! "one"
@@ -47,5 +50,3 @@ class RouteeCreationSpec extends AkkaSpec {
     }
 
   }
-
-}

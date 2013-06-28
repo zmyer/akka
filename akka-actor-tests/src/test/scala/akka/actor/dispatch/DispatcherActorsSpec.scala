@@ -1,5 +1,9 @@
 package akka.actor.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.CountDownLatch
 import akka.actor._
 import akka.testkit.AkkaSpec
@@ -7,7 +11,6 @@ import akka.testkit.AkkaSpec
 /**
  * Tests the behavior of the executor based event driven dispatcher when multiple actors are being dispatched on it.
  */
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class DispatcherActorsSpec extends AkkaSpec {
   class SlowActor(finishedCounter: CountDownLatch) extends Actor {
 
@@ -27,8 +30,7 @@ class DispatcherActorsSpec extends AkkaSpec {
     }
   }
 
-  "A dispatcher and two actors" must {
-    "not block fast actors by slow actors" in {
+      @Test def `must not block fast actors by slow actors`: Unit = {
       val sFinished = new CountDownLatch(50)
       val fFinished = new CountDownLatch(10)
       val s = system.actorOf(Props(new SlowActor(sFinished)))
@@ -53,4 +55,3 @@ class DispatcherActorsSpec extends AkkaSpec {
       system.stop(s)
     }
   }
-}

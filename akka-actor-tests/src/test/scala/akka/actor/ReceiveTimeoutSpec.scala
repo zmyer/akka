@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import akka.testkit._
 import scala.concurrent.duration._
@@ -11,12 +15,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.Await
 import java.util.concurrent.TimeoutException
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ReceiveTimeoutSpec extends AkkaSpec {
 
-  "An actor with receive timeout" must {
-
-    "get timeout" in {
+  
+    @Test def `must get timeout`: Unit = {
       val timeoutLatch = TestLatch()
 
       val timeoutActor = system.actorOf(Props(new Actor {
@@ -31,7 +33,7 @@ class ReceiveTimeoutSpec extends AkkaSpec {
       system.stop(timeoutActor)
     }
 
-    "reschedule timeout after regular receive" in {
+    @Test def `must reschedule timeout after regular receive`: Unit = {
       val timeoutLatch = TestLatch()
       case object Tick
 
@@ -50,7 +52,7 @@ class ReceiveTimeoutSpec extends AkkaSpec {
       system.stop(timeoutActor)
     }
 
-    "be able to turn off timeout if desired" in {
+    @Test def `must be able to turn off timeout if desired`: Unit = {
       val count = new AtomicInteger(0)
       val timeoutLatch = TestLatch()
       case object Tick
@@ -70,11 +72,11 @@ class ReceiveTimeoutSpec extends AkkaSpec {
       timeoutActor ! Tick
 
       Await.ready(timeoutLatch, TestLatch.DefaultTimeout)
-      count.get must be(1)
+      assertThat(count.get, equalTo(1))
       system.stop(timeoutActor)
     }
 
-    "not receive timeout message when not specified" in {
+    @Test def `must not receive timeout message when not specified`: Unit = {
       val timeoutLatch = TestLatch()
 
       val timeoutActor = system.actorOf(Props(new Actor {
@@ -87,4 +89,3 @@ class ReceiveTimeoutSpec extends AkkaSpec {
       system.stop(timeoutActor)
     }
   }
-}

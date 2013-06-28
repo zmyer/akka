@@ -2,7 +2,6 @@ package akka.performance.trading.domain
 
 import org.junit._
 import Assert._
-import org.scalatest.junit.JUnitSuite
 import org.mockito.Mockito._
 import org.mockito.Matchers._
 

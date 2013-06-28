@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import java.util.concurrent.{ TimeUnit, CountDownLatch }
 import scala.concurrent.Await
@@ -708,15 +712,13 @@ object SupervisorHierarchySpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) with DefaultTimeout with ImplicitSender {
   import SupervisorHierarchySpec._
 
   override def expectedTestDuration = 2.minutes
 
-  "A Supervisor Hierarchy" must {
-
-    "restart manager and workers in AllForOne" in {
+  
+    @Test def `must restart manager and workers in AllForOne`: Unit = {
       val countDown = new CountDownLatch(4)
 
       val boss = system.actorOf(Props(new Supervisor(OneForOneStrategy()(List(classOf[Exception])))))
@@ -737,7 +739,7 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
       }
     }
 
-    "send notification to supervisor when permanent failure" in {
+    @Test def `must send notification to supervisor when permanent failure`: Unit = {
       val countDownMessages = new CountDownLatch(1)
       val countDownMax = new CountDownLatch(1)
       val boss = system.actorOf(Props(new Actor {
@@ -761,7 +763,7 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
       }
     }
 
-    "resume children after Resume" in {
+    @Test def `must resume children after Resume`: Unit = {
       val boss = system.actorOf(Props[Resumer], "resumer")
       boss ! "spawn"
       val middle = expectMsgType[ActorRef]
@@ -778,7 +780,7 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
       expectMsg("pong")
     }
 
-    "suspend children while failing" in {
+    @Test def `must suspend children while failing`: Unit = {
       val latch = TestLatch()
       val slowResumer = system.actorOf(Props(new Actor {
         override def supervisorStrategy = OneForOneStrategy() { case _ ⇒ Await.ready(latch, 4.seconds.dilated); SupervisorStrategy.Resume }
@@ -804,7 +806,7 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
       expectMsg("pong")
     }
 
-    "handle failure in creation when supervision startegy returns Resume and Restart" in {
+    @Test def `must handle failure in creation when supervision startegy returns Resume and Restart`: Unit = {
       val createAttempt = new AtomicInteger(0)
       val preStartCalled = new AtomicInteger(0)
       val postRestartCalled = new AtomicInteger(0)
@@ -849,12 +851,12 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
           failResumer ! "blahonga"
           expectMsg("blahonga")
         }
-      createAttempt.get must equal(6)
+      assertThat(createAttempt.get, equalTo(6))
       preStartCalled.get must equal(1)
-      postRestartCalled.get must equal(0)
+      assertThat(postRestartCalled.get, equalTo(0))
     }
 
-    "survive being stressed" in {
+    @Test def `must survive being stressed`: Unit = {
       system.eventStream.publish(Mute(
         EventFilter[Failure](),
         EventFilter.warning("Failure"),
@@ -880,4 +882,3 @@ class SupervisorHierarchySpec extends AkkaSpec(SupervisorHierarchySpec.config) w
       expectMsg("stressTestStopped")
     }
   }
-}

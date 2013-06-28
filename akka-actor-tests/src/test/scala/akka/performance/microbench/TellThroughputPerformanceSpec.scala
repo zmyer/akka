@@ -1,5 +1,9 @@
 package akka.performance.microbench
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.performance.workbench.PerformanceSpec
 import akka.actor._
 import java.util.concurrent.{ ThreadPoolExecutor, CountDownLatch, TimeUnit }
@@ -7,92 +11,90 @@ import akka.dispatch._
 import scala.concurrent.duration._
 
 // -server -Xms512M -Xmx1024M -XX:+UseParallelGC -Dbenchmark=true -Dbenchmark.repeatFactor=500
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class TellThroughputPerformanceSpec extends PerformanceSpec {
   import TellThroughputPerformanceSpec._
 
   val repeat = 30000L * repeatFactor
 
-  "Tell" must {
-    "warmup" in {
+      @Test def `must warmup`: Unit = {
       runScenario(8, warmup = true)
     }
-    "warmup more" in {
+    @Test def `must warmup more`: Unit = {
       runScenario(8, warmup = true)
     }
-    "perform with load 1" in {
+    @Test def `must perform with load 1`: Unit = {
       runScenario(1)
     }
-    "perform with load 2" in {
+    @Test def `must perform with load 2`: Unit = {
       runScenario(2)
     }
-    "perform with load 4" in {
+    @Test def `must perform with load 4`: Unit = {
       runScenario(4)
     }
-    "perform with load 6" in {
+    @Test def `must perform with load 6`: Unit = {
       runScenario(6)
     }
-    "perform with load 8" in {
+    @Test def `must perform with load 8`: Unit = {
       runScenario(8)
     }
-    "perform with load 10" in {
+    @Test def `must perform with load 10`: Unit = {
       runScenario(10)
     }
-    "perform with load 12" in {
+    @Test def `must perform with load 12`: Unit = {
       runScenario(12)
     }
-    "perform with load 14" in {
+    @Test def `must perform with load 14`: Unit = {
       runScenario(14)
     }
-    "perform with load 16" in {
+    @Test def `must perform with load 16`: Unit = {
       runScenario(16)
     }
-    "perform with load 18" in {
+    @Test def `must perform with load 18`: Unit = {
       runScenario(18)
     }
-    "perform with load 20" in {
+    @Test def `must perform with load 20`: Unit = {
       runScenario(20)
     }
-    "perform with load 22" in {
+    @Test def `must perform with load 22`: Unit = {
       runScenario(22)
     }
-    "perform with load 24" in {
+    @Test def `must perform with load 24`: Unit = {
       runScenario(24)
     }
-    "perform with load 26" in {
+    @Test def `must perform with load 26`: Unit = {
       runScenario(26)
     }
-    "perform with load 28" in {
+    @Test def `must perform with load 28`: Unit = {
       runScenario(28)
     }
-    "perform with load 30" in {
+    @Test def `must perform with load 30`: Unit = {
       runScenario(30)
     }
-    "perform with load 32" in {
+    @Test def `must perform with load 32`: Unit = {
       runScenario(32)
     }
-    "perform with load 34" in {
+    @Test def `must perform with load 34`: Unit = {
       runScenario(34)
     }
-    "perform with load 36" in {
+    @Test def `must perform with load 36`: Unit = {
       runScenario(36)
     }
-    "perform with load 38" in {
+    @Test def `must perform with load 38`: Unit = {
       runScenario(38)
     }
-    "perform with load 40" in {
+    @Test def `must perform with load 40`: Unit = {
       runScenario(40)
     }
-    "perform with load 42" in {
+    @Test def `must perform with load 42`: Unit = {
       runScenario(42)
     }
-    "perform with load 44" in {
+    @Test def `must perform with load 44`: Unit = {
       runScenario(44)
     }
-    "perform with load 46" in {
+    @Test def `must perform with load 46`: Unit = {
       runScenario(46)
     }
-    "perform with load 48" in {
+    @Test def `must perform with load 48`: Unit = {
       runScenario(48)
     }
 
@@ -114,7 +116,7 @@ class TellThroughputPerformanceSpec extends PerformanceSpec {
         val durationNs = (System.nanoTime - start)
 
         if (!warmup) {
-          ok must be(true)
+          assertThat(ok, equalTo(true))
           logMeasurement(numberOfClients, durationNs, repeat)
         }
         clients.foreach(system.stop(_))
@@ -161,5 +163,3 @@ object TellThroughputPerformanceSpec {
     }
 
   }
-
-}

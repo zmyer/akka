@@ -3,85 +3,86 @@
  */
 package akka.util
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-class SwitchSpec extends WordSpec with MustMatchers {
+class SwitchSpec {
 
-  "Switch" must {
-
-    "on and off" in {
+  
+    @Test def `must on and off`: Unit = {
       val s = new Switch(false)
-      s.isOff must be(true)
-      s.isOn must be(false)
+      assertThat(s.isOff, equalTo(true))
+      assertThat(s.isOn, equalTo(false))
 
-      s.switchOn(()) must be(true)
-      s.isOn must be(true)
-      s.isOff must be(false)
-      s.switchOn(()) must be(false)
-      s.isOn must be(true)
-      s.isOff must be(false)
+      assertThat(s.switchOn(()), equalTo(true))
+      assertThat(s.isOn, equalTo(true))
+      assertThat(s.isOff, equalTo(false))
+      assertThat(s.switchOn(()), equalTo(false))
+      assertThat(s.isOn, equalTo(true))
+      assertThat(s.isOff, equalTo(false))
 
-      s.switchOff(()) must be(true)
-      s.isOff must be(true)
-      s.isOn must be(false)
-      s.switchOff(()) must be(false)
-      s.isOff must be(true)
-      s.isOn must be(false)
+      assertThat(s.switchOff(()), equalTo(true))
+      assertThat(s.isOff, equalTo(true))
+      assertThat(s.isOn, equalTo(false))
+      assertThat(s.switchOff(()), equalTo(false))
+      assertThat(s.isOff, equalTo(true))
+      assertThat(s.isOn, equalTo(false))
     }
 
-    "revert when exception" in {
+    @Test def `must revert when exception`: Unit = {
       val s = new Switch(false)
       intercept[RuntimeException] {
         s.switchOn(throw new RuntimeException)
       }
-      s.isOff must be(true)
+      assertThat(s.isOff, equalTo(true))
     }
 
-    "run action without locking" in {
+    @Test def `must run action without locking`: Unit = {
       val s = new Switch(false)
-      s.ifOffYield("yes") must be(Some("yes"))
-      s.ifOnYield("no") must be(None)
-      s.ifOff(()) must be(true)
-      s.ifOn(()) must be(false)
+      assertThat(s.ifOffYield("yes"), equalTo(Some("yes")))
+      assertThat(s.ifOnYield("no"), equalTo(None))
+      assertThat(s.ifOff(()), equalTo(true))
+      assertThat(s.ifOn(()), equalTo(false))
 
       s.switchOn(())
-      s.ifOnYield("yes") must be(Some("yes"))
-      s.ifOffYield("no") must be(None)
-      s.ifOn(()) must be(true)
-      s.ifOff(()) must be(false)
+      assertThat(s.ifOnYield("yes"), equalTo(Some("yes")))
+      assertThat(s.ifOffYield("no"), equalTo(None))
+      assertThat(s.ifOn(()), equalTo(true))
+      assertThat(s.ifOff(()), equalTo(false))
     }
 
-    "run action with locking" in {
+    @Test def `must run action with locking`: Unit = {
       val s = new Switch(false)
-      s.whileOffYield("yes") must be(Some("yes"))
-      s.whileOnYield("no") must be(None)
-      s.whileOff(()) must be(true)
-      s.whileOn(()) must be(false)
+      assertThat(s.whileOffYield("yes"), equalTo(Some("yes")))
+      assertThat(s.whileOnYield("no"), equalTo(None))
+      assertThat(s.whileOff(()), equalTo(true))
+      assertThat(s.whileOn(()), equalTo(false))
 
       s.switchOn(())
-      s.whileOnYield("yes") must be(Some("yes"))
-      s.whileOffYield("no") must be(None)
-      s.whileOn(()) must be(true)
-      s.whileOff(()) must be(false)
+      assertThat(s.whileOnYield("yes"), equalTo(Some("yes")))
+      assertThat(s.whileOffYield("no"), equalTo(None))
+      assertThat(s.whileOn(()), equalTo(true))
+      assertThat(s.whileOff(()), equalTo(false))
     }
 
-    "run first or second action depending on state" in {
+    @Test def `must run first or second action depending on state`: Unit = {
       val s = new Switch(false)
-      s.fold("on")("off") must be("off")
+      assertThat(s.fold("on")("off"), equalTo("off"))
       s.switchOn(())
-      s.fold("on")("off") must be("on")
+      assertThat(s.fold("on")("off"), equalTo("on"))
     }
 
-    "do proper locking" in {
+    @Test def `must do proper locking`: Unit = {
       val s = new Switch(false)
 
       s.locked {
         Thread.sleep(500)
         s.switchOn(())
-        s.isOn must be(true)
+        assertThat(s.isOn, equalTo(true))
       }
 
       val latch = new CountDownLatch(1)
@@ -93,7 +94,6 @@ class SwitchSpec extends WordSpec with MustMatchers {
       }.start()
 
       latch.await(5, TimeUnit.SECONDS)
-      s.isOff must be(true)
+      assertThat(s.isOff, equalTo(true))
     }
   }
-}

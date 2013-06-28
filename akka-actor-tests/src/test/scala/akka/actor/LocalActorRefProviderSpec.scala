@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import akka.testkit._
 import scala.concurrent.Await
@@ -29,17 +33,15 @@ object LocalActorRefProviderSpec {
   """
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class LocalActorRefProviderSpec extends AkkaSpec(LocalActorRefProviderSpec.config) {
-  "An LocalActorRefProvider" must {
-
-    "find actor refs using actorFor" in {
+  
+    @Test def `must find actor refs using actorFor`: Unit = {
       val a = system.actorOf(Props(new Actor { def receive = { case _ ⇒ } }))
       val b = system.actorFor(a.path)
-      a must be === b
+      assertThat(a, equalTo(b))
     }
 
-    "find child actor with URL encoded name using actorFor" in {
+    @Test def `must find child actor with URL encoded name using actorFor`: Unit = {
       val childName = "akka%3A%2F%2FClusterSystem%40127.0.0.1%3A2552"
       val a = system.actorOf(Props(new Actor {
         val child = context.actorOf(Props.empty, name = childName)
@@ -51,14 +53,13 @@ class LocalActorRefProviderSpec extends AkkaSpec(LocalActorRefProviderSpec.confi
       }))
       a.tell("lookup", testActor)
       val b = expectMsgType[ActorRef]
-      b.isTerminated must be(false)
-      b.path.name must be(childName)
+      assertThat(b.isTerminated, equalTo(false))
+      assertThat(b.path.name, equalTo(childName))
     }
 
   }
 
-  "A LocalActorRef's ActorCell" must {
-    "not retain its original Props when terminated" in {
+      @Test def `must not retain its original Props when terminated`: Unit = {
       val GetChild = "GetChild"
       val a = watch(system.actorOf(Props(new Actor {
         val child = context.actorOf(Props.empty)
@@ -67,26 +68,25 @@ class LocalActorRefProviderSpec extends AkkaSpec(LocalActorRefProviderSpec.confi
       a.tell(GetChild, testActor)
       val child = expectMsgType[ActorRef]
       val childProps1 = child.asInstanceOf[LocalActorRef].underlying.props
-      childProps1 must be(Props.empty)
+      assertThat(childProps1, equalTo(Props.empty))
       system stop a
       expectTerminated(a)
       // the fields are cleared after the Terminated message has been sent,
       // so we need to check for a reasonable time after we receive it
       awaitAssert({
         val childProps2 = child.asInstanceOf[LocalActorRef].underlying.props
-        childProps2 must not be theSameInstanceAs(childProps1)
-        childProps2 must be theSameInstanceAs ActorCell.terminatedProps
+        assertThat(childProps2, not(sameInstance(childProps1)))
+        assertThat(childProps2, sameInstance(ActorCell.terminatedProps))
       }, 1 second)
     }
   }
 
-  "An ActorRefFactory" must {
-    implicit val ec = system.dispatcher
-    "only create one instance of an actor with a specific address in a concurrent environment" in {
+      implicit val ec = system.dispatcher
+    @Test def `must only create one instance of an actor with a specific address in a concurrent environment`: Unit = {
       val impl = system.asInstanceOf[ActorSystemImpl]
       val provider = impl.provider
 
-      provider.isInstanceOf[LocalActorRefProvider] must be(true)
+      assertThat(provider.isInstanceOf[LocalActorRefProvider], equalTo(true))
 
       for (i ← 0 until 100) {
         val address = "new-actor" + i
@@ -97,11 +97,11 @@ class LocalActorRefProviderSpec extends AkkaSpec(LocalActorRefProviderSpec.confi
           case Some(Failure(ex: InvalidActorNameException)) ⇒ 2
           case x ⇒ x
         })
-        set must be === Set(1, 2)
+        assertThat(set, equalTo(Set(1, 2)))
       }
     }
 
-    "only create one instance of an actor from within the same message invocation" in {
+    @Test def `must only create one instance of an actor from within the same message invocation`: Unit = {
       val supervisor = system.actorOf(Props(new Actor {
         def receive = {
           case "" ⇒
@@ -113,16 +113,15 @@ class LocalActorRefProviderSpec extends AkkaSpec(LocalActorRefProviderSpec.confi
       }
     }
 
-    "throw suitable exceptions for malformed actor names" in {
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, null)).getMessage.contains("null") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "")).getMessage.contains("empty") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "$hallo")).getMessage.contains("conform") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "a%")).getMessage.contains("conform") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "%3")).getMessage.contains("conform") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "%1t")).getMessage.contains("conform") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "a?")).getMessage.contains("conform") must be(true)
-      intercept[InvalidActorNameException](system.actorOf(Props.empty, "üß")).getMessage.contains("conform") must be(true)
+    @Test def `must throw suitable exceptions for malformed actor names`: Unit = {
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, null)).getMessage.contains("null"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "")).getMessage.contains("empty"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "$hallo")).getMessage.contains("conform"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "a%")).getMessage.contains("conform"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "%3")).getMessage.contains("conform"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "%1t")).getMessage.contains("conform"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "a?")).getMessage.contains("conform"), equalTo(true))
+      assertThat(intercept[InvalidActorNameException](system.actorOf(Props.empty, "üß")).getMessage.contains("conform"), equalTo(true))
     }
 
   }
-}

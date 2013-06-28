@@ -1,8 +1,11 @@
 package akka.performance.workbench
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.collection.immutable.TreeMap
 import org.apache.commons.math.stat.descriptive.DescriptiveStatistics
-import org.scalatest.BeforeAndAfterEach
 import akka.testkit.AkkaSpec
 import scala.concurrent.duration.Duration
 import com.typesafe.config.Config

@@ -4,6 +4,11 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.junit.experimental.categories.Category
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import java.io.Closeable
 import java.util.concurrent._
@@ -13,7 +18,6 @@ import scala.concurrent.duration._
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.Try
 import scala.util.control.NonFatal
-import org.scalatest.BeforeAndAfterEach
 import com.typesafe.config.{ Config, ConfigFactory }
 import akka.pattern.ask
 import akka.testkit._
@@ -34,9 +38,8 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
 
   def collectCancellable(c: Cancellable): Cancellable
 
-  "A Scheduler" must {
 
-    "schedule more than once" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must schedule more than once`: Unit = {
       case object Tick
       case object Tock
 
@@ -68,7 +71,7 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       expectNoMsg(500 millis)
     }
 
-    "stop continuous scheduling if the receiving actor has been terminated" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must stop continuous scheduling if the receiving actor has been terminated`: Unit = {
       val actor = system.actorOf(Props(new Actor { def receive = { case x ⇒ sender ! x } }))
 
       // run immediately and then every 100 milliseconds
@@ -81,7 +84,7 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       expectNoMsg(500 millis)
     }
 
-    "schedule once" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must schedule once`: Unit = {
       case object Tick
       val countDownLatch = new CountDownLatch(3)
       val tickActor = system.actorOf(Props(new Actor {
@@ -94,24 +97,24 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
 
       // should not be run immediately
       assert(countDownLatch.await(100, TimeUnit.MILLISECONDS) == false)
-      countDownLatch.getCount must be(3)
+      assertThat(countDownLatch.getCount, equalTo(3))
 
       // after 1 second the wait should fail
       assert(countDownLatch.await(2, TimeUnit.SECONDS) == false)
       // should still be 1 left
-      countDownLatch.getCount must be(1)
+      assertThat(countDownLatch.getCount, equalTo(1))
     }
 
     /**
      * ticket #372
      */
-    "be cancellable" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must be cancellable`: Unit = {
       for (_ ← 1 to 10) system.scheduler.scheduleOnce(1 second, testActor, "fail").cancel()
 
       expectNoMsg(2 seconds)
     }
 
-    "be cancellable during initial delay" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must be cancellable during initial delay`: Unit = {
       val ticks = new AtomicInteger
 
       val initialDelay = 200.milliseconds.dilated
@@ -123,10 +126,10 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       timeout.cancel()
       Thread.sleep((initialDelay + 100.milliseconds.dilated).toMillis)
 
-      ticks.get must be(0)
+      assertThat(ticks.get, equalTo(0))
     }
 
-    "be cancellable after initial delay" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must be cancellable after initial delay`: Unit = {
       val ticks = new AtomicInteger
 
       val initialDelay = 90.milliseconds.dilated
@@ -138,31 +141,31 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       timeout.cancel()
       Thread.sleep((delay + 100.milliseconds.dilated).toMillis)
 
-      ticks.get must be(1)
+      assertThat(ticks.get, equalTo(1))
     }
 
-    "be canceled if cancel is performed before execution" in {
+    @Test def `must be canceled if cancel is performed before execution`: Unit = {
       val task = collectCancellable(system.scheduler.scheduleOnce(10 seconds)(()))
-      task.cancel() must be(true)
-      task.isCancelled must be(true)
-      task.cancel() must be(false)
-      task.isCancelled must be(true)
+      assertThat(task.cancel(), equalTo(true))
+      assertThat(task.isCancelled, equalTo(true))
+      assertThat(task.cancel(), equalTo(false))
+      assertThat(task.isCancelled, equalTo(true))
     }
 
-    "not be canceled if cancel is performed after execution" in {
+    @Test def `must not be canceled if cancel is performed after execution`: Unit = {
       val latch = TestLatch(1)
       val task = collectCancellable(system.scheduler.scheduleOnce(10 millis)(latch.countDown()))
       Await.ready(latch, remaining)
-      task.cancel() must be(false)
-      task.isCancelled must be(false)
-      task.cancel() must be(false)
-      task.isCancelled must be(false)
+      assertThat(task.cancel(), equalTo(false))
+      assertThat(task.isCancelled, equalTo(false))
+      assertThat(task.cancel(), equalTo(false))
+      assertThat(task.isCancelled, equalTo(false))
     }
 
     /**
      * ticket #307
      */
-    "pick up schedule after actor restart" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must pick up schedule after actor restart`: Unit = {
 
       object Ping
       object Crash
@@ -192,7 +195,7 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       Await.ready(pingLatch, 5 seconds)
     }
 
-    "never fire prematurely" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must never fire prematurely`: Unit = {
       val ticks = new TestLatch(300)
 
       case class Msg(ts: Long)
@@ -215,7 +218,7 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       Await.ready(ticks, 3 seconds)
     }
 
-    "schedule with different initial delay and frequency" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must schedule with different initial delay and frequency`: Unit = {
       val ticks = new TestLatch(3)
 
       case object Msg
@@ -231,20 +234,20 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       // LARS is a bit more aggressive in scheduling recurring tasks at the right
       // frequency and may execute them a little earlier; the actual expected timing
       // is 1599ms on a fast machine or 1699ms on a loaded one (plus some room for jenkins)
-      (System.nanoTime() - startTime).nanos.toMillis must be(1750L plusOrMinus 250)
+      assertThat((System.nanoTime() - startTime).nanos.toMillis, equalTo(1750L plusOrMinus 250))
     }
 
-    "adjust for scheduler inaccuracy" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must adjust for scheduler inaccuracy`: Unit = {
       val startTime = System.nanoTime
       val n = 200
       val latch = new TestLatch(n)
       system.scheduler.schedule(25.millis, 25.millis) { latch.countDown() }
       Await.ready(latch, 6.seconds)
       // Rate
-      n * 1000.0 / (System.nanoTime - startTime).nanos.toMillis must be(40.0 plusOrMinus 4)
+      assertThat(n * 1000.0 / (System.nanoTime - startTime).nanos.toMillis, equalTo(40.0 plusOrMinus 4))
     }
 
-    "not be affected by long running task" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must not be affected by long running task`: Unit = {
       val startTime = System.nanoTime
       val n = 22
       val latch = new TestLatch(n)
@@ -254,10 +257,10 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       }
       Await.ready(latch, 6.seconds)
       // Rate
-      n * 1000.0 / (System.nanoTime - startTime).nanos.toMillis must be(4.4 plusOrMinus 0.3)
+      assertThat(n * 1000.0 / (System.nanoTime - startTime).nanos.toMillis, equalTo(4.4 plusOrMinus 0.3))
     }
 
-    "handle timeouts equal to multiple of wheel period" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must handle timeouts equal to multiple of wheel period`: Unit = {
       val timeout = 3200 milliseconds
       val barrier = TestLatch()
       import system.dispatcher
@@ -269,7 +272,7 @@ trait SchedulerSpec extends BeforeAndAfterEach with DefaultTimeout with Implicit
       }
     }
 
-    "survive being stressed without cancellation" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must survive being stressed without cancellation`: Unit = {
       val r = ThreadLocalRandom.current()
       val N = 100000
       for (_ ← 1 to N) {
@@ -315,9 +318,8 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
 
   def collectCancellable(c: Cancellable): Cancellable = c
 
-  "A LightArrayRevolverScheduler" must {
 
-    "survive being stressed with cancellation" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must survive being stressed with cancellation`: Unit = {
       import system.dispatcher
       val r = ThreadLocalRandom.current
       val N = 1000000
@@ -349,7 +351,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
       expectNoMsg(1.second)
     }
 
-    "survive vicious enqueueing" in {
+    @Test def `must survive vicious enqueueing`: Unit = {
       withScheduler(config = ConfigFactory.parseString("akka.scheduler.ticks-per-wheel=2")) { (sched, driver) ⇒
         import driver._
         import system.dispatcher
@@ -372,7 +374,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
       }
     }
 
-    "execute multiple jobs at once when expiring multiple buckets" in {
+    @Test def `must execute multiple jobs at once when expiring multiple buckets`: Unit = {
       withScheduler() { (sched, driver) ⇒
         implicit def ec = localEC
         import driver._
@@ -387,7 +389,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
       }
     }
 
-    "properly defer jobs even when the timer thread oversleeps" in {
+    @Test def `must properly defer jobs even when the timer thread oversleeps`: Unit = {
       withScheduler() { (sched, driver) ⇒
         implicit def ec = localEC
         import driver._
@@ -402,7 +404,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
       }
     }
 
-    "correctly wrap around wheel rounds" in {
+    @Test def `must correctly wrap around wheel rounds`: Unit = {
       withScheduler(config = ConfigFactory.parseString("akka.scheduler.ticks-per-wheel=2")) { (sched, driver) ⇒
         implicit def ec = localEC
         import driver._
@@ -429,7 +431,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
       }
     }
 
-    "correctly execute jobs when clock wraps around" in {
+    @Test def `must correctly execute jobs when clock wraps around`: Unit = {
       withScheduler(Long.MaxValue - 200000000L) { (sched, driver) ⇒
         implicit def ec = localEC
         import driver._
@@ -456,7 +458,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
       }
     }
 
-    "reliably reject jobs when shutting down" in {
+    @Test def `must reliably reject jobs when shutting down`: Unit = {
       withScheduler() { (sched, driver) ⇒
         import system.dispatcher
         val counter = new AtomicInteger
@@ -472,7 +474,7 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
         val s = success.size
         s must be < cap
         awaitCond(s == counter.get, message = s"$s was not ${counter.get}")
-        failure.size must be === headroom
+        assertThat(failure.size, equalTo(headroom))
       }
     }
   }
@@ -542,5 +544,3 @@ class LightArrayRevolverSchedulerSpec extends AkkaSpec(SchedulerSpec.testConfRev
     driver.close()
     sched.close()
   }
-
-}

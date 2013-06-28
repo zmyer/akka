@@ -3,13 +3,15 @@
  */
 package akka.event
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit._
 import scala.concurrent.duration._
 import com.typesafe.config.{ Config, ConfigFactory }
 import akka.actor.{ ActorRef, Actor, ActorSystem }
 import java.util.{ Date, GregorianCalendar, TimeZone, Calendar }
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
 import akka.serialization.SerializationExtension
 import akka.event.Logging.{ Warning, LogEvent, LoggerInitialized, InitializeLogger }
 import akka.util.Helpers
@@ -75,8 +77,7 @@ object LoggerSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
-class LoggerSpec extends WordSpec with MustMatchers {
+class LoggerSpec {
 
   import LoggerSpec._
 
@@ -105,25 +106,22 @@ class LoggerSpec extends WordSpec with MustMatchers {
     out
   }
 
-  "A normally configured actor system" must {
-
-    "log messages to standard output" in {
+  
+    @Test def `must log messages to standard output`: Unit = {
       val out = createSystemAndLogToBuffer("defaultLogger", defaultConfig, true)
       out.size must be > (0)
     }
   }
 
-  "An actor system configured with the logging turned off" must {
-
-    "not log messages to standard output" in {
+  
+    @Test def `must not log messages to standard output`: Unit = {
       val out = createSystemAndLogToBuffer("noLogging", noLoggingConfig, false)
-      out.size must be(0)
+      assertThat(out.size, equalTo(0))
     }
   }
 
-  "An actor system configured with multiple loggers" must {
-
-    "use several loggers" in {
+  
+    @Test def `must use several loggers`: Unit = {
       Console.withOut(new java.io.ByteArrayOutputStream()) {
         implicit val system = ActorSystem("multipleLoggers", multipleConfig)
         try {
@@ -144,8 +142,7 @@ class LoggerSpec extends WordSpec with MustMatchers {
     }
   }
 
-  "Ticket 3080" must {
-    "format currentTimeMillis to a valid UTC String" in {
+      @Test def `must format currentTimeMillis to a valid UTC String`: Unit = {
       val timestamp = System.currentTimeMillis
       val c = new GregorianCalendar(TimeZone.getTimeZone("UTC"))
       c.setTime(new Date(timestamp))
@@ -153,12 +150,11 @@ class LoggerSpec extends WordSpec with MustMatchers {
       val minutes = c.get(Calendar.MINUTE)
       val seconds = c.get(Calendar.SECOND)
       val ms = c.get(Calendar.MILLISECOND)
-      Helpers.currentTimeMillisToUTCString(timestamp) must be(f"$hours%02d:$minutes%02d:$seconds%02d.$ms%03dUTC")
+      assertThat(Helpers.currentTimeMillisToUTCString(timestamp), equalTo(f"$hours%02d:$minutes%02d:$seconds%02d.$ms%03dUTC"))
     }
   }
 
-  "Ticket 3165 - serialize-messages and dual-entry serialization of LogEvent" must {
-    "not cause StackOverflowError" in {
+      @Test def `must not cause StackOverflowError`: Unit = {
       implicit val s = ActorSystem("foo", ticket3165Config)
       try {
         SerializationExtension(s).serialize(Warning("foo", classOf[String]))
@@ -167,4 +163,3 @@ class LoggerSpec extends WordSpec with MustMatchers {
       }
     }
   }
-}

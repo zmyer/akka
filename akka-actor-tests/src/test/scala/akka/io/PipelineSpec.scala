@@ -4,6 +4,10 @@
 
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.annotation.tailrec
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.Success
@@ -44,59 +48,58 @@ class PipelineSpec extends AkkaSpec("akka.actor.serialize-creators = on") {
 
   val ctx = new PipelineContext {}
 
-  "A Pipeline" must {
-
-    "be correctly evaluated if single stage" in {
+  
+    @Test def `must be correctly evaluated if single stage`: Unit = {
       val PipelinePorts(cmd, evt, _) =
         PipelineFactory.buildFunctionTriple(ctx, stage[Level2, Level1](1, 0, false))
-      cmd(Level2.msgA) must be(Nil -> Seq(Level1.msgA))
-      evt(Level1.msgA) must be(Seq(Level2.msgA) -> Nil)
-      cmd(Level2.msgB) must be(Nil -> Seq(Level1.msgB))
-      evt(Level1.msgB) must be(Seq(Level2.msgB) -> Nil)
+      assertThat(cmd(Level2.msgA), equalTo(Nil -> Seq(Level1.msgA)))
+      assertThat(evt(Level1.msgA), equalTo(Seq(Level2.msgA) -> Nil))
+      assertThat(cmd(Level2.msgB), equalTo(Nil -> Seq(Level1.msgB)))
+      assertThat(evt(Level1.msgB), equalTo(Seq(Level2.msgB) -> Nil))
     }
 
-    "be correctly evaluated when two combined" in {
+    @Test def `must be correctly evaluated when two combined`: Unit = {
       val stage1 = stage[Level3, Level2](1, 0, false)
       val stage2 = stage[Level2, Level1](1, 0, false)
       val PipelinePorts(cmd, evt, _) = PipelineFactory.buildFunctionTriple(ctx, stage1 >> stage2)
-      cmd(Level3.msgA) must be(Nil -> Seq(Level1.msgA))
-      evt(Level1.msgA) must be(Seq(Level3.msgA) -> Nil)
-      cmd(Level3.msgB) must be(Nil -> Seq(Level1.msgB))
-      evt(Level1.msgB) must be(Seq(Level3.msgB) -> Nil)
+      assertThat(cmd(Level3.msgA), equalTo(Nil -> Seq(Level1.msgA)))
+      assertThat(evt(Level1.msgA), equalTo(Seq(Level3.msgA) -> Nil))
+      assertThat(cmd(Level3.msgB), equalTo(Nil -> Seq(Level1.msgB)))
+      assertThat(evt(Level1.msgB), equalTo(Seq(Level3.msgB) -> Nil))
     }
 
-    "be correctly evaluated when three combined" in {
+    @Test def `must be correctly evaluated when three combined`: Unit = {
       val stage1 = stage[Level4, Level3](1, 0, false)
       val stage2 = stage[Level3, Level2](2, 0, false)
       val stage3 = stage[Level2, Level1](1, 0, false)
       val PipelinePorts(cmd, evt, _) = PipelineFactory.buildFunctionTriple(ctx, stage1 >> stage2 >> stage3)
-      cmd(Level4.msgA) must be(Nil -> Seq(Level1.msgA, Level1.msgA))
-      evt(Level1.msgA) must be(Seq(Level4.msgA, Level4.msgA) -> Nil)
-      cmd(Level4.msgB) must be(Nil -> Seq(Level1.msgB, Level1.msgB))
-      evt(Level1.msgB) must be(Seq(Level4.msgB, Level4.msgB) -> Nil)
+      assertThat(cmd(Level4.msgA), equalTo(Nil -> Seq(Level1.msgA, Level1.msgA)))
+      assertThat(evt(Level1.msgA), equalTo(Seq(Level4.msgA, Level4.msgA) -> Nil))
+      assertThat(cmd(Level4.msgB), equalTo(Nil -> Seq(Level1.msgB, Level1.msgB)))
+      assertThat(evt(Level1.msgB), equalTo(Seq(Level4.msgB, Level4.msgB) -> Nil))
     }
 
-    "be correctly evaluated with back-scatter" in {
+    @Test def `must be correctly evaluated with back-scatter`: Unit = {
       val stage1 = stage[Level4, Level3](1, 0, true)
       val stage2 = stage[Level3, Level2](1, 1, true)
       val stage3 = stage[Level2, Level1](1, 0, false)
       val PipelinePorts(cmd, evt, _) = PipelineFactory.buildFunctionTriple(ctx, stage1 >> stage2 >> stage3)
-      cmd(Level4.msgA) must be(Seq(Level4.msgB) -> Seq(Level1.msgA))
-      evt(Level1.msgA) must be(Seq(Level4.msgA) -> Seq(Level1.msgB))
+      assertThat(cmd(Level4.msgA), equalTo(Seq(Level4.msgB) -> Seq(Level1.msgA)))
+      assertThat(evt(Level1.msgA), equalTo(Seq(Level4.msgA) -> Seq(Level1.msgB)))
     }
 
-    "handle management commands" in {
+    @Test def `must handle management commands`: Unit = {
       val stage1 = stage[Level4, Level3](1, 0, true, { case "doit" ⇒ Seq(Left(Level4.msgA), Right(Level3.msgA)) })
       val stage2 = stage[Level3, Level2](2, 0, true, { case "doit" ⇒ Seq(Left(Level3.msgA), Right(Level2.msgA)) })
       val stage3 = stage[Level2, Level1](1, 0, true, { case "doit" ⇒ Seq(Left(Level2.msgA), Right(Level1.msgA)) })
       val PipelinePorts(cmd, evt, mgmt) = PipelineFactory.buildFunctionTriple(ctx, stage1 >> stage2 >> stage3)
-      mgmt(42: java.lang.Integer) must be(Seq() -> Seq())
+      assertThat(mgmt(42: java.lang.Integer), equalTo(Seq() -> Seq()))
       val (events, commands) = mgmt("doit")
       events must have size 4
-      events count (_ == Level4.msgA) must be === 3
+      assertThat(events count (_ == Level4.msgA), equalTo(3))
       events count (_ == Level4.msgB) must be === 1
       commands must have size 4
-      commands count (_ == Level1.msgA) must be === 3
+      assertThat(commands count (_ == Level1.msgA), equalTo(3))
       commands count (_ == Level1.msgB) must be === 1
     }
 
@@ -218,5 +221,3 @@ object PipelineBench extends App {
     val time = System.nanoTime - start
     println(s"Injector: 1 iteration took ${time / N}ns ($injected)")
   }
-
-}

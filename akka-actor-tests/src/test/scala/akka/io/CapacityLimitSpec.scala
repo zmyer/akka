@@ -4,6 +4,10 @@
 
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit.{ TestProbe, AkkaSpec }
 import akka.TestUtils._
 import Tcp._
@@ -17,7 +21,7 @@ class CapacityLimitSpec extends AkkaSpec("""
 
   "The TCP transport implementation" should {
 
-    "reply with CommandFailed to a Bind or Connect command if max-channels capacity has been reached" in new TestSetup {
+    @Test def `must reply with CommandFailed to a Bind or Connect command if max-channels capacity has been reached`: Unit = new TestSetup {
       establishNewClientConnection()
 
       // we now have three channels registered: a listener, a server connection and a client connection
@@ -31,13 +35,11 @@ class CapacityLimitSpec extends AkkaSpec("""
 
       val bindToFail = Bind(bindHandler.ref, addresses(1))
       commander.send(IO(Tcp), bindToFail)
-      commander.expectMsgType[CommandFailed].cmd must be theSameInstanceAs (bindToFail)
+      assertThat(commander.expectMsgType[CommandFailed].cmd, sameInstance(bindToFail))
 
       val connectToFail = Connect(endpoint)
       commander.send(IO(Tcp), connectToFail)
-      commander.expectMsgType[CommandFailed].cmd must be theSameInstanceAs (connectToFail)
+      assertThat(commander.expectMsgType[CommandFailed].cmd, sameInstance(connectToFail))
     }
 
   }
-
-}

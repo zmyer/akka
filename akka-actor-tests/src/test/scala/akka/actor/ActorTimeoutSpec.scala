@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.concurrent.duration._
 import akka.testkit._
 import akka.testkit.TestEvent._
@@ -10,7 +14,6 @@ import scala.concurrent.Await
 import akka.util.Timeout
 import akka.pattern.{ ask, AskTimeoutException }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorTimeoutSpec extends AkkaSpec {
 
   val testTimeout = 200.millis.dilated
@@ -18,19 +21,17 @@ class ActorTimeoutSpec extends AkkaSpec {
 
   system.eventStream.publish(Mute(EventFilter.warning(pattern = ".*unhandled message from.*hallo")))
 
-  "An Actor-based Future" must {
-
-    "use implicitly supplied timeout" in {
+  
+    @Test def `must use implicitly supplied timeout`: Unit = {
       implicit val timeout = Timeout(testTimeout)
       val echo = system.actorOf(Props.empty)
       val f = (echo ? "hallo")
       intercept[AskTimeoutException] { Await.result(f, testTimeout + leeway) }
     }
 
-    "use explicitly supplied timeout" in {
+    @Test def `must use explicitly supplied timeout`: Unit = {
       val echo = system.actorOf(Props.empty)
       val f = echo.?("hallo")(testTimeout)
       intercept[AskTimeoutException] { Await.result(f, testTimeout + leeway) }
     }
   }
-}

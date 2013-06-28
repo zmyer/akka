@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.{ AkkaSpec, EventFilter }
@@ -30,17 +34,16 @@ class ActorDSLSpec extends AkkaSpec {
     }
   }))
 
-  "An Inbox" must {
-
-    "function as implicit sender" in {
+  
+    @Test def `must function as implicit sender`: Unit = {
       //#inbox
       implicit val i = inbox()
       echo ! "hello"
-      i.receive() must be("hello")
+      assertThat(i.receive(), equalTo("hello"))
       //#inbox
     }
 
-    "support watch" in {
+    @Test def `must support watch`: Unit = {
       //#watch
       val target = // some actor
         //#watch
@@ -50,10 +53,10 @@ class ActorDSLSpec extends AkkaSpec {
       i watch target
       //#watch
       target ! PoisonPill
-      i receive 1.second must be(Terminated(target)(true, false))
+      assertThat(i receive 1.second, equalTo(Terminated(target)(true, false)))
     }
 
-    "support queueing multiple queries" in {
+    @Test def `must support queueing multiple queries`: Unit = {
       val i = inbox()
       import system.dispatcher
       val res = Future.sequence(Seq(
@@ -61,25 +64,25 @@ class ActorDSLSpec extends AkkaSpec {
         Future { Thread.sleep(100); i.select() { case "world" ⇒ 1 } } recover { case x ⇒ x },
         Future { Thread.sleep(200); i.select() { case "hello" ⇒ 2 } } recover { case x ⇒ x }))
       Thread.sleep(1000)
-      res.isCompleted must be(false)
+      assertThat(res.isCompleted, equalTo(false))
       i.receiver ! 42
       i.receiver ! "hello"
       i.receiver ! "world"
-      Await.result(res, 5 second) must be(Seq(42, 1, 2))
+      assertThat(Await.result(res, 5 second), equalTo(Seq(42, 1, 2)))
     }
 
-    "support selective receives" in {
+    @Test def `must support selective receives`: Unit = {
       val i = inbox()
       i.receiver ! "hello"
       i.receiver ! "world"
       val result = i.select() {
         case "world" ⇒ true
       }
-      result must be(true)
-      i.receive() must be("hello")
+      assertThat(result, equalTo(true))
+      assertThat(i.receive(), equalTo("hello"))
     }
 
-    "have a maximum queue size" in {
+    @Test def `must have a maximum queue size`: Unit = {
       val i = inbox()
       system.eventStream.subscribe(testActor, classOf[Warning])
       try {
@@ -92,7 +95,7 @@ class ActorDSLSpec extends AkkaSpec {
         i.receiver ! 42
         expectNoMsg(1 second)
         val gotit = for (_ ← 1 to 1000) yield i.receive()
-        gotit must be((1 to 1000) map (_ ⇒ 0))
+        assertThat(gotit, equalTo((1 to 1000) map (_ ⇒ 0)))
         intercept[TimeoutException] {
           i.receive(1 second)
         }
@@ -101,7 +104,7 @@ class ActorDSLSpec extends AkkaSpec {
       }
     }
 
-    "have a default and custom timeouts" in {
+    @Test def `must have a default and custom timeouts`: Unit = {
       val i = inbox()
       within(5 seconds, 6 seconds) {
         intercept[TimeoutException](i.receive())
@@ -113,9 +116,8 @@ class ActorDSLSpec extends AkkaSpec {
 
   }
 
-  "A lightweight creator" must {
-
-    "support creating regular actors" in {
+  
+    @Test def `must support creating regular actors`: Unit = {
       //#simple-actor
       val a = actor(new Act {
         become {
@@ -126,10 +128,10 @@ class ActorDSLSpec extends AkkaSpec {
 
       implicit val i = inbox()
       a ! "hello"
-      i.receive() must be("hi")
+      assertThat(i.receive(), equalTo("hi"))
     }
 
-    "support becomeStacked" in {
+    @Test def `must support becomeStacked`: Unit = {
       //#becomeStacked
       val a = actor(new Act {
         become { // this will replace the initial (empty) behavior
@@ -155,7 +157,7 @@ class ActorDSLSpec extends AkkaSpec {
       expectMsg("A")
     }
 
-    "support setup/teardown" in {
+    @Test def `must support setup/teardown`: Unit = {
       //#simple-start-stop
       val a = actor(new Act {
         whenStarting { testActor ! "started" }
@@ -168,7 +170,7 @@ class ActorDSLSpec extends AkkaSpec {
       expectMsg("stopped")
     }
 
-    "support restart" in {
+    @Test def `must support restart`: Unit = {
       //#failing-actor
       val a = actor(new Act {
         become {
@@ -186,7 +188,7 @@ class ActorDSLSpec extends AkkaSpec {
       expectMsgPF() { case _: Exception ⇒ }
     }
 
-    "support superviseWith" in {
+    @Test def `must support superviseWith`: Unit = {
       val a = actor(new Act {
         val system = null // shadow the implicit system
         //#supervise-with
@@ -217,7 +219,7 @@ class ActorDSLSpec extends AkkaSpec {
       expectMsg("stopped")
     }
 
-    "supported nested declaration" in {
+    @Test def `must supported nested declaration`: Unit = {
       val system = this.system
       //#nested-actor
       // here we pass in the ActorRefFactory explicitly as an example
@@ -231,10 +233,10 @@ class ActorDSLSpec extends AkkaSpec {
       })
       //#nested-actor
       expectMsg("hello from akka://ActorDSLSpec/user/fred/barney")
-      lastSender must be(a)
+      assertThat(lastSender, equalTo(a))
     }
 
-    "support Stash" in {
+    @Test def `must support Stash`: Unit = {
       //#act-with-stash
       val a = actor(new ActWithStash {
         become {
@@ -258,4 +260,3 @@ class ActorDSLSpec extends AkkaSpec {
     }
 
   }
-}

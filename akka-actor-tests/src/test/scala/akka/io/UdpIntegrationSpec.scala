@@ -3,6 +3,10 @@
  */
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.net.InetSocketAddress
 import akka.testkit.{ TestProbe, ImplicitSender, AkkaSpec }
 import akka.util.ByteString
@@ -30,19 +34,18 @@ class UdpIntegrationSpec extends AkkaSpec("""
     commander.sender
   }
 
-  "The UDP Fire-and-Forget implementation" must {
-
-    "be able to send without binding" in {
+  
+    @Test def `must be able to send without binding`: Unit = {
       val serverAddress = addresses(0)
       val server = bindUdp(serverAddress, testActor)
       val data = ByteString("To infinity and beyond!")
       simpleSender ! Send(data, serverAddress)
 
-      expectMsgType[Received].data must be === data
+      assertThat(expectMsgType[Received].data, equalTo(data))
 
     }
 
-    "be able to send several packet back and forth with binding" in {
+    @Test def `must be able to send several packet back and forth with binding`: Unit = {
       val serverAddress = addresses(1)
       val clientAddress = addresses(2)
       val server = bindUdp(serverAddress, testActor)
@@ -53,7 +56,7 @@ class UdpIntegrationSpec extends AkkaSpec("""
         server ! Send(data, clientAddress)
         expectMsgPF() {
           case Received(d, a) ⇒
-            d must be === data
+            assertThat(d, equalTo(data))
             a must be === serverAddress
         }
       }
@@ -61,7 +64,7 @@ class UdpIntegrationSpec extends AkkaSpec("""
         client ! Send(data, serverAddress)
         expectMsgPF() {
           case Received(d, a) ⇒
-            d must be === data
+            assertThat(d, equalTo(data))
             a must be === clientAddress
         }
       }
@@ -74,5 +77,3 @@ class UdpIntegrationSpec extends AkkaSpec("""
       }
     }
   }
-
-}

@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -34,7 +38,6 @@ object ActorLookupSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
   import ActorLookupSpec._
 
@@ -53,30 +56,29 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       case RelativeActorPath(elems) ⇒ system.actorFor("/").path / elems
     }, system.eventStream)
 
-  "An ActorSystem" must {
-
-    "find actors by looking up their path" in {
-      system.actorFor(c1.path) must be === c1
+  
+    @Test def `must find actors by looking up their path`: Unit = {
+      assertThat(system.actorFor(c1.path), equalTo(c1))
       system.actorFor(c2.path) must be === c2
-      system.actorFor(c21.path) must be === c21
+      assertThat(system.actorFor(c21.path), equalTo(c21))
       system.actorFor(system / "c1") must be === c1
-      system.actorFor(system / "c2") must be === c2
+      assertThat(system.actorFor(system / "c2"), equalTo(c2))
       system.actorFor(system / "c2" / "c21") must be === c21
-      system.actorFor(system child "c2" child "c21") must be === c21 // test Java API
+      assertThat(system.actorFor(system child "c2" child "c21"), equalTo(c21 // test Java API))
       system.actorFor(system / Seq("c2", "c21")) must be === c21
 
       import scala.collection.JavaConverters._
       system.actorFor(system descendant Seq("c2", "c21").asJava) // test Java API
     }
 
-    "find actors by looking up their string representation" in {
+    @Test def `must find actors by looking up their string representation`: Unit = {
       // this is only true for local actor references
-      system.actorFor(c1.path.toString) must be === c1
+      assertThat(system.actorFor(c1.path.toString), equalTo(c1))
       system.actorFor(c2.path.toString) must be === c2
-      system.actorFor(c21.path.toString) must be === c21
+      assertThat(system.actorFor(c21.path.toString), equalTo(c21))
     }
 
-    "take actor incarnation into account when comparing actor references" in {
+    @Test def `must take actor incarnation into account when comparing actor references`: Unit = {
       val name = "abcdefg"
       val a1 = system.actorOf(p, name)
       watch(a1)
@@ -87,12 +89,12 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       expectNoMsg(1 second)
 
       // not equal because it's terminated
-      system.actorFor(a1.path.toString) must not be (a1)
+      assertThat(system.actorFor(a1.path.toString), not(a1))
 
       val a2 = system.actorOf(p, name)
-      a2.path must be(a1.path)
-      a2.path.toString must be(a1.path.toString)
-      a2 must not be (a1)
+      assertThat(a2.path, equalTo(a1.path))
+      assertThat(a2.path.toString, equalTo(a1.path.toString))
+      assertThat(a2, not(a1))
       a2.toString must not be (a1.toString)
 
       watch(a2)
@@ -100,45 +102,45 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       expectTerminated(a2)
     }
 
-    "find actors by looking up their root-anchored relative path" in {
-      system.actorFor(c1.path.elements.mkString("/", "/", "")) must be === c1
+    @Test def `must find actors by looking up their root-anchored relative path`: Unit = {
+      assertThat(system.actorFor(c1.path.elements.mkString("/", "/", "")), equalTo(c1))
       system.actorFor(c2.path.elements.mkString("/", "/", "")) must be === c2
-      system.actorFor(c21.path.elements.mkString("/", "/", "")) must be === c21
+      assertThat(system.actorFor(c21.path.elements.mkString("/", "/", "")), equalTo(c21))
     }
 
-    "find actors by looking up their relative path" in {
-      system.actorFor(c1.path.elements.mkString("/")) must be === c1
+    @Test def `must find actors by looking up their relative path`: Unit = {
+      assertThat(system.actorFor(c1.path.elements.mkString("/")), equalTo(c1))
       system.actorFor(c2.path.elements.mkString("/")) must be === c2
-      system.actorFor(c21.path.elements.mkString("/")) must be === c21
+      assertThat(system.actorFor(c21.path.elements.mkString("/")), equalTo(c21))
     }
 
-    "find actors by looking up their path elements" in {
-      system.actorFor(c1.path.elements) must be === c1
+    @Test def `must find actors by looking up their path elements`: Unit = {
+      assertThat(system.actorFor(c1.path.elements), equalTo(c1))
       system.actorFor(c2.path.elements) must be === c2
-      system.actorFor(c21.path.getElements) must be === c21 // test Java API
+      assertThat(system.actorFor(c21.path.getElements), equalTo(c21 // test Java API))
     }
 
-    "find system-generated actors" in {
-      system.actorFor("/user") must be === user
+    @Test def `must find system-generated actors`: Unit = {
+      assertThat(system.actorFor("/user"), equalTo(user))
       system.actorFor("/deadLetters") must be === system.deadLetters
-      system.actorFor("/system") must be === syst
+      assertThat(system.actorFor("/system"), equalTo(syst))
       system.actorFor(syst.path) must be === syst
-      system.actorFor(syst.path.toString) must be === syst
+      assertThat(system.actorFor(syst.path.toString), equalTo(syst))
       system.actorFor("/") must be === root
-      system.actorFor("..") must be === root
+      assertThat(system.actorFor(".."), equalTo(root))
       system.actorFor(root.path) must be === root
-      system.actorFor(root.path.toString) must be === root
+      assertThat(system.actorFor(root.path.toString), equalTo(root))
       system.actorFor("user") must be === user
-      system.actorFor("deadLetters") must be === system.deadLetters
+      assertThat(system.actorFor("deadLetters"), equalTo(system.deadLetters))
       system.actorFor("system") must be === syst
-      system.actorFor("user/") must be === user
+      assertThat(system.actorFor("user/"), equalTo(user))
       system.actorFor("deadLetters/") must be === system.deadLetters
-      system.actorFor("system/") must be === syst
+      assertThat(system.actorFor("system/"), equalTo(syst))
     }
 
-    "return deadLetters or EmptyLocalActorRef, respectively, for non-existing paths" in {
+    @Test def `must return deadLetters or EmptyLocalActorRef, respectively, for non-existing paths`: Unit = {
       def check(lookup: ActorRef, result: ActorRef) = {
-        lookup.getClass must be === result.getClass
+        assertThat(lookup.getClass, equalTo(result.getClass))
         lookup must be === result
       }
       check(system.actorFor("a/b/c"), empty("a/b/c"))
@@ -150,19 +152,19 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       check(system.actorFor(Seq("a")), empty("a"))
     }
 
-    "find temporary actors" in {
+    @Test def `must find temporary actors`: Unit = {
       val f = c1 ? GetSender(testActor)
       val a = expectMsgType[ActorRef]
-      a.path.elements.head must be === "temp"
+      assertThat(a.path.elements.head, equalTo("temp"))
       system.actorFor(a.path) must be === a
-      system.actorFor(a.path.toString) must be === a
+      assertThat(system.actorFor(a.path.toString), equalTo(a))
       system.actorFor(a.path.elements) must be === a
-      system.actorFor(a.path.toString + "/") must be === a
+      assertThat(system.actorFor(a.path.toString + "/"), equalTo(a))
       system.actorFor(a.path.toString + "/hallo").isTerminated must be === true
-      f.isCompleted must be === false
+      assertThat(f.isCompleted, equalTo(false))
       a.isTerminated must be === false
       a ! 42
-      f.isCompleted must be === true
+      assertThat(f.isCompleted, equalTo(true))
       Await.result(f, timeout.duration) must be === 42
       // clean-up is run as onComplete callback, i.e. dispatched on another thread
       awaitCond(system.actorFor(a.path).isTerminated, 1 second)
@@ -170,13 +172,12 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
 
   }
 
-  "An ActorContext" must {
-
+  
     val all = Seq(c1, c2, c21)
 
-    "find actors by looking up their path" in {
+    @Test def `must find actors by looking up their path`: Unit = {
       def check(looker: ActorRef, pathOf: ActorRef, result: ActorRef) {
-        Await.result(looker ? LookupPath(pathOf.path), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupPath(pathOf.path), timeout.duration), equalTo(result))
       }
       for {
         looker ← all
@@ -184,13 +185,13 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       } check(looker, target, target)
     }
 
-    "find actors by looking up their string representation" in {
+    @Test def `must find actors by looking up their string representation`: Unit = {
       def check(looker: ActorRef, pathOf: ActorRef, result: ActorRef) {
-        Await.result(looker ? LookupString(pathOf.path.toString), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupString(pathOf.path.toString), timeout.duration), equalTo(result))
         // with uid
-        Await.result(looker ? LookupString(pathOf.path.toSerializationFormat), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupString(pathOf.path.toSerializationFormat), timeout.duration), equalTo(result))
         // with trailing /
-        Await.result(looker ? LookupString(pathOf.path.toString + "/"), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupString(pathOf.path.toString + "/"), timeout.duration), equalTo(result))
       }
       for {
         looker ← all
@@ -198,9 +199,9 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       } check(looker, target, target)
     }
 
-    "find actors by looking up their root-anchored relative path" in {
+    @Test def `must find actors by looking up their root-anchored relative path`: Unit = {
       def check(looker: ActorRef, pathOf: ActorRef, result: ActorRef) {
-        Await.result(looker ? LookupString(pathOf.path.elements.mkString("/", "/", "")), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupString(pathOf.path.elements.mkString("/", "/", "")), timeout.duration), equalTo(result))
         Await.result(looker ? LookupString(pathOf.path.elements.mkString("/", "/", "/")), timeout.duration) must be === result
       }
       for {
@@ -209,11 +210,11 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       } check(looker, target, target)
     }
 
-    "find actors by looking up their relative path" in {
+    @Test def `must find actors by looking up their relative path`: Unit = {
       def check(looker: ActorRef, result: ActorRef, elems: String*) {
-        Await.result(looker ? LookupElems(elems), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupElems(elems), timeout.duration), equalTo(result))
         Await.result(looker ? LookupString(elems mkString "/"), timeout.duration) must be === result
-        Await.result(looker ? LookupString(elems mkString ("", "/", "/")), timeout.duration) must be === result
+        assertThat(Await.result(looker ? LookupString(elems mkString ("", "/", "/")), timeout.duration), equalTo(result))
       }
       check(c1, user, "..")
       for {
@@ -225,25 +226,25 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       check(c21, root, "..", "..", "..", "..")
     }
 
-    "find system-generated actors" in {
+    @Test def `must find system-generated actors`: Unit = {
       def check(target: ActorRef) {
         for (looker ← all) {
-          Await.result(looker ? LookupPath(target.path), timeout.duration) must be === target
+          assertThat(Await.result(looker ? LookupPath(target.path), timeout.duration), equalTo(target))
           Await.result(looker ? LookupString(target.path.toString), timeout.duration) must be === target
-          Await.result(looker ? LookupString(target.path.toString + "/"), timeout.duration) must be === target
+          assertThat(Await.result(looker ? LookupString(target.path.toString + "/"), timeout.duration), equalTo(target))
           Await.result(looker ? LookupString(target.path.elements.mkString("/", "/", "")), timeout.duration) must be === target
-          if (target != root) Await.result(looker ? LookupString(target.path.elements.mkString("/", "/", "/")), timeout.duration) must be === target
+          assertThat(if (target != root) Await.result(looker ? LookupString(target.path.elements.mkString("/", "/", "/")), timeout.duration), equalTo(target))
         }
       }
       for (target ← Seq(root, syst, user, system.deadLetters)) check(target)
     }
 
-    "return deadLetters or EmptyLocalActorRef, respectively, for non-existing paths" in {
+    @Test def `must return deadLetters or EmptyLocalActorRef, respectively, for non-existing paths`: Unit = {
       import scala.collection.JavaConverters._
 
       def checkOne(looker: ActorRef, query: Query, result: ActorRef) {
         val lookup = Await.result(looker ? query, timeout.duration)
-        lookup.getClass must be === result.getClass
+        assertThat(lookup.getClass, equalTo(result.getClass))
         lookup must be === result
       }
       def check(looker: ActorRef) {
@@ -263,28 +264,26 @@ class ActorLookupSpec extends AkkaSpec with DefaultTimeout {
       for (looker ← all) check(looker)
     }
 
-    "find temporary actors" in {
+    @Test def `must find temporary actors`: Unit = {
       val f = c1 ? GetSender(testActor)
       val a = expectMsgType[ActorRef]
-      a.path.elements.head must be === "temp"
+      assertThat(a.path.elements.head, equalTo("temp"))
       Await.result(c2 ? LookupPath(a.path), timeout.duration) must be === a
-      Await.result(c2 ? LookupString(a.path.toString), timeout.duration) must be === a
+      assertThat(Await.result(c2 ? LookupString(a.path.toString), timeout.duration), equalTo(a))
       Await.result(c2 ? LookupString(a.path.elements.mkString("/", "/", "")), timeout.duration) must be === a
-      Await.result(c2 ? LookupString("../../" + a.path.elements.mkString("/")), timeout.duration) must be === a
+      assertThat(Await.result(c2 ? LookupString("../../" + a.path.elements.mkString("/")), timeout.duration), equalTo(a))
       Await.result(c2 ? LookupString(a.path.toString + "/"), timeout.duration) must be === a
-      Await.result(c2 ? LookupString(a.path.elements.mkString("/", "/", "") + "/"), timeout.duration) must be === a
+      assertThat(Await.result(c2 ? LookupString(a.path.elements.mkString("/", "/", "") + "/"), timeout.duration), equalTo(a))
       Await.result(c2 ? LookupString("../../" + a.path.elements.mkString("/") + "/"), timeout.duration) must be === a
-      Await.result(c2 ? LookupElems(Seq("..", "..") ++ a.path.elements), timeout.duration) must be === a
+      assertThat(Await.result(c2 ? LookupElems(Seq("..", "..") ++ a.path.elements), timeout.duration), equalTo(a))
       Await.result(c2 ? LookupElems(Seq("..", "..") ++ a.path.elements :+ ""), timeout.duration) must be === a
-      f.isCompleted must be === false
+      assertThat(f.isCompleted, equalTo(false))
       a.isTerminated must be === false
       a ! 42
-      f.isCompleted must be === true
+      assertThat(f.isCompleted, equalTo(true))
       Await.result(f, timeout.duration) must be === 42
       // clean-up is run as onComplete callback, i.e. dispatched on another thread
       awaitCond(Await.result(c2 ? LookupPath(a.path), timeout.duration).asInstanceOf[ActorRef].isTerminated, 1 second)
     }
 
   }
-
-}

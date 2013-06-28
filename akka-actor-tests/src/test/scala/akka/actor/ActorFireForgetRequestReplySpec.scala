@@ -4,8 +4,11 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit._
-import org.scalatest.BeforeAndAfterEach
 import scala.concurrent.duration._
 import scala.concurrent.Await
 import akka.pattern.ask
@@ -53,7 +56,6 @@ object ActorFireForgetRequestReplySpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorFireForgetRequestReplySpec extends AkkaSpec with BeforeAndAfterEach with DefaultTimeout {
   import ActorFireForgetRequestReplySpec._
 
@@ -61,36 +63,34 @@ class ActorFireForgetRequestReplySpec extends AkkaSpec with BeforeAndAfterEach w
     state.finished.reset
   }
 
-  "An Actor" must {
-
-    "reply to bang message using reply" in {
+  
+    @Test def `must reply to bang message using reply`: Unit = {
       val replyActor = system.actorOf(Props[ReplyActor])
       val senderActor = system.actorOf(Props(new SenderActor(replyActor)))
       senderActor ! "Init"
       state.finished.await
-      state.s must be("Reply")
+      assertThat(state.s, equalTo("Reply"))
     }
 
-    "reply to bang message using implicit sender" in {
+    @Test def `must reply to bang message using implicit sender`: Unit = {
       val replyActor = system.actorOf(Props[ReplyActor])
       val senderActor = system.actorOf(Props(new SenderActor(replyActor)))
       senderActor ! "InitImplicit"
       state.finished.await
-      state.s must be("ReplyImplicit")
+      assertThat(state.s, equalTo("ReplyImplicit"))
     }
 
-    "shutdown crashed temporary actor" in {
+    @Test def `must shutdown crashed temporary actor`: Unit = {
       filterEvents(EventFilter[Exception]("Expected exception")) {
         val supervisor = system.actorOf(Props(new Supervisor(
           OneForOneStrategy(maxNrOfRetries = 0)(List(classOf[Exception])))))
         val actor = Await.result((supervisor ? Props[CrashingActor]).mapTo[ActorRef], timeout.duration)
-        actor.isTerminated must be(false)
+        assertThat(actor.isTerminated, equalTo(false))
         actor ! "Die"
         state.finished.await
         Thread.sleep(1.second.dilated.toMillis)
-        actor.isTerminated must be(true)
+        assertThat(actor.isTerminated, equalTo(true))
         system.stop(supervisor)
       }
     }
   }
-}

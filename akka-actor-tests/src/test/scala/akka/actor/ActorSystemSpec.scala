@@ -3,9 +3,12 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import akka.testkit._
-import org.scalatest.junit.JUnitSuite
 import com.typesafe.config.ConfigFactory
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -18,8 +21,6 @@ import akka.dispatch._
 import com.typesafe.config.Config
 import java.util.concurrent.{ LinkedBlockingQueue, BlockingQueue, TimeUnit }
 import akka.util.Switch
-
-class JavaExtensionSpec extends JavaExtension with JUnitSuite
 
 object TestExtension extends ExtensionId[TestExtension] with ExtensionIdProvider {
   def lookup = this
@@ -117,191 +118,186 @@ object ActorSystemSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorSystemSpec extends AkkaSpec(ActorSystemSpec.config) with ImplicitSender {
 
   import ActorSystemSpec.FastActor
 
-  "An ActorSystem" must {
+  def `use scala.concurrent.Future's InternalCallbackEC`: Unit = {
+    assertThat(system.asInstanceOf[ActorSystemImpl].internalCallingThreadExecutionContext.getClass.getName, equalTo("scala.concurrent.Future$InternalCallbackExecutor$"))
+  }
 
-    "use scala.concurrent.Future's InternalCallbackEC" in {
-      system.asInstanceOf[ActorSystemImpl].internalCallingThreadExecutionContext.getClass.getName must be === "scala.concurrent.Future$InternalCallbackExecutor$"
+  @Test def `must reject invalid names`: Unit = {
+    for (
+      n ← Seq(
+        "hallo_welt",
+        "-hallowelt",
+        "hallo*welt",
+        "hallo@welt",
+        "hallo#welt",
+        "hallo$welt",
+        "hallo%welt",
+        "hallo/welt")
+    ) intercept[IllegalArgumentException] {
+      ActorSystem(n)
     }
+  }
 
-    "reject invalid names" in {
-      for (
-        n ← Seq(
-          "hallo_welt",
-          "-hallowelt",
-          "hallo*welt",
-          "hallo@welt",
-          "hallo#welt",
-          "hallo$welt",
-          "hallo%welt",
-          "hallo/welt")
-      ) intercept[IllegalArgumentException] {
-        ActorSystem(n)
-      }
-    }
+  @Test def `must allow valid names`: Unit = {
+    shutdown(ActorSystem("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"))
+  }
 
-    "allow valid names" in {
-      shutdown(ActorSystem("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"))
-    }
+  @Test def `must support extensions`: Unit = {
+    // TestExtension is configured and should be loaded at startup
+    assertThat(system.hasExtension(TestExtension), equalTo(true))
+    assertThat(TestExtension(system).system, equalTo(system))
+    assertThat(system.extension(TestExtension).system, equalTo(system))
+  }
 
-    "support extensions" in {
-      // TestExtension is configured and should be loaded at startup
-      system.hasExtension(TestExtension) must be(true)
-      TestExtension(system).system must be === system
-      system.extension(TestExtension).system must be === system
-    }
+  @Test def `must log dead letters`: Unit = {
+    val sys = ActorSystem("LogDeadLetters", ConfigFactory.parseString("akka.loglevel=INFO").withFallback(AkkaSpec.testConf))
+    try {
+      val a = sys.actorOf(Props[ActorSystemSpec.Terminater])
+      EventFilter.info(pattern = "not delivered", occurrences = 1).intercept {
+        a ! "run"
+        a ! "boom"
+      }(sys)
+    } finally shutdown(sys)
+  }
 
-    "log dead letters" in {
-      val sys = ActorSystem("LogDeadLetters", ConfigFactory.parseString("akka.loglevel=INFO").withFallback(AkkaSpec.testConf))
-      try {
-        val a = sys.actorOf(Props[ActorSystemSpec.Terminater])
-        EventFilter.info(pattern = "not delivered", occurrences = 1).intercept {
-          a ! "run"
-          a ! "boom"
-        }(sys)
-      } finally shutdown(sys)
-    }
+  @Test def `must run termination callbacks in order`: Unit = {
+    val system2 = ActorSystem("TerminationCallbacks", AkkaSpec.testConf)
+    val result = new ConcurrentLinkedQueue[Int]
+    val count = 10
+    val latch = TestLatch(count)
 
-    "run termination callbacks in order" in {
-      val system2 = ActorSystem("TerminationCallbacks", AkkaSpec.testConf)
-      val result = new ConcurrentLinkedQueue[Int]
-      val count = 10
-      val latch = TestLatch(count)
-
-      for (i ← 1 to count) {
-        system2.registerOnTermination {
-          Thread.sleep((i % 3).millis.dilated.toMillis)
-          result add i
-          latch.countDown()
-        }
-      }
-
-      system2.shutdown()
-      Await.ready(latch, 5 seconds)
-
-      val expected = (for (i ← 1 to count) yield i).reverse
-
-      immutableSeq(result) must be(expected)
-    }
-
-    "awaitTermination after termination callbacks" in {
-      val system2 = ActorSystem("AwaitTermination", AkkaSpec.testConf)
-      @volatile
-      var callbackWasRun = false
-
+    for (i ← 1 to count) {
       system2.registerOnTermination {
-        Thread.sleep(50.millis.dilated.toMillis)
-        callbackWasRun = true
-      }
-      import system.dispatcher
-      system2.scheduler.scheduleOnce(200.millis.dilated) { system2.shutdown() }
-
-      system2.awaitTermination(5 seconds)
-      callbackWasRun must be(true)
-    }
-
-    "return isTerminated status correctly" in {
-      val system = ActorSystem()
-      system.isTerminated must be(false)
-      system.shutdown()
-      system.awaitTermination(10 seconds)
-      system.isTerminated must be(true)
-    }
-
-    "throw RejectedExecutionException when shutdown" in {
-      val system2 = ActorSystem("AwaitTermination", AkkaSpec.testConf)
-      system2.shutdown()
-      system2.awaitTermination(10 seconds)
-
-      intercept[RejectedExecutionException] {
-        system2.registerOnTermination { println("IF YOU SEE THIS THEN THERE'S A BUG HERE") }
-      }.getMessage must be("Must be called prior to system shutdown.")
-    }
-
-    "reliably create waves of actors" in {
-      import system.dispatcher
-      implicit val timeout = Timeout((20 seconds).dilated)
-      val waves = for (i ← 1 to 3) yield system.actorOf(Props[ActorSystemSpec.Waves]) ? 50000
-      Await.result(Future.sequence(waves), timeout.duration + 5.seconds) must be === Seq("done", "done", "done")
-    }
-
-    "find actors that just have been created" in {
-      system.actorOf(Props(new FastActor(TestLatch(), testActor)).withDispatcher("slow"))
-      expectMsgType[Class[_]] must be(classOf[LocalActorRef])
-    }
-
-    "reliable deny creation of actors while shutting down" in {
-      val system = ActorSystem()
-      import system.dispatcher
-      system.scheduler.scheduleOnce(200 millis) { system.shutdown() }
-      var failing = false
-      var created = Vector.empty[ActorRef]
-      while (!system.isTerminated) {
-        try {
-          val t = system.actorOf(Props[ActorSystemSpec.Terminater])
-          failing must not be true // because once failing => always failing (it’s due to shutdown)
-          created :+= t
-        } catch {
-          case _: IllegalStateException ⇒ failing = true
-        }
-
-        if (!failing && system.uptime >= 5) {
-          println(created.last)
-          println(system.asInstanceOf[ExtendedActorSystem].printTree)
-          fail("System didn't terminate within 5 seconds")
-        }
-      }
-
-      created filter (ref ⇒ !ref.isTerminated && !ref.asInstanceOf[ActorRefWithCell].underlying.isInstanceOf[UnstartedCell]) must be(Seq())
-    }
-
-    "shut down when /user fails" in {
-      implicit val system = ActorSystem("Stop", AkkaSpec.testConf)
-      EventFilter[ActorKilledException]() intercept {
-        system.actorSelection("/user") ! Kill
-        awaitCond(system.isTerminated)
+        Thread.sleep((i % 3).millis.dilated.toMillis)
+        result add i
+        latch.countDown()
       }
     }
 
-    "allow configuration of guardian supervisor strategy" in {
-      implicit val system = ActorSystem("Stop",
-        ConfigFactory.parseString("akka.actor.guardian-supervisor-strategy=akka.actor.StoppingSupervisorStrategy")
-          .withFallback(AkkaSpec.testConf))
-      val a = system.actorOf(Props(new Actor {
-        def receive = {
-          case "die" ⇒ throw new Exception("hello")
-        }
-      }))
-      val probe = TestProbe()
-      probe.watch(a)
-      EventFilter[Exception]("hello", occurrences = 1) intercept {
-        a ! "die"
+    system2.shutdown()
+    Await.ready(latch, 5 seconds)
+
+    val expected = (for (i ← 1 to count) yield i).reverse
+
+    assertThat(immutableSeq(result), equalTo(expected))
+  }
+
+  @Test def `must awaitTermination after termination callbacks`: Unit = {
+    val system2 = ActorSystem("AwaitTermination", AkkaSpec.testConf)
+    @volatile
+    var callbackWasRun = false
+
+    system2.registerOnTermination {
+      Thread.sleep(50.millis.dilated.toMillis)
+      callbackWasRun = true
+    }
+    import system.dispatcher
+    system2.scheduler.scheduleOnce(200.millis.dilated) { system2.shutdown() }
+
+    system2.awaitTermination(5 seconds)
+    assertThat(callbackWasRun, equalTo(true))
+  }
+
+  @Test def `must return isTerminated status correctly`: Unit = {
+    val system = ActorSystem()
+    assertThat(system.isTerminated, equalTo(false))
+    system.shutdown()
+    system.awaitTermination(10 seconds)
+    assertThat(system.isTerminated, equalTo(true))
+  }
+
+  @Test def `must throw RejectedExecutionException when shutdown`: Unit = {
+    val system2 = ActorSystem("AwaitTermination", AkkaSpec.testConf)
+    system2.shutdown()
+    system2.awaitTermination(10 seconds)
+
+    assertThat(intercept[RejectedExecutionException] {
+      system2.registerOnTermination { println("IF YOU SEE THIS THEN THERE'S A BUG HERE") }
+    }.getMessage, equalTo("Must be called prior to system shutdown."))
+  }
+
+  @Test def `must reliably create waves of actors`: Unit = {
+    import system.dispatcher
+    implicit val timeout = Timeout((20 seconds).dilated)
+    val waves = for (i ← 1 to 3) yield system.actorOf(Props[ActorSystemSpec.Waves]) ? 50000
+    assertThat(Await.result(Future.sequence(waves), timeout.duration + 5.seconds), equalTo(Seq("done", "done", "done")))
+  }
+
+  @Test def `must find actors that just have been created`: Unit = {
+    system.actorOf(Props(new FastActor(TestLatch(), testActor)).withDispatcher("slow"))
+    assertThat(expectMsgType[Class[_]], equalTo(classOf[LocalActorRef]))
+  }
+
+  @Test def `must reliable deny creation of actors while shutting down`: Unit = {
+    val system = ActorSystem()
+    import system.dispatcher
+    system.scheduler.scheduleOnce(200 millis) { system.shutdown() }
+    var failing = false
+    var created = Vector.empty[ActorRef]
+    while (!system.isTerminated) {
+      try {
+        val t = system.actorOf(Props[ActorSystemSpec.Terminater])
+        failing must not be true // because once failing => always failing (it’s due to shutdown)
+        created :+= t
+      } catch {
+        case _: IllegalStateException ⇒ failing = true
       }
-      val t = probe.expectMsg(Terminated(a)(existenceConfirmed = true, addressTerminated = false))
-      t.existenceConfirmed must be(true)
-      t.addressTerminated must be(false)
-      shutdown(system)
+
+      if (!failing && system.uptime >= 5) {
+        println(created.last)
+        println(system.asInstanceOf[ExtendedActorSystem].printTree)
+        fail("System didn't terminate within 5 seconds")
+      }
     }
 
-    "shut down when /user escalates" in {
-      implicit val system = ActorSystem("Stop",
-        ConfigFactory.parseString("akka.actor.guardian-supervisor-strategy=\"akka.actor.ActorSystemSpec$Strategy\"")
-          .withFallback(AkkaSpec.testConf))
-      val a = system.actorOf(Props(new Actor {
-        def receive = {
-          case "die" ⇒ throw new Exception("hello")
-        }
-      }))
-      EventFilter[Exception]("hello") intercept {
-        a ! "die"
-        awaitCond(system.isTerminated)
-      }
-    }
+    assertThat(created filter (ref ⇒ !ref.isTerminated && !ref.asInstanceOf[ActorRefWithCell].underlying.isInstanceOf[UnstartedCell]), equalTo(Seq()))
+  }
 
+  @Test def `must shut down when /user fails`: Unit = {
+    implicit val system = ActorSystem("Stop", AkkaSpec.testConf)
+    EventFilter[ActorKilledException]() intercept {
+      system.actorSelection("/user") ! Kill
+      awaitCond(system.isTerminated)
+    }
+  }
+
+  @Test def `must allow configuration of guardian supervisor strategy`: Unit = {
+    implicit val system = ActorSystem("Stop",
+      ConfigFactory.parseString("akka.actor.guardian-supervisor-strategy=akka.actor.StoppingSupervisorStrategy")
+        .withFallback(AkkaSpec.testConf))
+    val a = system.actorOf(Props(new Actor {
+      def receive = {
+        case "die" ⇒ throw new Exception("hello")
+      }
+    }))
+    val probe = TestProbe()
+    probe.watch(a)
+    EventFilter[Exception]("hello", occurrences = 1) intercept {
+      a ! "die"
+    }
+    val t = probe.expectMsg(Terminated(a)(existenceConfirmed = true, addressTerminated = false))
+    assertThat(t.existenceConfirmed, equalTo(true))
+    assertThat(t.addressTerminated, equalTo(false))
+    shutdown(system)
+  }
+
+  @Test def `must shut down when /user escalates`: Unit = {
+    implicit val system = ActorSystem("Stop",
+      ConfigFactory.parseString("akka.actor.guardian-supervisor-strategy=\"akka.actor.ActorSystemSpec$Strategy\"")
+        .withFallback(AkkaSpec.testConf))
+    val a = system.actorOf(Props(new Actor {
+      def receive = {
+        case "die" ⇒ throw new Exception("hello")
+      }
+    }))
+    EventFilter[Exception]("hello") intercept {
+      a ! "die"
+      awaitCond(system.isTerminated)
+    }
   }
 
 }

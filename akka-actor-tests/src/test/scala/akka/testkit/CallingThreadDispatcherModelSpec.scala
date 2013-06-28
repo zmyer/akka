@@ -3,6 +3,10 @@
  */
 package akka.testkit
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.atomic.AtomicInteger
 import akka.actor.dispatch.ActorModelSpec
 import com.typesafe.config.Config
@@ -42,7 +46,6 @@ object CallingThreadDispatcherModelSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class CallingThreadDispatcherModelSpec extends ActorModelSpec(CallingThreadDispatcherModelSpec.config) {
   import ActorModelSpec._
 

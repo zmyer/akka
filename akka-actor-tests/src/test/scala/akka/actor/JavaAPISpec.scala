@@ -3,6 +3,9 @@
  */
 package akka.actor
 
-import org.scalatest.junit.JUnitSuite
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 
 class JavaAPISpec extends JavaAPI with JUnitSuite

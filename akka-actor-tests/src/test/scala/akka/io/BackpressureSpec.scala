@@ -4,6 +4,10 @@
 
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.net.InetSocketAddress
 import java.security.MessageDigest
 import scala.concurrent.Await
@@ -185,9 +189,8 @@ class BackpressureSpec extends AkkaSpec("akka.actor.serialize-creators=on") with
 
   import BackpressureSpec._
 
-  "A BackpressureBuffer" must {
-
-    "transmit the right bytes" in {
+  
+    @Test def `must transmit the right bytes`: Unit = {
       val N = 100000
       val recv = watch(system.actorOf(Props(classOf[Receiver], false), "receiver1"))
       recv ! GetPort
@@ -198,9 +201,9 @@ class BackpressureSpec extends AkkaSpec("akka.actor.serialize-creators=on") with
           send ! StartSending(N)
           val hash = expectMsgType[Done].hash
           implicit val t = Timeout(100.millis)
-          awaitAssert(Await.result(recv ? GetProgress, t.duration) must be === Progress(N))
+          assertThat(awaitAssert(Await.result(recv ? GetProgress, t.duration), equalTo(Progress(N))))
           recv ! GetHash
-          expectMsgType[Hash].hash must be === hash
+          assertThat(expectMsgType[Hash].hash, equalTo(hash))
         }
       } catch {
         case NonFatal(e) ⇒
@@ -215,10 +218,10 @@ class BackpressureSpec extends AkkaSpec("akka.actor.serialize-creators=on") with
       val terminated = receiveWhile(1.second, messages = 2) {
         case Terminated(t) ⇒ t
       }
-      terminated.toSet must be === Set(send, recv)
+      assertThat(terminated.toSet, equalTo(Set(send, recv)))
     }
 
-    "transmit the right bytes with hiccups" in {
+    @Test def `must transmit the right bytes with hiccups`: Unit = {
       val N = 100000
       val recv = watch(system.actorOf(Props(classOf[Receiver], true), "receiver2"))
       recv ! GetPort
@@ -229,9 +232,9 @@ class BackpressureSpec extends AkkaSpec("akka.actor.serialize-creators=on") with
           send ! StartSending(N)
           val hash = expectMsgType[Done].hash
           implicit val t = Timeout(100.millis)
-          awaitAssert(Await.result(recv ? GetProgress, t.duration) must be === Progress(N))
+          assertThat(awaitAssert(Await.result(recv ? GetProgress, t.duration), equalTo(Progress(N))))
           recv ! GetHash
-          expectMsgType[Hash].hash must be === hash
+          assertThat(expectMsgType[Hash].hash, equalTo(hash))
         }
       } catch {
         case NonFatal(e) ⇒
@@ -246,9 +249,7 @@ class BackpressureSpec extends AkkaSpec("akka.actor.serialize-creators=on") with
       val terminated = receiveWhile(1.second, messages = 2) {
         case Terminated(t) ⇒ t
       }
-      terminated.toSet must be === Set(send, recv)
+      assertThat(terminated.toSet, equalTo(Set(send, recv)))
     }
 
   }
-
-}

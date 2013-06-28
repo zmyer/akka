@@ -3,6 +3,10 @@
  */
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit.{ TestProbe, AkkaSpec }
 import java.net.InetSocketAddress
 import akka.util.ByteString
@@ -18,21 +22,20 @@ class DelimiterFramingSpec extends AkkaSpec("akka.actor.serialize-creators = on"
 
   val addresses = TestUtils.temporaryServerAddresses(4)
 
-  "DelimiterFramingSpec" must {
-
-    "send and receive delimiter based frames correctly (one byte delimiter, exclude)" in {
+  
+    @Test def `must send and receive delimiter based frames correctly (one byte delimiter, exclude)`: Unit = {
       testSetup(serverAddress = addresses(0), delimiter = "\n", includeDelimiter = false)
     }
 
-    "send and receive delimiter based frames correctly (multi-byte delimiter, exclude)" in {
+    @Test def `must send and receive delimiter based frames correctly (multi-byte delimiter, exclude)`: Unit = {
       testSetup(serverAddress = addresses(1), delimiter = "DELIMITER", includeDelimiter = false)
     }
 
-    "send and receive delimiter based frames correctly (one byte delimiter, include)" in {
+    @Test def `must send and receive delimiter based frames correctly (one byte delimiter, include)`: Unit = {
       testSetup(serverAddress = addresses(2), delimiter = "\n", includeDelimiter = true)
     }
 
-    "send and receive delimiter based frames correctly (multi-byte delimiter, include)" in {
+    @Test def `must send and receive delimiter based frames correctly (multi-byte delimiter, include)`: Unit = {
       testSetup(serverAddress = addresses(3), delimiter = "DELIMITER", includeDelimiter = true)
     }
 
@@ -142,5 +145,3 @@ class DelimiterFramingSpec extends AkkaSpec("akka.actor.serialize-creators = on"
         }
     }
   }
-
-}

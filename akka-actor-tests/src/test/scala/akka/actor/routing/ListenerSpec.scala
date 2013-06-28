@@ -1,5 +1,9 @@
 package akka.actor.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit._
 import akka.actor._
 import akka.actor.Actor._
@@ -7,12 +11,10 @@ import akka.routing._
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.Await
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ListenerSpec extends AkkaSpec {
 
-  "Listener" must {
-
-    "listen" in {
+  
+    @Test def `must listen`: Unit = {
       val fooLatch = TestLatch(2)
       val barLatch = TestLatch(2)
       val barCount = new AtomicInteger(0)
@@ -47,11 +49,10 @@ class ListenerSpec extends AkkaSpec {
       broadcast ! "foo"
 
       Await.ready(barLatch, TestLatch.DefaultTimeout)
-      barCount.get must be(2)
+      assertThat(barCount.get, equalTo(2))
 
       Await.ready(fooLatch, TestLatch.DefaultTimeout)
 
       for (a ← List(broadcast, a1, a2, a3)) system.stop(a)
     }
   }
-}

@@ -1,37 +1,39 @@
 package akka.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.{ ExecutorService, Executor, Executors }
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent._
 import akka.testkit.{ TestLatch, AkkaSpec, DefaultTimeout }
 import akka.util.SerializedSuspendableExecutionContext
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
 
-  "An ExecutionContext" must {
-
-    "be instantiable" in {
+  
+    @Test def `must be instantiable`: Unit = {
       val es = Executors.newCachedThreadPool()
       try {
         val executor: Executor with ExecutionContext = ExecutionContext.fromExecutor(es)
-        executor must not be (null)
+        assertThat(executor, notNullValue)
 
         val executorService: ExecutorService with ExecutionContext = ExecutionContext.fromExecutorService(es)
-        executorService must not be (null)
+        assertThat(executorService, notNullValue)
 
         val jExecutor: ExecutionContextExecutor = ExecutionContext.fromExecutor(es)
-        jExecutor must not be (null)
+        assertThat(jExecutor, notNullValue)
 
         val jExecutorService: ExecutionContextExecutorService = ExecutionContexts.fromExecutorService(es)
-        jExecutorService must not be (null)
+        assertThat(jExecutorService, notNullValue)
       } finally {
         es.shutdown
       }
     }
 
-    "be able to use Batching" in {
-      system.dispatcher.isInstanceOf[BatchingExecutor] must be(true)
+    @Test def `must be able to use Batching`: Unit = {
+      assertThat(system.dispatcher.isInstanceOf[BatchingExecutor], equalTo(true))
 
       import system.dispatcher
 
@@ -55,11 +57,11 @@ class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
         }
         callingThreadLock.compareAndSet(1, 0) // Disable the lock
       }
-      Await.result(p.future, timeout.duration) must be === (())
+      assertThat(Await.result(p.future, timeout.duration), equalTo((())))
     }
 
-    "be able to avoid starvation when Batching is used and Await/blocking is called" in {
-      system.dispatcher.isInstanceOf[BatchingExecutor] must be(true)
+    @Test def `must be able to avoid starvation when Batching is used and Await/blocking is called`: Unit = {
+      assertThat(system.dispatcher.isInstanceOf[BatchingExecutor], equalTo(true))
       import system.dispatcher
 
       def batchable[T](f: ⇒ T)(implicit ec: ExecutionContext): Unit = ec.execute(new Batchable {
@@ -83,8 +85,7 @@ class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
     }
   }
 
-  "A SerializedSuspendableExecutionContext" must {
-    "be suspendable and resumable" in {
+      @Test def `must be suspendable and resumable`: Unit = {
       val sec = SerializedSuspendableExecutionContext(1)(ExecutionContext.global)
       val counter = new AtomicInteger(0)
       def perform(f: Int ⇒ Int) = sec execute new Runnable { def run = counter.set(f(counter.get)) }
@@ -93,18 +94,18 @@ class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
       awaitCond(counter.get == 2)
       perform(_ + 4)
       perform(_ * 2)
-      sec.size must be === 2
+      assertThat(sec.size, equalTo(2))
       Thread.sleep(500)
-      sec.size must be === 2
+      assertThat(sec.size, equalTo(2))
       counter.get must be === 2
       sec.resume()
       awaitCond(counter.get == 12)
       perform(_ * 2)
       awaitCond(counter.get == 24)
-      sec.isEmpty must be === true
+      assertThat(sec.isEmpty, equalTo(true))
     }
 
-    "execute 'throughput' number of tasks per sweep" in {
+    @Test def `must execute 'throughput' number of tasks per sweep`: Unit = {
       val submissions = new AtomicInteger(0)
       val counter = new AtomicInteger(0)
       val underlying = new ExecutionContext {
@@ -118,14 +119,14 @@ class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
 
       val total = 1000
       1 to total foreach { _ ⇒ perform(_ + 1) }
-      sec.size() must be === total
+      assertThat(sec.size(), equalTo(total))
       sec.resume()
       awaitCond(counter.get == total)
-      submissions.get must be === (total / throughput)
+      assertThat(submissions.get, equalTo((total / throughput)))
       sec.isEmpty must be === true
     }
 
-    "execute tasks in serial" in {
+    @Test def `must execute tasks in serial`: Unit = {
       val sec = SerializedSuspendableExecutionContext(1)(ExecutionContext.global)
       val total = 10000
       val counter = new AtomicInteger(0)
@@ -133,10 +134,10 @@ class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
 
       1 to total foreach { i ⇒ perform(c ⇒ if (c == (i - 1)) c + 1 else c) }
       awaitCond(counter.get == total)
-      sec.isEmpty must be === true
+      assertThat(sec.isEmpty, equalTo(true))
     }
 
-    "relinquish thread when suspended" in {
+    @Test def `must relinquish thread when suspended`: Unit = {
       val submissions = new AtomicInteger(0)
       val counter = new AtomicInteger(0)
       val underlying = new ExecutionContext {
@@ -151,13 +152,12 @@ class ExecutionContextSpec extends AkkaSpec with DefaultTimeout {
       1 to 10 foreach { _ ⇒ perform(identity) }
       perform(x ⇒ { sec.suspend(); x * 2 })
       perform(_ + 8)
-      sec.size must be === 13
+      assertThat(sec.size, equalTo(13))
       sec.resume()
       awaitCond(counter.get == 2)
       sec.resume()
       awaitCond(counter.get == 10)
-      sec.isEmpty must be === true
+      assertThat(sec.isEmpty, equalTo(true))
       submissions.get must be === 2
     }
   }
-}

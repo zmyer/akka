@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.{ filterEvents, EventFilter }
@@ -26,12 +30,10 @@ object SupervisorMiscSpec {
     """
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with DefaultTimeout {
 
-  "A Supervisor" must {
-
-    "restart a crashing actor and its dispatcher for any dispatcher" in {
+  
+    @Test def `must restart a crashing actor and its dispatcher for any dispatcher`: Unit = {
       filterEvents(EventFilter[Exception]("Kill")) {
         val countDownLatch = new CountDownLatch(4)
 
@@ -62,12 +64,12 @@ class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with Defaul
         Seq("actor1" -> actor1, "actor2" -> actor2, "actor3" -> actor3, "actor4" -> actor4) map {
           case (id, ref) ⇒ (id, ref ? "status")
         } foreach {
-          case (id, f) ⇒ (id, Await.result(f, timeout.duration)) must be === ((id, "OK"))
+          assertThat(case (id, f) ⇒ (id, Await.result(f, timeout.duration)), equalTo(((id, "OK"))))
         }
       }
     }
 
-    "be able to create named children in its constructor" in {
+    @Test def `must be able to create named children in its constructor`: Unit = {
       val a = system.actorOf(Props(new Actor {
         context.actorOf(Props.empty, "bob")
         def receive = { case x: Exception ⇒ throw x }
@@ -79,10 +81,10 @@ class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with Defaul
       }
       expectMsg("preStart")
       expectMsg("preStart")
-      a.isTerminated must be(false)
+      assertThat(a.isTerminated, equalTo(false))
     }
 
-    "be able to recreate child when old child is Terminated" in {
+    @Test def `must be able to recreate child when old child is Terminated`: Unit = {
       val parent = system.actorOf(Props(new Actor {
         val kid = context.watch(context.actorOf(Props.empty, "foo"))
         def receive = {
@@ -106,7 +108,7 @@ class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with Defaul
       expectMsg("green")
     }
 
-    "not be able to recreate child when old child is alive" in {
+    @Test def `must not be able to recreate child when old child is alive`: Unit = {
       val parent = system.actorOf(Props(new Actor {
         def receive = {
           case "engage" ⇒
@@ -124,7 +126,7 @@ class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with Defaul
       expectMsg("green")
     }
 
-    "be able to create a similar kid in the fault handling strategy" in {
+    @Test def `must be able to create a similar kid in the fault handling strategy`: Unit = {
       val parent = system.actorOf(Props(new Actor {
         override val supervisorStrategy = new OneForOneStrategy()(SupervisorStrategy.defaultStrategy.decider) {
           override def handleChildTerminated(context: ActorContext, child: ActorRef, children: Iterable[ActorRef]): Unit = {
@@ -142,7 +144,7 @@ class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with Defaul
       }
     }
 
-    "have access to the failing child’s reference in supervisorStrategy" in {
+    @Test def `must have access to the failing child’s reference in supervisorStrategy`: Unit = {
       val parent = system.actorOf(Props(new Actor {
         override val supervisorStrategy = OneForOneStrategy() {
           case _: Exception ⇒ testActor ! sender; SupervisorStrategy.Stop
@@ -155,8 +157,7 @@ class SupervisorMiscSpec extends AkkaSpec(SupervisorMiscSpec.config) with Defaul
         parent ! "doit"
       }
       val p = expectMsgType[ActorRef].path
-      p.parent must be === parent.path
+      assertThat(p.parent, equalTo(parent.path))
       p.name must be === "child"
     }
   }
-}

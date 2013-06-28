@@ -3,6 +3,10 @@
  */
 package akka.pattern
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit._
 import scala.collection.immutable
 import scala.concurrent.duration._
@@ -11,8 +15,7 @@ import scala.annotation.tailrec
 
 class CircuitBreakerMTSpec extends AkkaSpec {
   implicit val ec = system.dispatcher
-  "A circuit breaker being called by many threads" must {
-    val callTimeout = 2.second.dilated
+      val callTimeout = 2.second.dilated
     val resetTimeout = 3.seconds.dilated
     val maxFailures = 5
     val breaker = new CircuitBreaker(system.scheduler, maxFailures, callTimeout, resetTimeout)
@@ -45,22 +48,22 @@ class CircuitBreakerMTSpec extends AkkaSpec {
       }
     }
 
-    "allow many calls while in closed state with no errors" in {
+    @Test def `must allow many calls while in closed state with no errors`: Unit = {
       val futures = testCallsWithBreaker()
       val result = Await.result(Future.sequence(futures), 5.second.dilated)
-      result.size must be(numberOfTestCalls)
-      result.toSet must be === Set("succeed")
+      assertThat(result.size, equalTo(numberOfTestCalls))
+      assertThat(result.toSet, equalTo(Set("succeed")))
     }
 
-    "transition to open state upon reaching failure limit and fail-fast" in {
+    @Test def `must transition to open state upon reaching failure limit and fail-fast`: Unit = {
       openBreaker()
       val futures = testCallsWithBreaker()
       val result = Await.result(Future.sequence(futures), 5.second.dilated)
-      result.size must be(numberOfTestCalls)
-      result.toSet must be === Set("CBO")
+      assertThat(result.size, equalTo(numberOfTestCalls))
+      assertThat(result.toSet, equalTo(Set("CBO")))
     }
 
-    "allow a single call through in half-open state" in {
+    @Test def `must allow a single call through in half-open state`: Unit = {
       val halfOpenLatch = new TestLatch(1)
       breaker.onHalfOpen(halfOpenLatch.countDown())
 
@@ -71,11 +74,11 @@ class CircuitBreakerMTSpec extends AkkaSpec {
 
       val futures = testCallsWithBreaker()
       val result = Await.result(Future.sequence(futures), 5.second.dilated)
-      result.size must be(numberOfTestCalls)
-      result.toSet must be === Set("succeed", "CBO")
+      assertThat(result.size, equalTo(numberOfTestCalls))
+      assertThat(result.toSet, equalTo(Set("succeed", "CBO")))
     }
 
-    "recover and reset the breaker after the reset timeout" in {
+    @Test def `must recover and reset the breaker after the reset timeout`: Unit = {
       val halfOpenLatch = new TestLatch(1)
       breaker.onHalfOpen(halfOpenLatch.countDown())
       openBreaker()
@@ -91,8 +94,7 @@ class CircuitBreakerMTSpec extends AkkaSpec {
 
       val futures = testCallsWithBreaker()
       val result = Await.result(Future.sequence(futures), 5.second.dilated)
-      result.size must be(numberOfTestCalls)
-      result.toSet must be === Set("succeed")
+      assertThat(result.size, equalTo(numberOfTestCalls))
+      assertThat(result.toSet, equalTo(Set("succeed")))
     }
   }
-}

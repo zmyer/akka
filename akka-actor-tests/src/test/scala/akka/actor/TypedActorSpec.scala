@@ -3,8 +3,12 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.junit.experimental.categories.Category
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
-import org.scalatest.{ BeforeAndAfterAll, BeforeAndAfterEach }
 import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.concurrent.{ Await, Future, Promise }
@@ -206,9 +210,7 @@ object TypedActorSpec {
   class FI extends F { def f(pow: Boolean): Int = if (pow) throw new IllegalStateException("expected") else 1 }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
-class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
-  with BeforeAndAfterEach with BeforeAndAfterAll with DefaultTimeout {
+class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)  with DefaultTimeout {
 
   import TypedActorSpec._
 
@@ -224,129 +226,128 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
     TypedActor(system).typedActorOf(
       TypedProps[StackedImpl](classOf[Stacked], classOf[StackedImpl]).withTimeout(timeout))
 
-  def mustStop(typedActor: AnyRef) = TypedActor(system).stop(typedActor) must be(true)
+  assertThat(def mustStop(typedActor: AnyRef) = TypedActor(system).stop(typedActor), equalTo(true))
 
-  "TypedActors" must {
 
-    "be able to instantiate" in {
+    @Test def `must be able to instantiate`: Unit = {
       val t = newFooBar
-      TypedActor(system).isTypedActor(t) must be(true)
+      assertThat(TypedActor(system).isTypedActor(t), equalTo(true))
       mustStop(t)
     }
 
-    "be able to stop" in {
+    @Test def `must be able to stop`: Unit = {
       val t = newFooBar
       mustStop(t)
     }
 
-    "not stop non-started ones" in {
-      TypedActor(system).stop(null) must be(false)
+    @Test def `must not stop non-started ones`: Unit = {
+      assertThat(TypedActor(system).stop(null), equalTo(false))
     }
 
-    "throw an IllegalStateExcpetion when TypedActor.self is called in the wrong scope" in {
+    @Test def `must throw an IllegalStateExcpetion when TypedActor.self is called in the wrong scope`: Unit = {
       filterEvents(EventFilter[IllegalStateException]("Calling")) {
         (intercept[IllegalStateException] {
           TypedActor.self[Foo]
-        }).getMessage must equal("Calling TypedActor.self outside of a TypedActor implementation method!")
+        assertThat(}).getMessage, equalTo("Calling TypedActor.self outside of a TypedActor implementation method!"))
       }
     }
 
-    "have access to itself when executing a method call" in {
+    @Test def `must have access to itself when executing a method call`: Unit = {
       val t = newFooBar
-      t.self must be(t)
+      assertThat(t.self, equalTo(t))
       mustStop(t)
     }
 
-    "be able to call toString" in {
+    @Test def `must be able to call toString`: Unit = {
       val t = newFooBar
-      t.toString must be(TypedActor(system).getActorRefFor(t).toString)
+      assertThat(t.toString, equalTo(TypedActor(system).getActorRefFor(t).toString))
       mustStop(t)
     }
 
-    "be able to call equals" in {
+    @Test def `must be able to call equals`: Unit = {
       val t = newFooBar
-      t must equal(t)
+      assertThat(t, equalTo(t))
       t must not equal (null)
       mustStop(t)
     }
 
-    "be able to call hashCode" in {
+    @Test def `must be able to call hashCode`: Unit = {
       val t = newFooBar
-      t.hashCode must be(TypedActor(system).getActorRefFor(t).hashCode)
+      assertThat(t.hashCode, equalTo(TypedActor(system).getActorRefFor(t).hashCode))
       mustStop(t)
     }
 
-    "be able to call user-defined void-methods" in {
+    @Test def `must be able to call user-defined void-methods`: Unit = {
       val t = newFooBar
       t.incr()
-      t.read() must be(1)
+      assertThat(t.read(), equalTo(1))
       t.incr()
-      t.read() must be(2)
-      t.read() must be(2)
+      assertThat(t.read(), equalTo(2))
+      assertThat(t.read(), equalTo(2))
       mustStop(t)
     }
 
-    "be able to call normally returning methods" in {
+    @Test def `must be able to call normally returning methods`: Unit = {
       val t = newFooBar
-      t.pigdog() must be("Pigdog")
+      assertThat(t.pigdog(), equalTo("Pigdog"))
       mustStop(t)
     }
 
-    "be able to call null returning methods" in {
+    @Test def `must be able to call null returning methods`: Unit = {
       val t = newFooBar
-      t.nullJOption() must be === JOption.none
+      assertThat(t.nullJOption(), equalTo(JOption.none))
       t.nullOption() must be === None
-      t.nullReturn() must be === null
+      assertThat(t.nullReturn(), equalTo(null))
       Await.result(t.nullFuture(), timeout.duration) must be === null
     }
 
-    "be able to call Future-returning methods non-blockingly" in {
+    @Test def `must be able to call Future-returning methods non-blockingly`: Unit = {
       val t = newFooBar
       val f = t.futurePigdog(200 millis)
-      f.isCompleted must be(false)
-      Await.result(f, timeout.duration) must be("Pigdog")
+      assertThat(f.isCompleted, equalTo(false))
+      assertThat(Await.result(f, timeout.duration), equalTo("Pigdog"))
       mustStop(t)
     }
 
-    "be able to call multiple Future-returning methods non-blockingly" in within(timeout.duration) {
+    @Test def `must be able to call multiple Future-returning methods non-blockingly`: Unit = within(timeout.duration) {
       val t = newFooBar
       val futures = for (i ← 1 to 20) yield (i, t.futurePigdog(20 millis, i))
       for ((i, f) ← futures) {
-        Await.result(f, remaining) must be("Pigdog" + i)
+        assertThat(Await.result(f, remaining), equalTo("Pigdog" + i))
       }
       mustStop(t)
     }
 
-    "be able to call methods returning Java Options" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must be able to call methods returning Java Options`: Unit = {
       val t = newFooBar(1 second)
-      t.joptionPigdog(100 millis).get must be("Pigdog")
-      t.joptionPigdog(2 seconds) must be(JOption.none[String])
+      assertThat(t.joptionPigdog(100 millis).get, equalTo("Pigdog"))
+      assertThat(t.joptionPigdog(2 seconds), equalTo(JOption.none[String]))
       mustStop(t)
     }
 
-    "be able to handle AskTimeoutException as None" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must be able to handle AskTimeoutException as None`: Unit = {
       val t = newFooBar(200 millis)
-      t.joptionPigdog(600 millis) must be(JOption.none[String])
+      assertThat(t.joptionPigdog(600 millis), equalTo(JOption.none[String]))
       mustStop(t)
     }
 
-    "be able to call methods returning Scala Options" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must be able to call methods returning Scala Options`: Unit = {
       val t = newFooBar(1 second)
-      t.optionPigdog(100 millis).get must be("Pigdog")
-      t.optionPigdog(2 seconds) must be(None)
+      assertThat(t.optionPigdog(100 millis).get, equalTo("Pigdog"))
+      assertThat(t.optionPigdog(2 seconds), equalTo(None))
       mustStop(t)
     }
 
-    "be able to compose futures without blocking" in within(timeout.duration) {
+    @Test def `must be able to compose futures without blocking`: Unit = within(timeout.duration) {
       val t, t2 = newFooBar(remaining)
       val f = t.futureComposePigdogFrom(t2)
-      f.isCompleted must be(false)
-      Await.result(f, remaining) must equal("PIGDOG")
+      assertThat(f.isCompleted, equalTo(false))
+      assertThat(Await.result(f, remaining), equalTo("PIGDOG"))
       mustStop(t)
       mustStop(t2)
     }
 
-    "be able to handle exceptions when calling methods" in {
+    @Test def `must be able to handle exceptions when calling methods`: Unit = {
       filterEvents(EventFilter[IllegalStateException]("expected")) {
         val boss = system.actorOf(Props(new Actor {
           override val supervisorStrategy = OneForOneStrategy() {
@@ -362,13 +363,13 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
         t.failingPigdog()
         t.read() must be(1) //Make sure state is not reset after failure
 
-        intercept[IllegalStateException] { Await.result(t.failingFuturePigdog, 2 seconds) }.getMessage must be("expected")
+        assertThat(intercept[IllegalStateException] { Await.result(t.failingFuturePigdog, 2 seconds) }.getMessage, equalTo("expected"))
         t.read() must be(1) //Make sure state is not reset after failure
 
-        (intercept[IllegalStateException] { t.failingJOptionPigdog }).getMessage must be("expected")
+        assertThat((intercept[IllegalStateException] { t.failingJOptionPigdog }).getMessage, equalTo("expected"))
         t.read() must be(1) //Make sure state is not reset after failure
 
-        (intercept[IllegalStateException] { t.failingOptionPigdog }).getMessage must be("expected")
+        assertThat((intercept[IllegalStateException] { t.failingOptionPigdog }).getMessage, equalTo("expected"))
 
         t.read() must be(1) //Make sure state is not reset after failure
 
@@ -376,57 +377,57 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
       }
     }
 
-    "be restarted on failure" in {
+    @Test def `must be restarted on failure`: Unit = {
       filterEvents(EventFilter[IllegalStateException]("expected")) {
         val t = newFooBar(Duration(2, "s"))
-        intercept[IllegalStateException] { t.failingOptionPigdog() }.getMessage must be === "expected"
+        assertThat(intercept[IllegalStateException] { t.failingOptionPigdog() }.getMessage, equalTo("expected"))
         t.optionPigdog() must be === Some("Pigdog")
         mustStop(t)
 
         val ta: F = TypedActor(system).typedActorOf(TypedProps[FI]())
-        intercept[IllegalStateException] { ta.f(true) }.getMessage must be === "expected"
+        assertThat(intercept[IllegalStateException] { ta.f(true) }.getMessage, equalTo("expected"))
         ta.f(false) must be === 1
 
         mustStop(ta)
       }
     }
 
-    "be able to support stacked traits for the interface part" in {
+    @Test def `must be able to support stacked traits for the interface part`: Unit = {
       val t = newStacked()
-      t.notOverriddenStacked must be("foobar")
-      t.stacked must be("FOOBAR")
+      assertThat(t.notOverriddenStacked, equalTo("foobar"))
+      assertThat(t.stacked, equalTo("FOOBAR"))
       mustStop(t)
     }
 
-    "be able to support implementation only typed actors" in within(timeout.duration) {
+    @Test def `must be able to support implementation only typed actors`: Unit = within(timeout.duration) {
       val t: Foo = TypedActor(system).typedActorOf(TypedProps[Bar]())
       val f = t.futurePigdog(200 millis)
       val f2 = t.futurePigdog(Duration.Zero)
-      f2.isCompleted must be(false)
-      f.isCompleted must be(false)
-      Await.result(f, remaining) must equal(Await.result(f2, remaining))
+      assertThat(f2.isCompleted, equalTo(false))
+      assertThat(f.isCompleted, equalTo(false))
+      assertThat(Await.result(f, remaining), equalTo(Await.result(f2, remaining)))
       mustStop(t)
     }
 
-    "be able to support implementation only typed actors with complex interfaces" in {
+    @Test def `must be able to support implementation only typed actors with complex interfaces`: Unit = {
       val t: Stackable1 with Stackable2 = TypedActor(system).typedActorOf(TypedProps[StackedImpl]())
-      t.stackable1 must be("foo")
-      t.stackable2 must be("bar")
+      assertThat(t.stackable1, equalTo("foo"))
+      assertThat(t.stackable2, equalTo("bar"))
       mustStop(t)
     }
 
-    "be able to use balancing dispatcher" in within(timeout.duration) {
+    @Test def `must be able to use balancing dispatcher`: Unit = within(timeout.duration) {
       val thais = for (i ← 1 to 60) yield newFooBar("pooled-dispatcher", 6 seconds)
       val iterator = new CyclicIterator(thais)
 
       val results = for (i ← 1 to 120) yield (i, iterator.next.futurePigdog(200 millis, i))
 
-      for ((i, r) ← results) Await.result(r, remaining) must be("Pigdog" + i)
+      assertThat(for ((i, r) ← results) Await.result(r, remaining), equalTo("Pigdog" + i))
 
       for (t ← thais) mustStop(t)
     }
 
-    "be able to serialize and deserialize invocations" in {
+    @Test def `must be able to serialize and deserialize invocations`: Unit = {
       import java.io._
       JavaSerializer.currentSystem.withValue(system.asInstanceOf[ExtendedActorSystem]) {
         val m = TypedActor.MethodCall(classOf[Foo].getDeclaredMethod("pigdog"), Array[AnyRef]())
@@ -440,11 +441,11 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
 
         val mNew = in.readObject().asInstanceOf[TypedActor.MethodCall]
 
-        mNew.method must be(m.method)
+        assertThat(mNew.method, equalTo(m.method))
       }
     }
 
-    "be able to serialize and deserialize invocations' parameters" in {
+    @Test def `must be able to serialize and deserialize invocations' parameters`: Unit = {
       import java.io._
       val someFoo: Foo = new Bar
       JavaSerializer.currentSystem.withValue(system.asInstanceOf[ExtendedActorSystem]) {
@@ -459,22 +460,22 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
 
         val mNew = in.readObject().asInstanceOf[TypedActor.MethodCall]
 
-        mNew.method must be(m.method)
+        assertThat(mNew.method, equalTo(m.method))
         mNew.parameters must have size 3
         mNew.parameters(0) must not be null
-        mNew.parameters(0).getClass must be === classOf[Bar]
-        mNew.parameters(1) must be(null)
+        assertThat(mNew.parameters(0).getClass, equalTo(classOf[Bar]))
+        assertThat(mNew.parameters(1), equalTo(null))
         mNew.parameters(2) must not be null
-        mNew.parameters(2).asInstanceOf[Int] must be === 1
+        assertThat(mNew.parameters(2).asInstanceOf[Int], equalTo(1))
       }
     }
 
-    "be able to serialize and deserialize proxies" in {
+    @Test def `must be able to serialize and deserialize proxies`: Unit = {
       import java.io._
       JavaSerializer.currentSystem.withValue(system.asInstanceOf[ExtendedActorSystem]) {
         val t = newFooBar(Duration(2, "s"))
 
-        t.optionPigdog() must be === Some("Pigdog")
+        assertThat(t.optionPigdog(), equalTo(Some("Pigdog")))
 
         val baos = new ByteArrayOutputStream(8192 * 4)
         val out = new ObjectOutputStream(baos)
@@ -486,15 +487,15 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
 
         val tNew = in.readObject().asInstanceOf[Foo]
 
-        tNew must be === t
+        assertThat(tNew, equalTo(t))
 
-        tNew.optionPigdog() must be === Some("Pigdog")
+        assertThat(tNew.optionPigdog(), equalTo(Some("Pigdog")))
 
         mustStop(t)
       }
     }
 
-    "be able to override lifecycle callbacks" in {
+    @Test def `must be able to override lifecycle callbacks`: Unit = {
       val latch = new CountDownLatch(16)
       val ta = TypedActor(system)
       val t: LifeCycles = ta.typedActorOf(TypedProps[LifeCyclesImpl](classOf[LifeCycles], new LifeCyclesImpl(latch)))
@@ -512,7 +513,6 @@ class TypedActorSpec extends AkkaSpec(TypedActorSpec.config)
       //Done with that now
 
       ta.poisonPill(t)
-      latch.await(10, TimeUnit.SECONDS) must be === true
+      assertThat(latch.await(10, TimeUnit.SECONDS), equalTo(true))
     }
   }
-}

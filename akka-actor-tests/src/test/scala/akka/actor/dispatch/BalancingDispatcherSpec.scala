@@ -1,9 +1,12 @@
 package akka.actor.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.{ TimeUnit, CountDownLatch }
 
 import org.junit.runner.RunWith
-import org.scalatest.junit.JUnitRunner
 
 import akka.actor.{ Props, ActorRefWithCell, ActorCell, Actor }
 import akka.dispatch.Mailbox
@@ -18,7 +21,6 @@ object BalancingDispatcherSpec {
     """
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class BalancingDispatcherSpec extends AkkaSpec(BalancingDispatcherSpec.config) {
 
   val delayableActorDispatcher = "pooled-dispatcher"
@@ -51,8 +53,7 @@ class BalancingDispatcherSpec extends AkkaSpec(BalancingDispatcherSpec.config) {
   class ChildActor extends ParentActor {
   }
 
-  "A BalancingDispatcher" must {
-    "have fast actor stealing work from slow actor" in {
+      @Test def `must have fast actor stealing work from slow actor`: Unit = {
       val finishedCounter = new CountDownLatch(110)
 
       val slow = system.actorOf(Props(new DelayableActor(50, finishedCounter)).withDispatcher(delayableActorDispatcher)).asInstanceOf[ActorRefWithCell]
@@ -80,8 +81,8 @@ class BalancingDispatcherSpec extends AkkaSpec(BalancingDispatcherSpec.config) {
       }
 
       finishedCounter.await(5, TimeUnit.SECONDS)
-      fast.underlying.asInstanceOf[ActorCell].mailbox.asInstanceOf[Mailbox].hasMessages must be(false)
-      slow.underlying.asInstanceOf[ActorCell].mailbox.asInstanceOf[Mailbox].hasMessages must be(false)
+      assertThat(fast.underlying.asInstanceOf[ActorCell].mailbox.asInstanceOf[Mailbox].hasMessages, equalTo(false))
+      assertThat(slow.underlying.asInstanceOf[ActorCell].mailbox.asInstanceOf[Mailbox].hasMessages, equalTo(false))
       fast.underlying.asInstanceOf[ActorCell].actor.asInstanceOf[DelayableActor].invocationCount must be > sentToFast
       fast.underlying.asInstanceOf[ActorCell].actor.asInstanceOf[DelayableActor].invocationCount must be >
         (slow.underlying.asInstanceOf[ActorCell].actor.asInstanceOf[DelayableActor].invocationCount)
@@ -89,4 +90,3 @@ class BalancingDispatcherSpec extends AkkaSpec(BalancingDispatcherSpec.config) {
       system.stop(fast)
     }
   }
-}

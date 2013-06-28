@@ -3,6 +3,10 @@
  */
 package akka.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.concurrent.Await
 
 import akka.actor.Actor
@@ -47,20 +51,18 @@ object ConsistentHashingRouterSpec {
   case class Msg2(key: Any, data: String)
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ConsistentHashingRouterSpec extends AkkaSpec(ConsistentHashingRouterSpec.config) with DefaultTimeout with ImplicitSender {
   import akka.routing.ConsistentHashingRouterSpec._
   implicit val ec = system.dispatcher
 
   val router1 = system.actorOf(Props[Echo].withRouter(FromConfig()), "router1")
 
-  "consistent hashing router" must {
-    "create routees from configuration" in {
+      @Test def `must create routees from configuration`: Unit = {
       val currentRoutees = Await.result(router1 ? CurrentRoutees, remaining).asInstanceOf[RouterRoutees]
-      currentRoutees.routees.size must be(3)
+      assertThat(currentRoutees.routees.size, equalTo(3))
     }
 
-    "select destination based on consistentHashKey of the message" in {
+    @Test def `must select destination based on consistentHashKey of the message`: Unit = {
       router1 ! Msg("a", "A")
       val destinationA = expectMsgType[ActorRef]
       router1 ! ConsistentHashableEnvelope(message = "AA", hashKey = "a")
@@ -77,7 +79,7 @@ class ConsistentHashingRouterSpec extends AkkaSpec(ConsistentHashingRouterSpec.c
       expectMsg(destinationC)
     }
 
-    "select destination with defined consistentHashRoute" in {
+    @Test def `must select destination with defined consistentHashRoute`: Unit = {
       def hashMapping: ConsistentHashMapping = {
         case Msg2(key, data) ⇒ key
       }
@@ -100,5 +102,3 @@ class ConsistentHashingRouterSpec extends AkkaSpec(ConsistentHashingRouterSpec.c
       expectMsg(destinationC)
     }
   }
-
-}

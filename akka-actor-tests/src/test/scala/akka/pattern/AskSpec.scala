@@ -3,6 +3,10 @@
  */
 package akka.pattern
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.AkkaSpec
@@ -15,59 +19,56 @@ import akka.actor.{ Actor, Props, ActorRef }
 
 class AskSpec extends AkkaSpec {
 
-  "The “ask” pattern" must {
-
-    "return broken promises on DeadLetters" in {
+  
+    @Test def `must return broken promises on DeadLetters`: Unit = {
       implicit val timeout = Timeout(5 seconds)
       val dead = system.actorFor("/system/deadLetters")
       val f = dead.ask(42)(1 second)
-      f.isCompleted must be(true)
+      assertThat(f.isCompleted, equalTo(true))
       f.value.get match {
         case Failure(_: AskTimeoutException) ⇒
         case v                               ⇒ fail(v + " was not Left(AskTimeoutException)")
       }
     }
 
-    "return broken promises on EmptyLocalActorRefs" in {
+    @Test def `must return broken promises on EmptyLocalActorRefs`: Unit = {
       implicit val timeout = Timeout(5 seconds)
       val empty = system.actorFor("unknown")
       val f = empty ? 3.14
-      f.isCompleted must be(true)
+      assertThat(f.isCompleted, equalTo(true))
       f.value.get match {
         case Failure(_: AskTimeoutException) ⇒
         case v                               ⇒ fail(v + " was not Left(AskTimeoutException)")
       }
     }
 
-    "return broken promises on unsupported ActorRefs" in {
+    @Test def `must return broken promises on unsupported ActorRefs`: Unit = {
       implicit val timeout = Timeout(5 seconds)
       val f = ask(null: ActorRef, 3.14)
-      f.isCompleted must be(true)
+      assertThat(f.isCompleted, equalTo(true))
       intercept[IllegalArgumentException] {
         Await.result(f, remaining)
-      }.getMessage must be === "Unsupported recipient ActorRef type, question not sent to [null]"
+      assertThat(}.getMessage, equalTo("Unsupported recipient ActorRef type, question not sent to [null]"))
     }
 
-    "return broken promises on 0 timeout" in {
+    @Test def `must return broken promises on 0 timeout`: Unit = {
       implicit val timeout = Timeout(0 seconds)
       val echo = system.actorOf(Props(new Actor { def receive = { case x ⇒ sender ! x } }))
       val f = echo ? "foo"
       val expectedMsg = "Timeout length must not be negative, question not sent to [%s]" format echo
       intercept[IllegalArgumentException] {
         Await.result(f, remaining)
-      }.getMessage must be === expectedMsg
+      assertThat(}.getMessage, equalTo(expectedMsg))
     }
 
-    "return broken promises on < 0 timeout" in {
+    @Test def `must return broken promises on < 0 timeout`: Unit = {
       implicit val timeout = Timeout(-1000 seconds)
       val echo = system.actorOf(Props(new Actor { def receive = { case x ⇒ sender ! x } }))
       val f = echo ? "foo"
       val expectedMsg = "Timeout length must not be negative, question not sent to [%s]" format echo
       intercept[IllegalArgumentException] {
         Await.result(f, remaining)
-      }.getMessage must be === expectedMsg
+      assertThat(}.getMessage, equalTo(expectedMsg))
     }
 
   }
-
-}

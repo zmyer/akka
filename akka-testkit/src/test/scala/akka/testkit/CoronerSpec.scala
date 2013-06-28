@@ -3,17 +3,18 @@
  */
 package akka.testkit
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.io._
 import java.lang.management.ManagementFactory
 import java.util.concurrent.Semaphore
 import java.util.concurrent.locks.ReentrantLock
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
 import scala.concurrent.duration._
 import scala.concurrent.Await
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
-class CoronerSpec extends WordSpec with MustMatchers {
+class CoronerSpec {
 
   private def captureOutput[A](f: PrintStream ⇒ A): (A, String) = {
     val bytes = new ByteArrayOutputStream()
@@ -22,9 +23,8 @@ class CoronerSpec extends WordSpec with MustMatchers {
     (result, new String(bytes.toByteArray(), "UTF-8"))
   }
 
-  "A Coroner" must {
-
-    "generate a report if enough time passes" in {
+  
+    @Test def `must generate a report if enough time passes`: Unit = {
       val (_, report) = captureOutput(out ⇒ {
         val coroner = Coroner.watch(100.milliseconds, "XXXX", out)
         Await.ready(coroner, 5.seconds)
@@ -34,16 +34,16 @@ class CoronerSpec extends WordSpec with MustMatchers {
       report must include("XXXX")
     }
 
-    "not generate a report if cancelled early" in {
+    @Test def `must not generate a report if cancelled early`: Unit = {
       val (_, report) = captureOutput(out ⇒ {
         val coroner = Coroner.watch(60.seconds, "XXXX", out)
         coroner.cancel()
         Await.ready(coroner, 1.seconds)
       })
-      report must be("")
+      assertThat(report, equalTo(""))
     }
 
-    "display thread counts if enabled" in {
+    @Test def `must display thread counts if enabled`: Unit = {
       val (_, report) = captureOutput(out ⇒ {
         val coroner = Coroner.watch(60.seconds, "XXXX", out, displayThreadCounts = true)
         coroner.cancel()
@@ -55,7 +55,7 @@ class CoronerSpec extends WordSpec with MustMatchers {
       report must not include ("Coroner's Report")
     }
 
-    "display deadlock information in its report" in {
+    @Test def `must display deadlock information in its report`: Unit = {
 
       // Create two threads that each recursively synchronize on a list of
       // objects. Give each thread the same objects, but in reversed order.
@@ -136,4 +136,3 @@ class CoronerSpec extends WordSpec with MustMatchers {
     }
 
   }
-}

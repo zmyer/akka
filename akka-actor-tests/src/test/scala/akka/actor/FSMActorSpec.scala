@@ -4,8 +4,11 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
-import org.scalatest.{ BeforeAndAfterAll, BeforeAndAfterEach }
 import akka.testkit._
 import TestEvent.Mute
 import scala.concurrent.duration._
@@ -13,9 +16,6 @@ import akka.event._
 import com.typesafe.config.ConfigFactory
 import scala.concurrent.Await
 import akka.util.Timeout
-import org.scalatest.matchers.Matcher
-import org.scalatest.matchers.HavePropertyMatcher
-import org.scalatest.matchers.HavePropertyMatchResult
 
 object FSMActorSpec {
   val timeout = Timeout(2 seconds)
@@ -67,7 +67,7 @@ object FSMActorSpec {
 
     whenUnhandled {
       case Event(msg, _) ⇒ {
-        log.warning("unhandled event " + msg + " in state " + stateName + " with data " + stateData)
+        log.warning(@Test def `must unhandled event " + msg + `: Unit = state " + stateName + " with data " + stateData)
         unhandledLatch.open
         stay
       }
@@ -101,13 +101,11 @@ object FSMActorSpec {
   case class CodeState(soFar: String, code: String)
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with ImplicitSender {
   import FSMActorSpec._
 
-  "An FSM Actor" must {
-
-    "unlock the lock" in {
+  
+    @Test def `must unlock the lock`: Unit = {
 
       import FSM.{ Transition, CurrentState, SubscribeTransitionCallBack }
 
@@ -160,7 +158,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       Await.ready(terminatedLatch, timeout.duration)
     }
 
-    "log termination" in {
+    @Test def `must log termination`: Unit = {
       val fsm = TestActorRef(new Actor with FSM[Int, Null] {
         startWith(1, null)
         when(1) {
@@ -178,7 +176,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       }
     }
 
-    "run onTermination upon ActorRef.stop()" in {
+    @Test def `must run onTermination upon ActorRef.stop()`: Unit = {
       val started = TestLatch(1)
       /*
        * This lazy val trick is beyond evil: KIDS, DON'T TRY THIS AT HOME!
@@ -198,7 +196,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       expectMsg(1 second, fsm.StopEvent(FSM.Shutdown, 1, null))
     }
 
-    "run onTermination with updated state upon stop(reason, stateData)" in {
+    @Test def `must run onTermination with updated state upon stop(reason, stateData)`: Unit = {
       val expected = "pigdog"
       val actor = system.actorOf(Props(new Actor with FSM[Int, String] {
         startWith(1, null)
@@ -213,7 +211,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       expectMsg("green")
     }
 
-    "cancel all timers when terminated" in {
+    @Test def `must cancel all timers when terminated`: Unit = {
       val timerNames = List("timer-1", "timer-2", "timer-3")
 
       // Lazy so fsmref can refer to checkTimersActive
@@ -238,8 +236,8 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       })
 
       def checkTimersActive(active: Boolean) {
-        for (timer ← timerNames) fsmref.isTimerActive(timer) must be(active)
-        fsmref.isStateTimerActive must be(active)
+        assertThat(for (timer ← timerNames) fsmref.isTimerActive(timer), equalTo(active))
+        assertThat(fsmref.isStateTimerActive, equalTo(active))
       }
 
       checkTimersActive(false)
@@ -252,7 +250,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       expectMsg(1 second, "stopped")
     }
 
-    "log events and transitions if asked to do so" in {
+    @Test def `must log events and transitions if asked to do so`: Unit = {
       import scala.collection.JavaConverters._
       val config = ConfigFactory.parseMap(Map("akka.loglevel" -> "DEBUG",
         "akka.actor.debug.fsm" -> true).asJava).withFallback(system.settings.config)
@@ -299,7 +297,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       }
     }
 
-    "fill rolling event log and hand it out" in {
+    @Test def `must fill rolling event log and hand it out`: Unit = {
       val fsmref = TestActorRef(new Actor with LoggingFSM[Int, Int] {
         override def logDepth = 3
         startWith(1, 0)
@@ -320,7 +318,7 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
       expectMsg(1 second, IndexedSeq(LogEntry(1, 1, "log"), LogEntry(1, 1, "count"), LogEntry(1, 2, "log")))
     }
 
-    "allow transforming of state results" in {
+    @Test def `must allow transforming of state results`: Unit = {
       import akka.actor.FSM._
       val fsmref = system.actorOf(Props(new Actor with FSM[Int, Int] {
         startWith(0, 0)
@@ -340,5 +338,3 @@ class FSMActorSpec extends AkkaSpec(Map("akka.actor.debug.fsm" -> true)) with Im
     }
 
   }
-
-}

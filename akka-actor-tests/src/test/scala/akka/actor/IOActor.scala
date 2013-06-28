@@ -235,7 +235,6 @@ object IOActorSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class IOActorSpec extends AkkaSpec with DefaultTimeout {
   import IOActorSpec._
 
@@ -282,8 +281,7 @@ class IOActorSpec extends AkkaSpec with DefaultTimeout {
     promise.future
   }
 
-  "an IO Actor" must {
-    import system.dispatcher
+      import system.dispatcher
     "run echo server" in {
       filterException[java.net.ConnectException] {
         val addressPromise = Promise[SocketAddress]()

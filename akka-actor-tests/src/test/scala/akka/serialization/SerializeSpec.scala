@@ -4,6 +4,10 @@
 
 package akka.serialization
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.{ AkkaSpec, EventFilter }
@@ -129,7 +133,6 @@ object SerializationTests {
     NoMessage.getClass)
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SerializeSpec extends AkkaSpec(SerializationTests.serializeConf) {
   import SerializationTests._
 
@@ -139,27 +142,26 @@ class SerializeSpec extends AkkaSpec(SerializationTests.serializeConf) {
   val addr = Address("120", "Monroe Street", "Santa Clara", "95050")
   val person = Person("debasish ghosh", 25, Address("120", "Monroe Street", "Santa Clara", "95050"))
 
-  "Serialization" must {
-
-    "have correct bindings" in {
-      ser.bindings.collectFirst { case (c, s) if c == addr.getClass ⇒ s.getClass } must be(Some(classOf[JavaSerializer]))
-      ser.bindings.collectFirst { case (c, s) if c == classOf[PlainMessage] ⇒ s.getClass } must be(Some(classOf[TestSerializer]))
+  
+    @Test def `must have correct bindings`: Unit = {
+      assertThat(ser.bindings.collectFirst { case (c, s) if c == addr.getClass ⇒ s.getClass }, equalTo(Some(classOf[JavaSerializer])))
+      assertThat(ser.bindings.collectFirst { case (c, s) if c == classOf[PlainMessage] ⇒ s.getClass }, equalTo(Some(classOf[TestSerializer])))
     }
 
-    "serialize Address" in {
+    @Test def `must serialize Address`: Unit = {
       assert(deserialize(serialize(addr).get, classOf[Address]).get === addr)
     }
 
-    "serialize Person" in {
+    @Test def `must serialize Person`: Unit = {
       assert(deserialize(serialize(person).get, classOf[Person]).get === person)
     }
 
-    "serialize record with default serializer" in {
+    @Test def `must serialize record with default serializer`: Unit = {
       val r = Record(100, person)
       assert(deserialize(serialize(r).get, classOf[Record]).get === r)
     }
 
-    "not serialize ActorCell" in {
+    @Test def `must not serialize ActorCell`: Unit = {
       val a = system.actorOf(Props(new Actor {
         def receive = {
           case o: ObjectOutputStream ⇒
@@ -171,7 +173,7 @@ class SerializeSpec extends AkkaSpec(SerializationTests.serializeConf) {
       system.stop(a)
     }
 
-    "serialize DeadLetterActorRef" in {
+    @Test def `must serialize DeadLetterActorRef`: Unit = {
       val outbuf = new ByteArrayOutputStream()
       val out = new ObjectOutputStream(outbuf)
       val a = ActorSystem("SerializeDeadLeterActorRef", AkkaSpec.testConf)
@@ -183,88 +185,87 @@ class SerializeSpec extends AkkaSpec(SerializationTests.serializeConf) {
         val in = new ObjectInputStream(new ByteArrayInputStream(outbuf.toByteArray))
         JavaSerializer.currentSystem.withValue(a.asInstanceOf[ActorSystemImpl]) {
           val deadLetters = in.readObject().asInstanceOf[DeadLetterActorRef]
-          (deadLetters eq a.deadLetters) must be(true)
+          assertThat((deadLetters eq a.deadLetters), equalTo(true))
         }
       } finally {
         shutdown(a)
       }
     }
 
-    "resolve serializer by direct interface" in {
-      ser.serializerFor(classOf[SimpleMessage]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer by direct interface`: Unit = {
+      assertThat(ser.serializerFor(classOf[SimpleMessage]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "resolve serializer by interface implemented by super class" in {
-      ser.serializerFor(classOf[ExtendedSimpleMessage]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer by interface implemented by super class`: Unit = {
+      assertThat(ser.serializerFor(classOf[ExtendedSimpleMessage]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "resolve serializer by indirect interface" in {
-      ser.serializerFor(classOf[AnotherMessage]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer by indirect interface`: Unit = {
+      assertThat(ser.serializerFor(classOf[AnotherMessage]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "resolve serializer by indirect interface implemented by super class" in {
-      ser.serializerFor(classOf[ExtendedAnotherMessage]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer by indirect interface implemented by super class`: Unit = {
+      assertThat(ser.serializerFor(classOf[ExtendedAnotherMessage]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "resolve serializer for message with binding" in {
-      ser.serializerFor(classOf[PlainMessage]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer for message with binding`: Unit = {
+      assertThat(ser.serializerFor(classOf[PlainMessage]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "resolve serializer for message extending class with with binding" in {
-      ser.serializerFor(classOf[ExtendedPlainMessage]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer for message extending class with with binding`: Unit = {
+      assertThat(ser.serializerFor(classOf[ExtendedPlainMessage]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "give warning for message with several bindings" in {
+    @Test def `must give warning for message with several bindings`: Unit = {
       EventFilter.warning(start = "Multiple serializers found", occurrences = 1) intercept {
         ser.serializerFor(classOf[Both]).getClass must (be(classOf[TestSerializer]) or be(classOf[JavaSerializer]))
       }
     }
 
-    "resolve serializer in the order of the bindings" in {
-      ser.serializerFor(classOf[A]).getClass must be(classOf[JavaSerializer])
-      ser.serializerFor(classOf[B]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer in the order of the bindings`: Unit = {
+      assertThat(ser.serializerFor(classOf[A]).getClass, equalTo(classOf[JavaSerializer]))
+      assertThat(ser.serializerFor(classOf[B]).getClass, equalTo(classOf[TestSerializer]))
       EventFilter.warning(start = "Multiple serializers found", occurrences = 1) intercept {
         ser.serializerFor(classOf[C]).getClass must (be(classOf[TestSerializer]) or be(classOf[JavaSerializer]))
       }
     }
 
-    "resolve serializer in the order of most specific binding first" in {
-      ser.serializerFor(classOf[A]).getClass must be(classOf[JavaSerializer])
-      ser.serializerFor(classOf[D]).getClass must be(classOf[TestSerializer])
-      ser.serializerFor(classOf[E]).getClass must be(classOf[TestSerializer])
+    @Test def `must resolve serializer in the order of most specific binding first`: Unit = {
+      assertThat(ser.serializerFor(classOf[A]).getClass, equalTo(classOf[JavaSerializer]))
+      assertThat(ser.serializerFor(classOf[D]).getClass, equalTo(classOf[TestSerializer]))
+      assertThat(ser.serializerFor(classOf[E]).getClass, equalTo(classOf[TestSerializer]))
     }
 
-    "throw java.io.NotSerializableException when no binding" in {
+    @Test def `must throw java.io.NotSerializableException when no binding`: Unit = {
       intercept[java.io.NotSerializableException] {
         ser.serializerFor(classOf[Actor])
       }
     }
 
-    "use ByteArraySerializer for byte arrays" in {
+    @Test def `must use ByteArraySerializer for byte arrays`: Unit = {
       val byteSerializer = ser.serializerFor(classOf[Array[Byte]])
-      byteSerializer.getClass must be theSameInstanceAs classOf[ByteArraySerializer]
+      assertThat(byteSerializer.getClass, sameInstance(classOf[ByteArraySerializer]))
 
       for (a ← Seq("foo".getBytes("UTF-8"), null: Array[Byte], Array[Byte]()))
-        byteSerializer.fromBinary(byteSerializer.toBinary(a)) must be theSameInstanceAs a
+        assertThat(byteSerializer.fromBinary(byteSerializer.toBinary(a)), sameInstance(a))
 
       intercept[IllegalArgumentException] {
         byteSerializer.toBinary("pigdog")
-      }.getMessage must be === "ByteArraySerializer only serializes byte arrays, not [pigdog]"
+      assertThat(}.getMessage, equalTo("ByteArraySerializer only serializes byte arrays, not [pigdog]"))
     }
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class VerifySerializabilitySpec extends AkkaSpec(SerializationTests.verifySerializabilityConf) {
   import SerializationTests._
   implicit val timeout = Timeout(5 seconds)
 
-  "verify config" in {
-    system.settings.SerializeAllCreators must be(true)
-    system.settings.SerializeAllMessages must be(true)
+  @Test def `must verify config`: Unit = {
+    assertThat(system.settings.SerializeAllCreators, equalTo(true))
+    assertThat(system.settings.SerializeAllMessages, equalTo(true))
   }
 
-  "verify creators" in {
+  @Test def `must verify creators`: Unit = {
     val a = system.actorOf(Props[FooActor])
     system stop a
 
@@ -282,9 +283,9 @@ class VerifySerializabilitySpec extends AkkaSpec(SerializationTests.verifySerial
 
   }
 
-  "verify messages" in {
+  @Test def `must verify messages`: Unit = {
     val a = system.actorOf(Props[FooActor])
-    Await.result(a ? "pigdog", timeout.duration) must be("pigdog")
+    assertThat(Await.result(a ? "pigdog", timeout.duration), equalTo("pigdog"))
 
     EventFilter[NotSerializableException](occurrences = 1) intercept {
       a ! (new AnyRef)
@@ -293,17 +294,15 @@ class VerifySerializabilitySpec extends AkkaSpec(SerializationTests.verifySerial
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ReferenceSerializationSpec extends AkkaSpec(SerializationTests.mostlyReferenceSystem) {
   import SerializationTests._
 
   val ser = SerializationExtension(system)
   def serializerMustBe(toSerialize: Class[_], expectedSerializer: Class[_]) =
-    ser.serializerFor(toSerialize).getClass must be(expectedSerializer)
+    assertThat(ser.serializerFor(toSerialize).getClass, equalTo(expectedSerializer))
 
-  "Serialization settings from reference.conf" must {
-
-    "declare Serializable classes to be use JavaSerializer" in {
+  
+    @Test def `must declare Serializable classes to be use JavaSerializer`: Unit = {
       serializerMustBe(classOf[Serializable], classOf[JavaSerializer])
       serializerMustBe(classOf[String], classOf[JavaSerializer])
       for (smc ← systemMessageClasses) {
@@ -311,28 +310,26 @@ class ReferenceSerializationSpec extends AkkaSpec(SerializationTests.mostlyRefer
       }
     }
 
-    "declare Array[Byte] to use ByteArraySerializer" in {
+    @Test def `must declare Array[Byte] to use ByteArraySerializer`: Unit = {
       serializerMustBe(classOf[Array[Byte]], classOf[ByteArraySerializer])
     }
 
-    "not support serialization for other classes" in {
+    @Test def `must not support serialization for other classes`: Unit = {
       intercept[NotSerializableException] { ser.serializerFor(classOf[Object]) }
     }
 
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SerializationCompatibilitySpec extends AkkaSpec(SerializationTests.mostlyReferenceSystem) {
   import SerializationTests._
 
   val ser = SerializationExtension(system)
 
-  "Cross-version serialization compatibility" must {
-    def verify(obj: SystemMessage, asExpected: String): Unit =
-      String.valueOf(ser.serialize(obj).map(encodeHex).get) must be === asExpected
+      def verify(obj: SystemMessage, asExpected: String): Unit =
+      assertThat(String.valueOf(ser.serialize(obj).map(encodeHex).get), equalTo(asExpected))
 
-    "be preserved for the Create SystemMessage" in {
+    @Test def `must be preserved for the Create SystemMessage`: Unit = {
       // Using null as the cause to avoid a large serialized message and JDK differences
       verify(Create(Some(null)),
         "aced00057372001b616b6b612e64697370617463682e7379736d73672e4372656174650000000000" +
@@ -340,52 +337,52 @@ class SerializationCompatibilitySpec extends AkkaSpec(SerializationTests.mostlyR
           "63616c612e536f6d65e2a09f87fc0836ae0200014c0001787400124c6a6176612f6c616e672f4f62" +
           "6a6563743b7872000c7363616c612e4f7074696f6ee36024a8328a45e9020000787070")
     }
-    "be preserved for the Recreate SystemMessage" in {
+    @Test def `must be preserved for the Recreate SystemMessage`: Unit = {
       verify(Recreate(null),
         "aced00057372001d616b6b612e64697370617463682e7379736d73672e5265637265617465000000" +
           "00000000010200014c000563617573657400154c6a6176612f6c616e672f5468726f7761626c653b" +
           "787070")
     }
-    "be preserved for the Suspend SystemMessage" in {
+    @Test def `must be preserved for the Suspend SystemMessage`: Unit = {
       verify(Suspend(),
         "aced00057372001c616b6b612e64697370617463682e7379736d73672e53757370656e6400000000" +
           "000000010200007870")
     }
-    "be preserved for the Resume SystemMessage" in {
+    @Test def `must be preserved for the Resume SystemMessage`: Unit = {
       verify(Resume(null),
         "aced00057372001b616b6b612e64697370617463682e7379736d73672e526573756d650000000000" +
           "0000010200014c000f63617573656442794661696c7572657400154c6a6176612f6c616e672f5468" +
           "726f7761626c653b787070")
     }
-    "be preserved for the Terminate SystemMessage" in {
+    @Test def `must be preserved for the Terminate SystemMessage`: Unit = {
       verify(Terminate(),
         "aced00057372001e616b6b612e64697370617463682e7379736d73672e5465726d696e6174650000" +
           "0000000000010200007870")
     }
-    "be preserved for the Supervise SystemMessage" in {
+    @Test def `must be preserved for the Supervise SystemMessage`: Unit = {
       verify(Supervise(null, true),
         "aced00057372001e616b6b612e64697370617463682e7379736d73672e5375706572766973650000" +
           "0000000000010200025a00056173796e634c00056368696c647400154c616b6b612f6163746f722f" +
           "4163746f725265663b78700170")
     }
-    "be preserved for the Watch SystemMessage" in {
+    @Test def `must be preserved for the Watch SystemMessage`: Unit = {
       verify(Watch(null, null),
         "aced00057372001a616b6b612e64697370617463682e7379736d73672e5761746368000000000000" +
           "00010200024c00077761746368656574001d4c616b6b612f6163746f722f496e7465726e616c4163" +
           "746f725265663b4c00077761746368657271007e000178707070")
     }
-    "be preserved for the Unwatch SystemMessage" in {
+    @Test def `must be preserved for the Unwatch SystemMessage`: Unit = {
       verify(Unwatch(null, null),
         "aced00057372001c616b6b612e64697370617463682e7379736d73672e556e776174636800000000" +
           "000000010200024c0007776174636865657400154c616b6b612f6163746f722f4163746f72526566" +
           "3b4c00077761746368657271007e000178707070")
     }
-    "be preserved for the NoMessage SystemMessage" in {
+    @Test def `must be preserved for the NoMessage SystemMessage`: Unit = {
       verify(NoMessage,
         "aced00057372001f616b6b612e64697370617463682e7379736d73672e4e6f4d6573736167652400" +
           "000000000000010200007870")
     }
-    "be preserved for the Failed SystemMessage" in {
+    @Test def `must be preserved for the Failed SystemMessage`: Unit = {
       // Using null as the cause to avoid a large serialized message and JDK differences
       verify(Failed(null, cause = null, uid = 0),
         "aced00057372001b616b6b612e64697370617463682e7379736d73672e4661696c65640000000000" +
@@ -396,18 +393,16 @@ class SerializationCompatibilitySpec extends AkkaSpec(SerializationTests.mostlyR
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class OverriddenSystemMessageSerializationSpec extends AkkaSpec(SerializationTests.systemMessageMultiSerializerConf) {
   import SerializationTests._
 
   val ser = SerializationExtension(system)
 
-  "Overridden SystemMessage serialization" must {
-
-    "resolve to a single serializer" in {
+  
+    @Test def `must resolve to a single serializer`: Unit = {
       EventFilter.warning(start = "Multiple serializers found", occurrences = 0) intercept {
         for (smc ← systemMessageClasses) {
-          ser.serializerFor(smc).getClass must be(classOf[TestSerializer])
+          assertThat(ser.serializerFor(smc).getClass, equalTo(classOf[TestSerializer]))
         }
       }
     }

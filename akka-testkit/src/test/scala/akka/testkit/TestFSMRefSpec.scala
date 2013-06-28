@@ -4,19 +4,19 @@
 
 package akka.testkit
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
-import org.scalatest.matchers.MustMatchers
-import org.scalatest.{ BeforeAndAfterEach, WordSpec }
 import akka.actor._
 import scala.concurrent.duration._
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class TestFSMRefSpec extends AkkaSpec {
 
-  "A TestFSMRef" must {
-
-    "allow access to state data" in {
+  
+    @Test def `must allow access to state data`: Unit = {
       val fsm = TestFSMRef(new Actor with FSM[Int, String] {
         startWith(1, "")
         when(1) {
@@ -27,35 +27,34 @@ class TestFSMRefSpec extends AkkaSpec {
           case Event("back", _) ⇒ goto(1) using "back"
         }
       }, "test-fsm-ref-1")
-      fsm.stateName must be(1)
-      fsm.stateData must be("")
+      assertThat(fsm.stateName, equalTo(1))
+      assertThat(fsm.stateData, equalTo(""))
       fsm ! "go"
-      fsm.stateName must be(2)
-      fsm.stateData must be("go")
+      assertThat(fsm.stateName, equalTo(2))
+      assertThat(fsm.stateData, equalTo("go"))
       fsm.setState(stateName = 1)
-      fsm.stateName must be(1)
-      fsm.stateData must be("go")
+      assertThat(fsm.stateName, equalTo(1))
+      assertThat(fsm.stateData, equalTo("go"))
       fsm.setState(stateData = "buh")
-      fsm.stateName must be(1)
-      fsm.stateData must be("buh")
+      assertThat(fsm.stateName, equalTo(1))
+      assertThat(fsm.stateData, equalTo("buh"))
       fsm.setState(timeout = 100 millis)
       within(80 millis, 500 millis) {
         awaitCond(fsm.stateName == 2 && fsm.stateData == "timeout")
       }
     }
 
-    "allow access to timers" in {
+    @Test def `must allow access to timers`: Unit = {
       val fsm = TestFSMRef(new Actor with FSM[Int, Null] {
         startWith(1, null)
         when(1) {
           case x ⇒ stay
         }
       }, "test-fsm-ref-2")
-      fsm.isTimerActive("test") must be(false)
+      assertThat(fsm.isTimerActive("test"), equalTo(false))
       fsm.setTimer("test", 12, 10 millis, true)
-      fsm.isTimerActive("test") must be(true)
+      assertThat(fsm.isTimerActive("test"), equalTo(true))
       fsm.cancelTimer("test")
-      fsm.isTimerActive("test") must be(false)
+      assertThat(fsm.isTimerActive("test"), equalTo(false))
     }
   }
-}

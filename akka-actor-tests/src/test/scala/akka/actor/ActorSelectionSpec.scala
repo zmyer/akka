@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -32,7 +36,6 @@ object ActorSelectionSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTimeout {
   import ActorSelectionSpec._
 
@@ -59,8 +62,8 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
       case ActorIdentity(`selection`, ref) ⇒ ref
     }
     val asked = Await.result((selection ? Identify(selection)).mapTo[ActorIdentity], timeout.duration)
-    asked.ref must be(result)
-    asked.correlationId must be(selection)
+    assertThat(asked.ref, equalTo(result))
+    assertThat(asked.correlationId, equalTo(selection))
     result
   }
 
@@ -74,102 +77,100 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
     }
   }
 
-  "An ActorSystem" must {
-
-    "select actors by their path" in {
-      identify(c1.path) must be === Some(c1)
+  
+    @Test def `must select actors by their path`: Unit = {
+      assertThat(identify(c1.path), equalTo(Some(c1)))
       identify(c2.path) must be === Some(c2)
-      identify(c21.path) must be === Some(c21)
+      assertThat(identify(c21.path), equalTo(Some(c21)))
       identify(system / "c1") must be === Some(c1)
-      identify(system / "c2") must be === Some(c2)
+      assertThat(identify(system / "c2"), equalTo(Some(c2)))
       identify(system / "c2" / "c21") must be === Some(c21)
-      identify(system child "c2" child "c21") must be === Some(c21) // test Java API
+      assertThat(identify(system child "c2" child "c21"), equalTo(Some(c21) // test Java API))
       identify(system / Seq("c2", "c21")) must be === Some(c21)
 
       import scala.collection.JavaConverters._
       identify(system descendant Seq("c2", "c21").asJava) // test Java API
     }
 
-    "select actors by their string path representation" in {
-      identify(c1.path.toString) must be === Some(c1)
+    @Test def `must select actors by their string path representation`: Unit = {
+      assertThat(identify(c1.path.toString), equalTo(Some(c1)))
       identify(c2.path.toString) must be === Some(c2)
-      identify(c21.path.toString) must be === Some(c21)
+      assertThat(identify(c21.path.toString), equalTo(Some(c21)))
 
-      identify(c1.path.elements.mkString("/", "/", "")) must be === Some(c1)
+      assertThat(identify(c1.path.elements.mkString("/", "/", "")), equalTo(Some(c1)))
       identify(c2.path.elements.mkString("/", "/", "")) must be === Some(c2)
-      identify(c21.path.elements.mkString("/", "/", "")) must be === Some(c21)
+      assertThat(identify(c21.path.elements.mkString("/", "/", "")), equalTo(Some(c21)))
     }
 
-    "take actor incarnation into account when comparing actor references" in {
+    @Test def `must take actor incarnation into account when comparing actor references`: Unit = {
       val name = "abcdefg"
       val a1 = system.actorOf(p, name)
       watch(a1)
       a1 ! PoisonPill
-      expectMsgType[Terminated].actor must be === a1
+      assertThat(expectMsgType[Terminated].actor, equalTo(a1))
 
       // not equal because it's terminated
-      identify(a1.path) must be === None
+      assertThat(identify(a1.path), equalTo(None))
 
       val a2 = system.actorOf(p, name)
-      a2.path must be(a1.path)
-      a2.path.toString must be(a1.path.toString)
-      a2 must not be (a1)
+      assertThat(a2.path, equalTo(a1.path))
+      assertThat(a2.path.toString, equalTo(a1.path.toString))
+      assertThat(a2, not(a1))
       a2.toString must not be (a1.toString)
 
       watch(a2)
       a2 ! PoisonPill
-      expectMsgType[Terminated].actor must be === a2
+      assertThat(expectMsgType[Terminated].actor, equalTo(a2))
     }
 
-    "select actors by their root-anchored relative path" in {
-      identify(c1.path.elements.mkString("/", "/", "")) must be === Some(c1)
+    @Test def `must select actors by their root-anchored relative path`: Unit = {
+      assertThat(identify(c1.path.elements.mkString("/", "/", "")), equalTo(Some(c1)))
       identify(c2.path.elements.mkString("/", "/", "")) must be === Some(c2)
-      identify(c21.path.elements.mkString("/", "/", "")) must be === Some(c21)
+      assertThat(identify(c21.path.elements.mkString("/", "/", "")), equalTo(Some(c21)))
     }
 
-    "select actors by their relative path" in {
-      identify(c1.path.elements.mkString("/")) must be === Some(c1)
+    @Test def `must select actors by their relative path`: Unit = {
+      assertThat(identify(c1.path.elements.mkString("/")), equalTo(Some(c1)))
       identify(c2.path.elements.mkString("/")) must be === Some(c2)
-      identify(c21.path.elements.mkString("/")) must be === Some(c21)
+      assertThat(identify(c21.path.elements.mkString("/")), equalTo(Some(c21)))
     }
 
-    "select system-generated actors" in {
-      identify("/user") must be === Some(user)
+    @Test def `must select system-generated actors`: Unit = {
+      assertThat(identify("/user"), equalTo(Some(user)))
       identify("/deadLetters") must be === Some(system.deadLetters)
-      identify("/system") must be === Some(syst)
+      assertThat(identify("/system"), equalTo(Some(syst)))
       identify(syst.path) must be === Some(syst)
-      identify(syst.path.elements.mkString("/", "/", "")) must be === Some(syst)
+      assertThat(identify(syst.path.elements.mkString("/", "/", "")), equalTo(Some(syst)))
       identify("/") must be === Some(root)
-      identify("") must be === Some(root)
+      assertThat(identify(""), equalTo(Some(root)))
       identify(RootActorPath(root.path.address)) must be === Some(root)
-      identify("..") must be === Some(root)
+      assertThat(identify(".."), equalTo(Some(root)))
       identify(root.path) must be === Some(root)
-      identify(root.path.elements.mkString("/", "/", "")) must be === Some(root)
+      assertThat(identify(root.path.elements.mkString("/", "/", "")), equalTo(Some(root)))
       identify("user") must be === Some(user)
-      identify("deadLetters") must be === Some(system.deadLetters)
+      assertThat(identify("deadLetters"), equalTo(Some(system.deadLetters)))
       identify("system") must be === Some(syst)
-      identify("user/") must be === Some(user)
+      assertThat(identify("user/"), equalTo(Some(user)))
       identify("deadLetters/") must be === Some(system.deadLetters)
-      identify("system/") must be === Some(syst)
+      assertThat(identify("system/"), equalTo(Some(syst)))
     }
 
-    "return deadLetters or ActorIdentity(None), respectively, for non-existing paths" in {
+    @Test def `must return deadLetters or ActorIdentity(None), respectively, for non-existing paths`: Unit = {
+      assertThat(identify("a/b/c"), equalTo(None))
       identify("a/b/c") must be === None
-      identify("a/b/c") must be === None
-      identify("akka://all-systems/Nobody") must be === None
+      assertThat(identify("akka://all-systems/Nobody"), equalTo(None))
       identify("akka://all-systems/user") must be === None
-      identify(system / "hallo") must be === None
+      assertThat(identify(system / "hallo"), equalTo(None))
     }
 
   }
 
-  "An ActorContext" must {
-
+  
     val all = Seq(c1, c2, c21)
 
-    "select actors by their path" in {
+    @Test def `must select actors by their path`: Unit = {
       def check(looker: ActorRef, pathOf: ActorRef, result: ActorRef) {
-        askNode(looker, SelectPath(pathOf.path)) must be === Some(result)
+        assertThat(askNode(looker, SelectPath(pathOf.path)), equalTo(Some(result)))
       }
       for {
         looker ← all
@@ -177,11 +178,11 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
       } check(looker, target, target)
     }
 
-    "select actors by their string path representation" in {
+    @Test def `must select actors by their string path representation`: Unit = {
       def check(looker: ActorRef, pathOf: ActorRef, result: ActorRef) {
-        askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", ""))) must be === Some(result)
+        assertThat(askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", ""))), equalTo(Some(result)))
         // with trailing /
-        askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", "") + "/")) must be === Some(result)
+        assertThat(askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", "") + "/")), equalTo(Some(result)))
       }
       for {
         looker ← all
@@ -189,9 +190,9 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
       } check(looker, target, target)
     }
 
-    "select actors by their root-anchored relative path" in {
+    @Test def `must select actors by their root-anchored relative path`: Unit = {
       def check(looker: ActorRef, pathOf: ActorRef, result: ActorRef) {
-        askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", ""))) must be === Some(result)
+        assertThat(askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", ""))), equalTo(Some(result)))
         askNode(looker, SelectString(pathOf.path.elements.mkString("/", "/", "/"))) must be === Some(result)
       }
       for {
@@ -200,9 +201,9 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
       } check(looker, target, target)
     }
 
-    "select actors by their relative path" in {
+    @Test def `must select actors by their relative path`: Unit = {
       def check(looker: ActorRef, result: ActorRef, elems: String*) {
-        askNode(looker, SelectString(elems mkString "/")) must be === Some(result)
+        assertThat(askNode(looker, SelectString(elems mkString "/")), equalTo(Some(result)))
         askNode(looker, SelectString(elems mkString ("", "/", "/"))) must be === Some(result)
       }
       check(c1, user, "..")
@@ -215,25 +216,25 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
       check(c21, root, "..", "..", "..", "..")
     }
 
-    "find system-generated actors" in {
+    @Test def `must find system-generated actors`: Unit = {
       def check(target: ActorRef) {
         for (looker ← all) {
-          askNode(looker, SelectPath(target.path)) must be === Some(target)
+          assertThat(askNode(looker, SelectPath(target.path)), equalTo(Some(target)))
           askNode(looker, SelectString(target.path.toString)) must be === Some(target)
-          askNode(looker, SelectString(target.path.toString + "/")) must be === Some(target)
+          assertThat(askNode(looker, SelectString(target.path.toString + "/")), equalTo(Some(target)))
         }
         if (target != root)
-          askNode(c1, SelectString("../.." + target.path.elements.mkString("/", "/", "/"))) must be === Some(target)
+          assertThat(askNode(c1, SelectString("../.." + target.path.elements.mkString("/", "/", "/"))), equalTo(Some(target)))
       }
       for (target ← Seq(root, syst, user)) check(target)
     }
 
-    "return deadLetters or ActorIdentity(None), respectively, for non-existing paths" in {
+    @Test def `must return deadLetters or ActorIdentity(None), respectively, for non-existing paths`: Unit = {
       import scala.collection.JavaConverters._
 
       def checkOne(looker: ActorRef, query: Query, result: Option[ActorRef]) {
         val lookup = askNode(looker, query)
-        lookup must be === result
+        assertThat(lookup, equalTo(result))
       }
       def check(looker: ActorRef) {
         val lookname = looker.path.elements.mkString("", "/", "/")
@@ -251,48 +252,47 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
 
   }
 
-  "An ActorSelection" must {
-
-    "send messages directly" in {
+  
+    @Test def `must send messages directly`: Unit = {
       ActorSelection(c1, "") ! GetSender(testActor)
       expectMsg(system.deadLetters)
-      lastSender must be === c1
+      assertThat(lastSender, equalTo(c1))
     }
 
-    "send messages to string path" in {
+    @Test def `must send messages to string path`: Unit = {
       system.actorSelection("/user/c2/c21") ! GetSender(testActor)
       expectMsg(system.deadLetters)
-      lastSender must be === c21
+      assertThat(lastSender, equalTo(c21))
     }
 
-    "send messages to actor path" in {
+    @Test def `must send messages to actor path`: Unit = {
       system.actorSelection(system / "c2" / "c21") ! GetSender(testActor)
       expectMsg(system.deadLetters)
-      lastSender must be === c21
+      assertThat(lastSender, equalTo(c21))
     }
 
-    "send messages with correct sender" in {
+    @Test def `must send messages with correct sender`: Unit = {
       implicit val sender = c1
       ActorSelection(c21, "../../*") ! GetSender(testActor)
       val actors = Set() ++ receiveWhile(messages = 2) {
         case `c1` ⇒ lastSender
       }
-      actors must be === Set(c1, c2)
+      assertThat(actors, equalTo(Set(c1, c2)))
       expectNoMsg(1 second)
     }
 
-    "drop messages which cannot be delivered" in {
+    @Test def `must drop messages which cannot be delivered`: Unit = {
       implicit val sender = c2
       ActorSelection(c21, "../../*/c21") ! GetSender(testActor)
       val actors = receiveWhile(messages = 2) {
         case `c2` ⇒ lastSender
       }
-      actors must be === Seq(c21)
+      assertThat(actors, equalTo(Seq(c21)))
       expectNoMsg(1 second)
     }
 
-    "compare equally" in {
-      ActorSelection(c21, "../*/hello") must be === ActorSelection(c21, "../*/hello")
+    @Test def `must compare equally`: Unit = {
+      assertThat(ActorSelection(c21, "../*/hello"), equalTo(ActorSelection(c21, "../*/hello")))
       ActorSelection(c21, "../*/hello").## must be === ActorSelection(c21, "../*/hello").##
       ActorSelection(c2, "../*/hello") must not be ActorSelection(c21, "../*/hello")
       ActorSelection(c2, "../*/hello").## must not be ActorSelection(c21, "../*/hello").##
@@ -300,10 +300,8 @@ class ActorSelectionSpec extends AkkaSpec("akka.loglevel=DEBUG") with DefaultTim
       ActorSelection(c21, "../*/hell").## must not be ActorSelection(c21, "../*/hello").##
     }
 
-    "print nicely" in {
-      ActorSelection(c21, "../*/hello").toString must be(s"ActorSelection[Actor[akka://ActorSelectionSpec/user/c2/c21#${c21.path.uid}]/../*/hello]")
+    @Test def `must print nicely`: Unit = {
+      assertThat(ActorSelection(c21, "../*/hello").toString, equalTo(s"ActorSelection[Actor[akka://ActorSelectionSpec/user/c2/c21#${c21.path.uid}]/../*/hello]"))
     }
 
   }
-
-}

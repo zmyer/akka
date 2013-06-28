@@ -1,51 +1,48 @@
 package akka.testkit
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
-import org.scalatest.{ BeforeAndAfterEach, WordSpec }
 import akka.actor._
 import scala.concurrent.{ Future, Await }
 import scala.concurrent.duration._
 import akka.pattern.ask
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class JavaTestKitSpec extends AkkaSpec with DefaultTimeout {
 
-  "JavaTestKit" must {
-
-    "be able to receiveN messages" in {
+  
+    @Test def `must be able to receiveN messages`: Unit = {
       new JavaTestKit(system) {
         val sent = List(1, 2, 3, 4, 5)
         for (m ← sent) { getRef() ! m }
         val received = receiveN(sent.size, 5 seconds)
-        sent.toSet must be(received.toSet)
+        assertThat(sent.toSet, equalTo(received.toSet))
       }
     }
 
-    "be able to receiveN messages with default duration" in {
+    @Test def `must be able to receiveN messages with default duration`: Unit = {
       new JavaTestKit(system) {
         val sent = List(1, 2, 3)
         for (m ← sent) { getRef() ! m }
         val received = receiveN(sent.size)
-        sent.toSet must be(received.toSet)
+        assertThat(sent.toSet, equalTo(received.toSet))
       }
     }
 
-    "be able to expectTerminated" in {
+    @Test def `must be able to expectTerminated`: Unit = {
       new JavaTestKit(system) {
         val actor = system.actorOf(Props(new Actor { def receive = { case _ ⇒ } }))
 
         watch(actor)
         system stop actor
-        expectTerminated(actor).existenceConfirmed must be === true
+        assertThat(expectTerminated(actor).existenceConfirmed, equalTo(true))
 
         watch(actor)
-        expectTerminated(5 seconds, actor).actor must be === actor
+        assertThat(expectTerminated(5 seconds, actor).actor, equalTo(actor))
       }
     }
 
   }
-
-}

@@ -3,6 +3,10 @@
  */
 package akka.event
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import scala.concurrent.duration._
@@ -63,16 +67,14 @@ object EventStreamSpec {
   class CCATBT extends CC with ATT with BTT
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class EventStreamSpec extends AkkaSpec(EventStreamSpec.config) {
 
   import EventStreamSpec._
 
   val impl = system.asInstanceOf[ActorSystemImpl]
 
-  "An EventStream" must {
-
-    "manage subscriptions" in {
+  
+    @Test def `must manage subscriptions`: Unit = {
       val bus = new EventStream(true)
       bus.subscribe(testActor, classOf[M])
       bus.publish(M(42))
@@ -84,18 +86,18 @@ class EventStreamSpec extends AkkaSpec(EventStreamSpec.config) {
       }
     }
 
-    "not allow null as subscriber" in {
+    @Test def `must not allow null as subscriber`: Unit = {
       val bus = new EventStream(true)
-      intercept[IllegalArgumentException] { bus.subscribe(null, classOf[M]) }.getMessage must be("subscriber is null")
+      assertThat(intercept[IllegalArgumentException] { bus.subscribe(null, classOf[M]) }.getMessage, equalTo("subscriber is null"))
     }
 
-    "not allow null as unsubscriber" in {
+    @Test def `must not allow null as unsubscriber`: Unit = {
       val bus = new EventStream(true)
-      intercept[IllegalArgumentException] { bus.unsubscribe(null, classOf[M]) }.getMessage must be("subscriber is null")
-      intercept[IllegalArgumentException] { bus.unsubscribe(null) }.getMessage must be("subscriber is null")
+      assertThat(intercept[IllegalArgumentException] { bus.unsubscribe(null, classOf[M]) }.getMessage, equalTo("subscriber is null"))
+      assertThat(intercept[IllegalArgumentException] { bus.unsubscribe(null) }.getMessage, equalTo("subscriber is null"))
     }
 
-    "be able to log unhandled messages" in {
+    @Test def `must be able to log unhandled messages`: Unit = {
       val sys = ActorSystem("EventStreamSpecUnhandled", configUnhandled)
       try {
         sys.eventStream.subscribe(testActor, classOf[AnyRef])
@@ -108,7 +110,7 @@ class EventStreamSpec extends AkkaSpec(EventStreamSpec.config) {
       }
     }
 
-    "manage log levels" in {
+    @Test def `must manage log levels`: Unit = {
       val bus = new EventStream(false)
       bus.startDefaultLoggers(impl)
       bus.publish(SetTarget(testActor))
@@ -125,23 +127,23 @@ class EventStreamSpec extends AkkaSpec(EventStreamSpec.config) {
       }
     }
 
-    "manage sub-channels using classes" in {
+    @Test def `must manage sub-channels using classes`: Unit = {
       val a = new A
       val b1 = new B1
       val b2 = new B2
       val c = new C
       val bus = new EventStream(false)
       within(2 seconds) {
-        bus.subscribe(testActor, classOf[B2]) must be === true
+        assertThat(bus.subscribe(testActor, classOf[B2]), equalTo(true))
         bus.publish(c)
         bus.publish(b2)
         expectMsg(b2)
-        bus.subscribe(testActor, classOf[A]) must be === true
+        assertThat(bus.subscribe(testActor, classOf[A]), equalTo(true))
         bus.publish(c)
         expectMsg(c)
         bus.publish(b1)
         expectMsg(b1)
-        bus.unsubscribe(testActor, classOf[B1]) must be === true
+        assertThat(bus.unsubscribe(testActor, classOf[B1]), equalTo(true))
         bus.publish(c)
         bus.publish(b2)
         bus.publish(a)
@@ -151,125 +153,125 @@ class EventStreamSpec extends AkkaSpec(EventStreamSpec.config) {
       }
     }
 
-    "manage sub-channels using classes and traits (update on subscribe)" in {
+    @Test def `must manage sub-channels using classes and traits (update on subscribe)`: Unit = {
       val es = new EventStream(false)
       val tm1 = new CC
       val tm2 = new CCATBT
       val a1, a2, a3, a4 = TestProbe()
 
-      es.subscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.subscribe(a1.ref, classOf[AT]), equalTo(true))
       es.subscribe(a2.ref, classOf[BT]) must be === true
-      es.subscribe(a3.ref, classOf[CC]) must be === true
+      assertThat(es.subscribe(a3.ref, classOf[CC]), equalTo(true))
       es.subscribe(a4.ref, classOf[CCATBT]) must be === true
       es.publish(tm1)
       es.publish(tm2)
-      a1.expectMsgType[AT] must be === tm2
+      assertThat(a1.expectMsgType[AT], equalTo(tm2))
       a2.expectMsgType[BT] must be === tm2
-      a3.expectMsgType[CC] must be === tm1
+      assertThat(a3.expectMsgType[CC], equalTo(tm1))
       a3.expectMsgType[CC] must be === tm2
-      a4.expectMsgType[CCATBT] must be === tm2
+      assertThat(a4.expectMsgType[CCATBT], equalTo(tm2))
       es.unsubscribe(a1.ref, classOf[AT]) must be === true
-      es.unsubscribe(a2.ref, classOf[BT]) must be === true
+      assertThat(es.unsubscribe(a2.ref, classOf[BT]), equalTo(true))
       es.unsubscribe(a3.ref, classOf[CC]) must be === true
-      es.unsubscribe(a4.ref, classOf[CCATBT]) must be === true
+      assertThat(es.unsubscribe(a4.ref, classOf[CCATBT]), equalTo(true))
     }
 
-    "manage sub-channels using classes and traits (update on unsubscribe)" in {
+    @Test def `must manage sub-channels using classes and traits (update on unsubscribe)`: Unit = {
       val es = new EventStream(false)
       val tm1 = new CC
       val tm2 = new CCATBT
       val a1, a2, a3, a4 = TestProbe()
 
-      es.subscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.subscribe(a1.ref, classOf[AT]), equalTo(true))
       es.subscribe(a2.ref, classOf[BT]) must be === true
-      es.subscribe(a3.ref, classOf[CC]) must be === true
+      assertThat(es.subscribe(a3.ref, classOf[CC]), equalTo(true))
       es.subscribe(a4.ref, classOf[CCATBT]) must be === true
-      es.unsubscribe(a3.ref, classOf[CC]) must be === true
+      assertThat(es.unsubscribe(a3.ref, classOf[CC]), equalTo(true))
       es.publish(tm1)
       es.publish(tm2)
-      a1.expectMsgType[AT] must be === tm2
+      assertThat(a1.expectMsgType[AT], equalTo(tm2))
       a2.expectMsgType[BT] must be === tm2
       a3.expectNoMsg(1 second)
-      a4.expectMsgType[CCATBT] must be === tm2
+      assertThat(a4.expectMsgType[CCATBT], equalTo(tm2))
       es.unsubscribe(a1.ref, classOf[AT]) must be === true
-      es.unsubscribe(a2.ref, classOf[BT]) must be === true
+      assertThat(es.unsubscribe(a2.ref, classOf[BT]), equalTo(true))
       es.unsubscribe(a4.ref, classOf[CCATBT]) must be === true
     }
 
-    "manage sub-channels using classes and traits (update on unsubscribe all)" in {
+    @Test def `must manage sub-channels using classes and traits (update on unsubscribe all)`: Unit = {
       val es = new EventStream(false)
       val tm1 = new CC
       val tm2 = new CCATBT
       val a1, a2, a3, a4 = TestProbe()
 
-      es.subscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.subscribe(a1.ref, classOf[AT]), equalTo(true))
       es.subscribe(a2.ref, classOf[BT]) must be === true
-      es.subscribe(a3.ref, classOf[CC]) must be === true
+      assertThat(es.subscribe(a3.ref, classOf[CC]), equalTo(true))
       es.subscribe(a4.ref, classOf[CCATBT]) must be === true
       es.unsubscribe(a3.ref)
       es.publish(tm1)
       es.publish(tm2)
-      a1.expectMsgType[AT] must be === tm2
+      assertThat(a1.expectMsgType[AT], equalTo(tm2))
       a2.expectMsgType[BT] must be === tm2
       a3.expectNoMsg(1 second)
-      a4.expectMsgType[CCATBT] must be === tm2
+      assertThat(a4.expectMsgType[CCATBT], equalTo(tm2))
       es.unsubscribe(a1.ref, classOf[AT]) must be === true
-      es.unsubscribe(a2.ref, classOf[BT]) must be === true
+      assertThat(es.unsubscribe(a2.ref, classOf[BT]), equalTo(true))
       es.unsubscribe(a4.ref, classOf[CCATBT]) must be === true
     }
 
-    "manage sub-channels using classes and traits (update on publish)" in {
+    @Test def `must manage sub-channels using classes and traits (update on publish)`: Unit = {
       val es = new EventStream(false)
       val tm1 = new CC
       val tm2 = new CCATBT
       val a1, a2 = TestProbe()
 
-      es.subscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.subscribe(a1.ref, classOf[AT]), equalTo(true))
       es.subscribe(a2.ref, classOf[BT]) must be === true
       es.publish(tm1)
       es.publish(tm2)
-      a1.expectMsgType[AT] must be === tm2
+      assertThat(a1.expectMsgType[AT], equalTo(tm2))
       a2.expectMsgType[BT] must be === tm2
-      es.unsubscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.unsubscribe(a1.ref, classOf[AT]), equalTo(true))
       es.unsubscribe(a2.ref, classOf[BT]) must be === true
     }
 
-    "manage sub-channels using classes and traits (unsubscribe classes used with trait)" in {
+    @Test def `must manage sub-channels using classes and traits (unsubscribe classes used with trait)`: Unit = {
       val es = new EventStream(false)
       val tm1 = new CC
       val tm2 = new CCATBT
       val a1, a2, a3 = TestProbe()
 
-      es.subscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.subscribe(a1.ref, classOf[AT]), equalTo(true))
       es.subscribe(a2.ref, classOf[BT]) must be === true
-      es.subscribe(a2.ref, classOf[CC]) must be === true
+      assertThat(es.subscribe(a2.ref, classOf[CC]), equalTo(true))
       es.subscribe(a3.ref, classOf[CC]) must be === true
-      es.unsubscribe(a2.ref, classOf[CC]) must be === true
+      assertThat(es.unsubscribe(a2.ref, classOf[CC]), equalTo(true))
       es.unsubscribe(a3.ref, classOf[CCATBT]) must be === true
       es.publish(tm1)
       es.publish(tm2)
-      a1.expectMsgType[AT] must be === tm2
+      assertThat(a1.expectMsgType[AT], equalTo(tm2))
       a2.expectMsgType[BT] must be === tm2
-      a3.expectMsgType[CC] must be === tm1
+      assertThat(a3.expectMsgType[CC], equalTo(tm1))
       es.unsubscribe(a1.ref, classOf[AT]) must be === true
-      es.unsubscribe(a2.ref, classOf[BT]) must be === true
+      assertThat(es.unsubscribe(a2.ref, classOf[BT]), equalTo(true))
       es.unsubscribe(a3.ref, classOf[CC]) must be === true
     }
 
-    "manage sub-channels using classes and traits (subscribe after publish)" in {
+    @Test def `must manage sub-channels using classes and traits (subscribe after publish)`: Unit = {
       val es = new EventStream(false)
       val tm1 = new CCATBT
       val a1, a2 = TestProbe()
 
-      es.subscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.subscribe(a1.ref, classOf[AT]), equalTo(true))
       es.publish(tm1)
-      a1.expectMsgType[AT] must be === tm1
+      assertThat(a1.expectMsgType[AT], equalTo(tm1))
       a2.expectNoMsg(1 second)
-      es.subscribe(a2.ref, classOf[BTT]) must be === true
+      assertThat(es.subscribe(a2.ref, classOf[BTT]), equalTo(true))
       es.publish(tm1)
-      a1.expectMsgType[AT] must be === tm1
+      assertThat(a1.expectMsgType[AT], equalTo(tm1))
       a2.expectMsgType[BTT] must be === tm1
-      es.unsubscribe(a1.ref, classOf[AT]) must be === true
+      assertThat(es.unsubscribe(a1.ref, classOf[AT]), equalTo(true))
       es.unsubscribe(a2.ref, classOf[BTT]) must be === true
     }
   }
@@ -281,5 +283,3 @@ class EventStreamSpec extends AkkaSpec(EventStreamSpec.config) {
     allmsg foreach bus.publish
     msg foreach (expectMsg(_))
   }
-
-}

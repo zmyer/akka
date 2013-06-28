@@ -4,6 +4,10 @@
 
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.net.Socket
 import java.nio.channels.{ SelectableChannel, SocketChannel }
 import java.nio.channels.SelectionKey.OP_ACCEPT
@@ -20,11 +24,10 @@ class TcpListenerSpec extends AkkaSpec("""
     akka.actor.serialize-creators = on
     """) {
 
-  "A TcpListener" must {
+  
+    @Test def `must register its ServerSocketChannel with its selector`: Unit = new TestSetup
 
-    "register its ServerSocketChannel with its selector" in new TestSetup
-
-    "let the Bind commander know when binding is completed" in new TestSetup {
+    @Test def `must let the Bind commander know when binding is completed`: Unit = new TestSetup {
       listener ! new ChannelRegistration {
         def disableInterest(op: Int) = ()
         def enableInterest(op: Int) = ()
@@ -32,7 +35,7 @@ class TcpListenerSpec extends AkkaSpec("""
       bindCommander.expectMsgType[Bound]
     }
 
-    "accept acceptable connections and register them with its parent" in new TestSetup {
+    @Test def `must accept acceptable connections and register them with its parent`: Unit = new TestSetup {
       bindListener()
 
       attemptConnectionToEndpoint()
@@ -52,7 +55,7 @@ class TcpListenerSpec extends AkkaSpec("""
       expectWorkerForCommand
     }
 
-    "continue to accept connections after a previous accept" in new TestSetup {
+    @Test def `must continue to accept connections after a previous accept`: Unit = new TestSetup {
       bindListener()
 
       attemptConnectionToEndpoint()
@@ -68,7 +71,7 @@ class TcpListenerSpec extends AkkaSpec("""
       interestCallReceiver.expectMsg(OP_ACCEPT)
     }
 
-    "react to Unbind commands by replying with Unbound and stopping itself" in new TestSetup {
+    @Test def `must react to Unbind commands by replying with Unbound and stopping itself`: Unit = new TestSetup {
       bindListener()
 
       val unbindCommander = TestProbe()
@@ -78,7 +81,7 @@ class TcpListenerSpec extends AkkaSpec("""
       parent.expectTerminated(listener)
     }
 
-    "drop an incoming connection if it cannot be registered with a selector" in new TestSetup {
+    @Test def `must drop an incoming connection if it cannot be registered with a selector`: Unit = new TestSetup {
       bindListener()
 
       attemptConnectionToEndpoint()
@@ -125,8 +128,8 @@ class TcpListenerSpec extends AkkaSpec("""
     def expectWorkerForCommand: SocketChannel =
       selectorRouter.expectMsgPF() {
         case WorkerForCommand(RegisterIncoming(chan), commander, _) ⇒
-          chan.isOpen must be(true)
-          commander must be === listener
+          assertThat(chan.isOpen, equalTo(true))
+          assertThat(commander, equalTo(listener))
           chan
       }
 
@@ -145,5 +148,3 @@ class TcpListenerSpec extends AkkaSpec("""
         registerCallReceiver.ref.tell(initialOps, channelActor)
     }
   }
-
-}

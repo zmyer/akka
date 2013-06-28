@@ -3,90 +3,92 @@
  */
 package akka.dispatch.sysmsg
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit.AkkaSpec
 
 class SystemMessageListSpec extends AkkaSpec {
   import SystemMessageList.LNil
   import SystemMessageList.ENil
 
-  "The SystemMessageList value class" must {
-
-    "handle empty lists correctly" in {
-      LNil.head must be === null
-      LNil.isEmpty must be(true)
-      (LNil.reverse == ENil) must be(true)
+  
+    @Test def `must handle empty lists correctly`: Unit = {
+      assertThat(LNil.head, equalTo(null))
+      assertThat(LNil.isEmpty, equalTo(true))
+      assertThat((LNil.reverse == ENil), equalTo(true))
     }
 
-    "able to append messages" in {
+    @Test def `must able to append messages`: Unit = {
       val create0 = Failed(null, null, 0)
       val create1 = Failed(null, null, 1)
       val create2 = Failed(null, null, 2)
-      ((create0 :: LNil).head eq create0) must be(true)
-      ((create1 :: create0 :: LNil).head eq create1) must be(true)
-      ((create2 :: create1 :: create0 :: LNil).head eq create2) must be(true)
+      assertThat(((create0 :: LNil).head eq create0), equalTo(true))
+      assertThat(((create1 :: create0 :: LNil).head eq create1), equalTo(true))
+      assertThat(((create2 :: create1 :: create0 :: LNil).head eq create2), equalTo(true))
 
-      (create2.next eq create1) must be(true)
-      (create1.next eq create0) must be(true)
-      (create0.next eq null) must be(true)
+      assertThat((create2.next eq create1), equalTo(true))
+      assertThat((create1.next eq create0), equalTo(true))
+      assertThat((create0.next eq null), equalTo(true))
     }
 
-    "able to deconstruct head and tail" in {
-      val create0 = Failed(null, null, 0)
-      val create1 = Failed(null, null, 1)
-      val create2 = Failed(null, null, 2)
-      val list = create2 :: create1 :: create0 :: LNil
-
-      (list.head eq create2) must be(true)
-      (list.tail.head eq create1) must be(true)
-      (list.tail.tail.head eq create0) must be(true)
-      (list.tail.tail.tail.head eq null) must be(true)
-    }
-
-    "properly report size and emptyness" in {
+    @Test def `must able to deconstruct head and tail`: Unit = {
       val create0 = Failed(null, null, 0)
       val create1 = Failed(null, null, 1)
       val create2 = Failed(null, null, 2)
       val list = create2 :: create1 :: create0 :: LNil
 
-      list.size must be === 3
-      list.isEmpty must be(false)
+      assertThat((list.head eq create2), equalTo(true))
+      assertThat((list.tail.head eq create1), equalTo(true))
+      assertThat((list.tail.tail.head eq create0), equalTo(true))
+      assertThat((list.tail.tail.tail.head eq null), equalTo(true))
+    }
 
-      list.tail.size must be === 2
-      list.tail.isEmpty must be(false)
+    @Test def `must properly report size and emptyness`: Unit = {
+      val create0 = Failed(null, null, 0)
+      val create1 = Failed(null, null, 1)
+      val create2 = Failed(null, null, 2)
+      val list = create2 :: create1 :: create0 :: LNil
 
-      list.tail.tail.size must be === 1
-      list.tail.tail.isEmpty must be(false)
+      assertThat(list.size, equalTo(3))
+      assertThat(list.isEmpty, equalTo(false))
 
-      list.tail.tail.tail.size must be === 0
-      list.tail.tail.tail.isEmpty must be(true)
+      assertThat(list.tail.size, equalTo(2))
+      assertThat(list.tail.isEmpty, equalTo(false))
+
+      assertThat(list.tail.tail.size, equalTo(1))
+      assertThat(list.tail.tail.isEmpty, equalTo(false))
+
+      assertThat(list.tail.tail.tail.size, equalTo(0))
+      assertThat(list.tail.tail.tail.isEmpty, equalTo(true))
 
     }
 
-    "properly reverse contents" in {
+    @Test def `must properly reverse contents`: Unit = {
       val create0 = Failed(null, null, 0)
       val create1 = Failed(null, null, 1)
       val create2 = Failed(null, null, 2)
       val list = create2 :: create1 :: create0 :: LNil
       val listRev: EarliestFirstSystemMessageList = list.reverse
 
-      listRev.isEmpty must be(false)
-      listRev.size must be === 3
+      assertThat(listRev.isEmpty, equalTo(false))
+      assertThat(listRev.size, equalTo(3))
 
-      (listRev.head eq create0) must be(true)
-      (listRev.tail.head eq create1) must be(true)
-      (listRev.tail.tail.head eq create2) must be(true)
-      (listRev.tail.tail.tail.head eq null) must be(true)
+      assertThat((listRev.head eq create0), equalTo(true))
+      assertThat((listRev.tail.head eq create1), equalTo(true))
+      assertThat((listRev.tail.tail.head eq create2), equalTo(true))
+      assertThat((listRev.tail.tail.tail.head eq null), equalTo(true))
 
-      (create0.next eq create1) must be(true)
-      (create1.next eq create2) must be(true)
-      (create2.next eq null) must be(true)
+      assertThat((create0.next eq create1), equalTo(true))
+      assertThat((create1.next eq create2), equalTo(true))
+      assertThat((create2.next eq null), equalTo(true))
     }
 
   }
 
-  "EarliestFirstSystemMessageList" must {
-
-    "properly prepend reversed message lists to the front" in {
+  
+    @Test def `must properly prepend reversed message lists to the front`: Unit = {
       val create0 = Failed(null, null, 0)
       val create1 = Failed(null, null, 1)
       val create2 = Failed(null, null, 2)
@@ -99,18 +101,17 @@ class SystemMessageListSpec extends AkkaSpec {
 
       val list = revList reverse_::: fwdList
 
-      (list.head eq create0) must be(true)
-      (list.tail.head eq create1) must be(true)
-      (list.tail.tail.head eq create2) must be(true)
-      (list.tail.tail.tail.head eq create3) must be(true)
-      (list.tail.tail.tail.tail.head eq create4) must be(true)
-      (list.tail.tail.tail.tail.tail.head eq create5) must be(true)
-      (list.tail.tail.tail.tail.tail.tail.head eq null) must be(true)
+      assertThat((list.head eq create0), equalTo(true))
+      assertThat((list.tail.head eq create1), equalTo(true))
+      assertThat((list.tail.tail.head eq create2), equalTo(true))
+      assertThat((list.tail.tail.tail.head eq create3), equalTo(true))
+      assertThat((list.tail.tail.tail.tail.head eq create4), equalTo(true))
+      assertThat((list.tail.tail.tail.tail.tail.head eq create5), equalTo(true))
+      assertThat((list.tail.tail.tail.tail.tail.tail.head eq null), equalTo(true))
 
-      (LNil reverse_::: ENil) == ENil must be(true)
-      ((create0 :: LNil reverse_::: ENil).head eq create0) must be(true)
-      ((LNil reverse_::: create0 :: ENil).head eq create0) must be(true)
+      assertThat((LNil reverse_::: ENil) == ENil, equalTo(true))
+      assertThat(((create0 :: LNil reverse_::: ENil).head eq create0), equalTo(true))
+      assertThat(((LNil reverse_::: create0 :: ENil).head eq create0), equalTo(true))
     }
 
   }
-}

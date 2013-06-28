@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -14,8 +18,6 @@ import scala.concurrent.Await
 import scala.concurrent.duration._
 import akka.actor.ActorSystem.Settings
 import com.typesafe.config.{ Config, ConfigFactory }
-import org.scalatest.Assertions.intercept
-import org.scalatest.BeforeAndAfterEach
 
 object ActorWithBoundedStashSpec {
 
@@ -74,7 +76,6 @@ object ActorWithBoundedStashSpec {
     """.format(dispatcherId1, classOf[Bounded10].getName, dispatcherId2, classOf[Bounded100].getName))
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorWithBoundedStashSpec extends AkkaSpec(ActorWithBoundedStashSpec.testConf) with BeforeAndAfterEach with DefaultTimeout with ImplicitSender {
   import ActorWithBoundedStashSpec._
 
@@ -88,9 +89,8 @@ class ActorWithBoundedStashSpec extends AkkaSpec(ActorWithBoundedStashSpec.testC
   override def afterEach(): Unit =
     system.eventStream.unsubscribe(testActor, classOf[DeadLetter])
 
-  "An Actor with Stash" must {
-
-    "end up in DeadLetters in case of a capacity violation" in {
+  
+    @Test def `must end up in DeadLetters in case of a capacity violation`: Unit = {
       val stasher = system.actorOf(Props[StashingActor].withDispatcher(dispatcherId1))
       // fill up stash
       for (n ← 1 to 11) {
@@ -107,7 +107,7 @@ class ActorWithBoundedStashSpec extends AkkaSpec(ActorWithBoundedStashSpec.testC
       for (n ← 2 to 11) expectMsg(DeadLetter("hello" + n, testActor, stasher))
     }
 
-    "throw a StashOverflowException in case of a stash capacity violation" in {
+    @Test def `must throw a StashOverflowException in case of a stash capacity violation`: Unit = {
       val stasher = system.actorOf(Props[StashingActorWithOverflow].withDispatcher(dispatcherId2))
       // fill up stash
       for (n ← 1 to 20) {
@@ -122,4 +122,3 @@ class ActorWithBoundedStashSpec extends AkkaSpec(ActorWithBoundedStashSpec.testC
       for (n ← 1 to 20) expectMsg(DeadLetter("hello" + n, testActor, stasher))
     }
   }
-}

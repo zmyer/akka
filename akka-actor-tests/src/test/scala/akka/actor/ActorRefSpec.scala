@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -110,7 +114,6 @@ object ActorRefSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorRefSpec extends AkkaSpec with DefaultTimeout {
   import akka.actor.ActorRefSpec._
 
@@ -131,15 +134,14 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
     r
   }
 
-  "An ActorRef" must {
-
-    "not allow Actors to be created outside of an actorOf" in {
+  
+    @Test def `must not allow Actors to be created outside of an actorOf`: Unit = {
       import system.actorOf
       intercept[akka.actor.ActorInitializationException] {
         new Actor { def receive = { case _ ⇒ } }
       }
 
-      def contextStackMustBeEmpty(): Unit = ActorCell.contextStack.get.headOption must be === None
+      assertThat(def contextStackMustBeEmpty(): Unit = ActorCell.contextStack.get.headOption, equalTo(None))
 
       EventFilter[ActorInitializationException](occurrences = 1) intercept {
         intercept[akka.actor.ActorInitializationException] {
@@ -249,13 +251,13 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
         (intercept[java.lang.IllegalStateException] {
           wrap(result ⇒
             actorOf(Props(new OuterActor(actorOf(Props(promiseIntercept({ throw new IllegalStateException("Ur state be b0rked"); new InnerActor })(result)))))))
-        }).getMessage must be === "Ur state be b0rked"
+        assertThat(}).getMessage, equalTo("Ur state be b0rked"))
 
         contextStackMustBeEmpty()
       }
     }
 
-    "be serializable using Java Serialization on local node" in {
+    @Test def `must be serializable using Java Serialization on local node`: Unit = {
       val a = system.actorOf(Props[InnerActor])
       val esys = system.asInstanceOf[ExtendedActorSystem]
 
@@ -275,18 +277,18 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
         val in = new ObjectInputStream(new ByteArrayInputStream(bytes))
         val readA = in.readObject
 
-        a.isInstanceOf[ActorRefWithCell] must be === true
+        assertThat(a.isInstanceOf[ActorRefWithCell], equalTo(true))
         readA.isInstanceOf[ActorRefWithCell] must be === true
-        (readA eq a) must be === true
+        assertThat((readA eq a), equalTo(true))
       }
 
       val ser = new JavaSerializer(esys)
       val readA = ser.fromBinary(bytes, None)
-      readA.isInstanceOf[ActorRefWithCell] must be === true
+      assertThat(readA.isInstanceOf[ActorRefWithCell], equalTo(true))
       (readA eq a) must be === true
     }
 
-    "throw an exception on deserialize if no system in scope" in {
+    @Test def `must throw an exception on deserialize if no system in scope`: Unit = {
       val a = system.actorOf(Props[InnerActor])
 
       import java.io._
@@ -303,11 +305,11 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
 
       (intercept[java.lang.IllegalStateException] {
         in.readObject
-      }).getMessage must be === "Trying to deserialize a serialized ActorRef without an ActorSystem in scope." +
+      assertThat(}).getMessage, equalTo("Trying to deserialize a serialized ActorRef without an ActorSystem in scope." +))
         " Use 'akka.serialization.Serialization.currentSystem.withValue(system) { ... }'"
     }
 
-    "return EmptyLocalActorRef on deserialize if not present in actor hierarchy (and remoting is not enabled)" in {
+    @Test def `must return EmptyLocalActorRef on deserialize if not present in actor hierarchy (and remoting is not enabled)`: Unit = {
       import java.io._
 
       val baos = new ByteArrayOutputStream(8192 * 32)
@@ -328,11 +330,11 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
 
       JavaSerializer.currentSystem.withValue(sysImpl) {
         val in = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray))
-        in.readObject must be === new EmptyLocalActorRef(sysImpl.provider, ref.path, system.eventStream)
+        assertThat(in.readObject, equalTo(new EmptyLocalActorRef(sysImpl.provider, ref.path, system.eventStream)))
       }
     }
 
-    "support nested actorOfs" in {
+    @Test def `must support nested actorOfs`: Unit = {
       val a = system.actorOf(Props(new Actor {
         val nested = system.actorOf(Props(new Actor { def receive = { case _ ⇒ } }))
         def receive = { case _ ⇒ sender ! nested }
@@ -341,21 +343,21 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
       val nested = Await.result((a ? "any").mapTo[ActorRef], timeout.duration)
       a must not be null
       nested must not be null
-      (a ne nested) must be === true
+      assertThat((a ne nested), equalTo(true))
     }
 
-    "support advanced nested actorOfs" in {
+    @Test def `must support advanced nested actorOfs`: Unit = {
       val a = system.actorOf(Props(new OuterActor(system.actorOf(Props(new InnerActor)))))
       val inner = Await.result(a ? "innerself", timeout.duration)
 
-      Await.result(a ? a, timeout.duration) must be(a)
-      Await.result(a ? "self", timeout.duration) must be(a)
+      assertThat(Await.result(a ? a, timeout.duration), equalTo(a))
+      assertThat(Await.result(a ? "self", timeout.duration), equalTo(a))
       inner must not be a
 
-      Await.result(a ? "msg", timeout.duration) must be === "msg"
+      assertThat(Await.result(a ? "msg", timeout.duration), equalTo("msg"))
     }
 
-    "support reply via sender" in {
+    @Test def `must support reply via sender`: Unit = {
       val latch = new TestLatch(4)
       val serverRef = system.actorOf(Props[ReplyActor])
       val clientRef = system.actorOf(Props(new SenderActor(serverRef, latch)))
@@ -380,14 +382,14 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
       system.stop(serverRef)
     }
 
-    "support actorOfs where the class of the actor isn't public" in {
+    @Test def `must support actorOfs where the class of the actor isn't public`: Unit = {
       val a = system.actorOf(NonPublicClass.createProps())
       a.tell("pigdog", testActor)
       expectMsg("pigdog")
       system stop a
     }
 
-    "stop when sent a poison pill" in {
+    @Test def `must stop when sent a poison pill`: Unit = {
       val timeout = Timeout(20000)
       val ref = system.actorOf(Props(new Actor {
         def receive = {
@@ -400,13 +402,13 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
       val fnull = (ref.ask(0)(timeout)).mapTo[String]
       ref ! PoisonPill
 
-      Await.result(ffive, timeout.duration) must be("five")
-      Await.result(fnull, timeout.duration) must be("null")
+      assertThat(Await.result(ffive, timeout.duration), equalTo("five"))
+      assertThat(Await.result(fnull, timeout.duration), equalTo("null"))
 
       verifyActorTermination(ref)
     }
 
-    "restart when Kill:ed" in {
+    @Test def `must restart when Kill:ed`: Unit = {
       filterException[ActorKilledException] {
         val latch = TestLatch(2)
 
@@ -430,7 +432,7 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
       }
     }
 
-    "be able to check for existence of children" in {
+    @Test def `must be able to check for existence of children`: Unit = {
       val parent = system.actorOf(Props(new Actor {
 
         val child = context.actorOf(
@@ -445,4 +447,3 @@ class ActorRefSpec extends AkkaSpec with DefaultTimeout {
       assert(Await.result((parent ? "whatnot"), remaining) === false)
     }
   }
-}

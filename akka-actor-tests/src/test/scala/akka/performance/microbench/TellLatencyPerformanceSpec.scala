@@ -1,5 +1,9 @@
 package akka.performance.microbench
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.performance.workbench.PerformanceSpec
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -12,7 +16,6 @@ import java.util.Random
 import org.apache.commons.math.stat.descriptive.SynchronizedDescriptiveStatistics
 
 // -server -Xms512M -Xmx1024M -XX:+UseConcMarkSweepGC -Dbenchmark=true -Dbenchmark.repeatFactor=500
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class TellLatencyPerformanceSpec extends PerformanceSpec {
   import TellLatencyPerformanceSpec._
 
@@ -24,26 +27,25 @@ class TellLatencyPerformanceSpec extends PerformanceSpec {
     stat = new SynchronizedDescriptiveStatistics
   }
 
-  "Tell" must {
-    "warmup" in {
+      @Test def `must warmup`: Unit = {
       runScenario(2, warmup = true)
     }
-    "warmup more" in {
+    @Test def `must warmup more`: Unit = {
       runScenario(4, warmup = true)
     }
-    "perform with load 1" in {
+    @Test def `must perform with load 1`: Unit = {
       runScenario(1)
     }
-    "perform with load 2" in {
+    @Test def `must perform with load 2`: Unit = {
       runScenario(2)
     }
-    "perform with load 4" in {
+    @Test def `must perform with load 4`: Unit = {
       runScenario(4)
     }
-    "perform with load 6" in {
+    @Test def `must perform with load 6`: Unit = {
       runScenario(6)
     }
-    "perform with load 8" in {
+    @Test def `must perform with load 8`: Unit = {
       runScenario(8)
     }
 
@@ -68,7 +70,7 @@ class TellLatencyPerformanceSpec extends PerformanceSpec {
         val durationNs = (System.nanoTime - start)
 
         if (!warmup) {
-          ok must be(true)
+          assertThat(ok, equalTo(true))
           logMeasurement(numberOfClients, durationNs, stat)
         }
         clients.foreach(system.stop(_))
@@ -128,5 +130,3 @@ object TellLatencyPerformanceSpec {
     }
 
   }
-
-}

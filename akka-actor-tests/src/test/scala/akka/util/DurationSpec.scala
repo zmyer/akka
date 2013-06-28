@@ -3,6 +3,10 @@
  */
 package akka.util
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import scala.concurrent.duration._
@@ -11,54 +15,53 @@ import akka.testkit.AkkaSpec
 
 class DurationSpec extends AkkaSpec {
 
-  "Duration" must {
-
-    "form a one-dimensional vector field" in {
+  
+    @Test def `must form a one-dimensional vector field`: Unit = {
       val zero = 0 seconds
       val one = 1 second
       val two = one + one
       val three = 3 * one
-      (0 * one) must be(zero)
-      (2 * one) must be(two)
-      (three - two) must be(one)
-      (three / 3) must be(one)
-      (two / one) must be(2)
-      (one + zero) must be(one)
-      (one / 1000000) must be(1.micro)
+      assertThat((0 * one), equalTo(zero))
+      assertThat((2 * one), equalTo(two))
+      assertThat((three - two), equalTo(one))
+      assertThat((three / 3), equalTo(one))
+      assertThat((two / one), equalTo(2))
+      assertThat((one + zero), equalTo(one))
+      assertThat((one / 1000000), equalTo(1.micro))
     }
 
-    "respect correct treatment of infinities" in {
+    @Test def `must respect correct treatment of infinities`: Unit = {
       val one = 1.second
       val inf = Duration.Inf
       val minf = Duration.MinusInf
       val undefined = Duration.Undefined
-      (-inf) must be(minf)
-      (minf + inf) must be(undefined)
-      (inf - inf) must be(undefined)
-      (inf + minf) must be(undefined)
-      (minf - minf) must be(undefined)
-      (inf + inf) must be(inf)
-      (inf - minf) must be(inf)
-      (minf - inf) must be(minf)
-      (minf + minf) must be(minf)
+      assertThat((-inf), equalTo(minf))
+      assertThat((minf + inf), equalTo(undefined))
+      assertThat((inf - inf), equalTo(undefined))
+      assertThat((inf + minf), equalTo(undefined))
+      assertThat((minf - minf), equalTo(undefined))
+      assertThat((inf + inf), equalTo(inf))
+      assertThat((inf - minf), equalTo(inf))
+      assertThat((minf - inf), equalTo(minf))
+      assertThat((minf + minf), equalTo(minf))
       assert(inf == inf)
       assert(minf == minf)
-      inf.compareTo(inf) must be(0)
-      inf.compareTo(one) must be(1)
-      minf.compareTo(minf) must be(0)
-      minf.compareTo(one) must be(-1)
+      assertThat(inf.compareTo(inf), equalTo(0))
+      assertThat(inf.compareTo(one), equalTo(1))
+      assertThat(minf.compareTo(minf), equalTo(0))
+      assertThat(minf.compareTo(one), equalTo(-1))
       assert(inf != minf)
       assert(minf != inf)
       assert(one != inf)
       assert(minf != one)
     }
 
-    /*"check its range" in {
+    /*@Test def `must check its range`: Unit = {
       for (unit ← Seq(DAYS, HOURS, MINUTES, SECONDS, MILLISECONDS, MICROSECONDS, NANOSECONDS)) {
         val x = unit.convert(Long.MaxValue, NANOSECONDS)
         val dur = Duration(x, unit)
         val mdur = Duration(-x, unit)
-        -mdur must be(dur)
+        assertThat(-mdur, equalTo(dur))
         intercept[IllegalArgumentException] { Duration(x + 10000000d, unit) }
         intercept[IllegalArgumentException] { Duration(-x - 10000000d, unit) }
         if (unit != NANOSECONDS) {
@@ -82,7 +85,7 @@ class DurationSpec extends AkkaSpec {
       }
     }*/
 
-    "support fromNow" in {
+    @Test def `must support fromNow`: Unit = {
       val dead = 2.seconds.fromNow
       val dead2 = 2 seconds fromNow
       // view bounds vs. very local type inference vs. operator precedence: sigh
@@ -94,5 +97,3 @@ class DurationSpec extends AkkaSpec {
     }
 
   }
-
-}

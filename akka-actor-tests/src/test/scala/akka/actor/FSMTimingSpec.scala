@@ -4,13 +4,17 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.junit.experimental.categories.Category
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
 import scala.concurrent.duration._
 import akka.event.Logging
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class FSMTimingSpec extends AkkaSpec with ImplicitSender {
   import FSMTimingSpec._
   import FSM._
@@ -23,9 +27,8 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
     case Transition(_, Initial, _) ⇒ true
   }
 
-  "A Finite State Machine" must {
 
-    "receive StateTimeout" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must receive StateTimeout`: Unit = {
       within(1 second) {
         within(500 millis, 1 second) {
           fsm ! TestStateTimeout
@@ -35,7 +38,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "cancel a StateTimeout" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must cancel a StateTimeout`: Unit = {
       within(1 second) {
         fsm ! TestStateTimeout
         fsm ! Cancel
@@ -45,7 +48,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "allow StateTimeout override" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must allow StateTimeout override`: Unit = {
       // the timeout in state TestStateTimeout is 800 ms, then it will change to Initial
       within(400 millis) {
         fsm ! TestStateTimeoutOverride
@@ -58,7 +61,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "receive single-shot timer" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must receive single-shot timer`: Unit = {
       within(2 seconds) {
         within(500 millis, 1 second) {
           fsm ! TestSingleTimer
@@ -69,7 +72,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "resubmit single-shot timer" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must resubmit single-shot timer`: Unit = {
       within(2 seconds) {
         within(500 millis, 1.5 second) {
           fsm ! TestSingleTimerResubmit
@@ -81,7 +84,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "correctly cancel a named timer" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must correctly cancel a named timer`: Unit = {
       fsm ! TestCancelTimer
       within(500 millis) {
         fsm ! Tick
@@ -94,7 +97,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       expectMsg(1 second, Transition(fsm, TestCancelTimer, Initial))
     }
 
-    "not get confused between named and state timers" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must not get confused between named and state timers`: Unit = {
       fsm ! TestCancelStateTimerInNamedTimerMessage
       fsm ! Tick
       expectMsg(500 millis, Tick)
@@ -108,7 +111,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "receive and cancel a repeated timer" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must receive and cancel a repeated timer`: Unit = {
       fsm ! TestRepeatedTimer
       val seq = receiveWhile(2 seconds) {
         case Tick ⇒ Tick
@@ -119,7 +122,7 @@ class FSMTimingSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "notify unhandled messages" taggedAs TimingTest in {
+    @Test @Category(Array(classOf[TimingTest])) def `must notify unhandled messages`: Unit = {
       filterEvents(EventFilter.warning("unhandled event Tick in state TestUnhandled", source = fsm.path.toString, occurrences = 1),
         EventFilter.warning("unhandled event Unhandled(test) in state TestUnhandled", source = fsm.path.toString, occurrences = 1)) {
           fsm ! TestUnhandled

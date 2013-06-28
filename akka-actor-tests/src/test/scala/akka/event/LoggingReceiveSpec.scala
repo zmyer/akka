@@ -3,16 +3,17 @@
  */
 package akka.event
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
 import language.postfixOps
-
-import org.scalatest.{ BeforeAndAfterAll, BeforeAndAfterEach }
 import scala.concurrent.duration._
 import akka.testkit._
-import org.scalatest.WordSpec
 import com.typesafe.config.ConfigFactory
 import scala.collection.JavaConverters._
 import java.util.Properties
 import akka.actor._
+import org.junit.AfterClass
 
 object LoggingReceiveSpec {
   class TestLogActor extends Actor {
@@ -22,8 +23,7 @@ object LoggingReceiveSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
-class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAndAfterAll {
+class LoggingReceiveSpec extends WordSpec {
 
   import LoggingReceiveSpec._
   val config = ConfigFactory.parseMap(Map("akka.logLevel" -> "DEBUG").asJava).withFallback(AkkaSpec.testConf)
@@ -46,15 +46,14 @@ class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAnd
     }
   }
 
-  override def afterAll {
+  @AfterClass override def afterAll {
     TestKit.shutdownActorSystem(appLogging)
     TestKit.shutdownActorSystem(appAuto)
     TestKit.shutdownActorSystem(appLifecycle)
   }
 
-  "A LoggingReceive" must {
 
-    "decorate a Receive" in {
+    @Test def `must decorate a Receive`: Unit = {
       new TestKit(appLogging) {
         system.eventStream.subscribe(testActor, classOf[Logging.Debug])
         system.eventStream.subscribe(testActor, classOf[UnhandledMessage])
@@ -69,7 +68,7 @@ class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAnd
       }
     }
 
-    "be added on Actor if requested" in {
+    @Test def `must be added on Actor if requested`: Unit = {
       new TestKit(appLogging) with ImplicitSender {
         ignoreMute(this)
         system.eventStream.subscribe(testActor, classOf[Logging.Debug])
@@ -105,7 +104,7 @@ class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAnd
       }
     }
 
-    "not duplicate logging" in {
+    @Test def `must not duplicate logging`: Unit = {
       new TestKit(appLogging) with ImplicitSender {
         system.eventStream.subscribe(testActor, classOf[Logging.Debug])
         val actor = TestActorRef(new Actor {
@@ -123,9 +122,8 @@ class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAnd
 
   }
 
-  "An Actor" must {
 
-    "log AutoReceiveMessages if requested" in {
+    @Test def `must log AutoReceiveMessages if requested`: Unit = {
       new TestKit(appAuto) {
         system.eventStream.subscribe(testActor, classOf[Logging.Debug])
         val actor = TestActorRef(new Actor {
@@ -142,7 +140,7 @@ class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAnd
       }
     }
 
-    "log LifeCycle changes if requested" in {
+    @Test def `must log LifeCycle changes if requested`: Unit = {
       new TestKit(appLifecycle) {
         val impl = system.asInstanceOf[ActorSystemImpl]
         val sys = impl.systemGuardian.path.toString
@@ -210,5 +208,3 @@ class LoggingReceiveSpec extends WordSpec with BeforeAndAfterEach with BeforeAnd
     }
 
   }
-
-}

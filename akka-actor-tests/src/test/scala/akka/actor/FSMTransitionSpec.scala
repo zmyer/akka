@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -48,14 +52,12 @@ object FSMTransitionSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class FSMTransitionSpec extends AkkaSpec with ImplicitSender {
 
   import FSMTransitionSpec._
 
-  "A FSM transition notifier" must {
-
-    "notify listeners" in {
+  
+    @Test def `must notify listeners`: Unit = {
       import FSM.{ SubscribeTransitionCallBack, CurrentState, Transition }
 
       val fsm = system.actorOf(Props(new MyFSM(testActor)))
@@ -69,7 +71,7 @@ class FSMTransitionSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "not fail when listener goes away" in {
+    @Test def `must not fail when listener goes away`: Unit = {
       val forward = system.actorOf(Props(new Forwarder(testActor)))
       val fsm = system.actorOf(Props(new MyFSM(testActor)))
 
@@ -83,9 +85,8 @@ class FSMTransitionSpec extends AkkaSpec with ImplicitSender {
     }
   }
 
-  "A FSM" must {
-
-    "make previous and next state data available in onTransition" in {
+  
+    @Test def `must make previous and next state data available in onTransition`: Unit = {
       val fsm = system.actorOf(Props(new OtherFSM(testActor)))
       within(1 second) {
         fsm ! "tick"
@@ -93,7 +94,7 @@ class FSMTransitionSpec extends AkkaSpec with ImplicitSender {
       }
     }
 
-    "not leak memory in nextState" in {
+    @Test def `must not leak memory in nextState`: Unit = {
       val fsmref = system.actorOf(Props(new Actor with FSM[Int, ActorRef] {
         startWith(0, null)
         when(0) {
@@ -118,5 +119,3 @@ class FSMTransitionSpec extends AkkaSpec with ImplicitSender {
       expectMsg("ok")
     }
   }
-
-}

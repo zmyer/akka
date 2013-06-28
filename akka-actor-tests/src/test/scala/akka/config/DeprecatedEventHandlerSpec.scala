@@ -4,6 +4,10 @@
 
 package akka.config
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.concurrent.duration._
 import akka.testkit.AkkaSpec
 import akka.actor.Actor
@@ -28,7 +32,6 @@ object DeprecatedEventHandlerSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class DeprecatedEventHandlerSpec extends AkkaSpec("""
       akka.event-handlers = ["akka.config.DeprecatedEventHandlerSpec$TestEventHandler"]
       akka.event-handler-startup-timeout = 17s
@@ -36,10 +39,9 @@ class DeprecatedEventHandlerSpec extends AkkaSpec("""
 
   import DeprecatedEventHandlerSpec._
 
-  "Akka 2.2" must {
-    "use deprected event-handler properties" in {
-      system.settings.EventHandlers must be(List(classOf[TestEventHandler].getName))
-      system.settings.EventHandlerStartTimeout must be(Timeout(17.seconds))
+      @Test def `must use deprected event-handler properties`: Unit = {
+      assertThat(system.settings.EventHandlers, equalTo(List(classOf[TestEventHandler].getName)))
+      assertThat(system.settings.EventHandlerStartTimeout, equalTo(Timeout(17.seconds)))
 
       system.eventStream.subscribe(testActor, classOf[WrappedLogEvent])
 
@@ -50,4 +52,3 @@ class DeprecatedEventHandlerSpec extends AkkaSpec("""
 
     }
   }
-}

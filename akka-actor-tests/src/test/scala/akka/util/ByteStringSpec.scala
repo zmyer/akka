@@ -1,9 +1,9 @@
 package akka.util
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
-import org.scalatest.BeforeAndAfterAll
-import org.scalatest.prop.Checkers
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import org.scalacheck._
 import org.scalacheck.Arbitrary._
 import org.scalacheck.Prop._
@@ -16,7 +16,7 @@ import java.nio.ByteOrder, ByteOrder.{ BIG_ENDIAN, LITTLE_ENDIAN }
 import java.lang.Float.floatToRawIntBits
 import java.lang.Double.doubleToRawLongBits
 
-class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
+class ByteStringSpec with Checkers {
 
   def genSimpleByteString(min: Int, max: Int) = for {
     n ← choose(min, max)
@@ -234,20 +234,16 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
     reference.toSeq == builder.result
   }
 
-  "A ByteString" must {
-    "have correct size" when {
-      "concatenating" in { check((a: ByteString, b: ByteString) ⇒ (a ++ b).size == a.size + b.size) }
-      "dropping" in { check((a: ByteString, b: ByteString) ⇒ (a ++ b).drop(b.size).size == a.size) }
+            @Test def `must concatenating`: Unit = { check((a: ByteString, b: ByteString) ⇒ (a ++ b).size == a.size + b.size) }
+      @Test def `must dropping`: Unit = { check((a: ByteString, b: ByteString) ⇒ (a ++ b).drop(b.size).size == a.size) }
     }
 
-    "be sequential" when {
-      "taking" in { check((a: ByteString, b: ByteString) ⇒ (a ++ b).take(a.size) == a) }
-      "dropping" in { check((a: ByteString, b: ByteString) ⇒ (a ++ b).drop(a.size) == b) }
+          @Test def `must taking`: Unit = { check((a: ByteString, b: ByteString) ⇒ (a ++ b).take(a.size) == a) }
+      @Test def `must dropping`: Unit = { check((a: ByteString, b: ByteString) ⇒ (a ++ b).drop(a.size) == b) }
     }
 
-    "be equal to the original" when {
-      "compacting" in { check { xs: ByteString ⇒ val ys = xs.compact; (xs == ys) && ys.isCompact } }
-      "recombining" in {
+          @Test def `must compacting`: Unit = { check { xs: ByteString ⇒ val ys = xs.compact; (xs == ys) && ys.isCompact } }
+      @Test def `must recombining`: Unit = {
         check { (xs: ByteString, from: Int, until: Int) ⇒
           val (tmp, c) = xs.splitAt(until)
           val (a, b) = tmp.splitAt(from)
@@ -256,10 +252,9 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
       }
     }
 
-    "behave as expected" when {
-      "created from and decoding to String" in { check { s: String ⇒ ByteString(s, "UTF-8").decodeString("UTF-8") == s } }
+          @Test def `must created from and decoding to String`: Unit = { check { s: String ⇒ ByteString(s, "UTF-8").decodeString("UTF-8") == s } }
 
-      "compacting" in {
+      @Test def `must compacting`: Unit = {
         check { a: ByteString ⇒
           val wasCompact = a.isCompact
           val b = a.compact
@@ -270,7 +265,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "asByteBuffers" in {
+      @Test def `must asByteBuffers`: Unit = {
         check { (a: ByteString) ⇒ if (a.isCompact) a.asByteBuffers.size == 1 && a.asByteBuffers.head == a.asByteBuffer else a.asByteBuffers.size > 0 }
         check { (a: ByteString) ⇒ a.asByteBuffers.foldLeft(ByteString.empty) { (bs, bb) ⇒ bs ++ ByteString(bb) } == a }
         check { (a: ByteString) ⇒ a.asByteBuffers.forall(_.isReadOnly) }
@@ -280,10 +275,9 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
     }
-    "behave like a Vector" when {
-      "concatenating" in { check { (a: ByteString, b: ByteString) ⇒ likeVectors(a, b) { _ ++ _ } } }
+          @Test def `must concatenating`: Unit = { check { (a: ByteString, b: ByteString) ⇒ likeVectors(a, b) { _ ++ _ } } }
 
-      "calling apply" in {
+      @Test def `must calling apply`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, i1, i2) ⇒ likeVector(xs) { seq ⇒
@@ -294,23 +288,23 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "calling head" in { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.head } } }
-      "calling tail" in { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.tail } } }
-      "calling last" in { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.last } } }
-      "calling init" in { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.init } } }
-      "calling length" in { check { a: ByteString ⇒ likeVector(a) { _.length } } }
+      @Test def `must calling head`: Unit = { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.head } } }
+      @Test def `must calling tail`: Unit = { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.tail } } }
+      @Test def `must calling last`: Unit = { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.last } } }
+      @Test def `must calling init`: Unit = { check { a: ByteString ⇒ a.isEmpty || likeVector(a) { _.init } } }
+      @Test def `must calling length`: Unit = { check { a: ByteString ⇒ likeVector(a) { _.length } } }
 
-      "calling span" in { check { (a: ByteString, b: Byte) ⇒ likeVector(a)({ _.span(_ != b) match { case (a, b) ⇒ (a, b) } }) } }
+      @Test def `must calling span`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVector(a)({ _.span(_ != b) match { case (a, b) ⇒ (a, b) } }) } }
 
-      "calling takeWhile" in { check { (a: ByteString, b: Byte) ⇒ likeVector(a)({ _.takeWhile(_ != b) }) } }
-      "calling dropWhile" in { check { (a: ByteString, b: Byte) ⇒ likeVector(a) { _.dropWhile(_ != b) } } }
-      "calling indexWhere" in { check { (a: ByteString, b: Byte) ⇒ likeVector(a) { _.indexWhere(_ == b) } } }
-      "calling indexOf" in { check { (a: ByteString, b: Byte) ⇒ likeVector(a) { _.indexOf(b) } } }
-      "calling foreach" in { check { a: ByteString ⇒ likeVector(a) { it ⇒ var acc = 0; it foreach { acc += _ }; acc } } }
-      "calling foldLeft" in { check { a: ByteString ⇒ likeVector(a) { _.foldLeft(0) { _ + _ } } } }
-      "calling toArray" in { check { a: ByteString ⇒ likeVector(a) { _.toArray.toSeq } } }
+      @Test def `must calling takeWhile`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVector(a)({ _.takeWhile(_ != b) }) } }
+      @Test def `must calling dropWhile`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVector(a) { _.dropWhile(_ != b) } } }
+      @Test def `must calling indexWhere`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVector(a) { _.indexWhere(_ == b) } } }
+      @Test def `must calling indexOf`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVector(a) { _.indexOf(b) } } }
+      @Test def `must calling foreach`: Unit = { check { a: ByteString ⇒ likeVector(a) { it ⇒ var acc = 0; it foreach { acc += _ }; acc } } }
+      @Test def `must calling foldLeft`: Unit = { check { a: ByteString ⇒ likeVector(a) { _.foldLeft(0) { _ + _ } } } }
+      @Test def `must calling toArray`: Unit = { check { a: ByteString ⇒ likeVector(a) { _.toArray.toSeq } } }
 
-      "calling slice" in {
+      @Test def `must calling slice`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, from, until) ⇒ likeVector(xs)({
@@ -320,7 +314,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "calling take and drop" in {
+      @Test def `must calling take and drop`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, from, until) ⇒ likeVector(xs)({
@@ -330,7 +324,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "calling copyToArray" in {
+      @Test def `must calling copyToArray`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, from, until) ⇒ likeVector(xs)({ it ⇒
@@ -344,31 +338,29 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
     }
   }
 
-  "A ByteStringIterator" must {
-    "behave like a buffered Vector Iterator" when {
-      "concatenating" in { check { (a: ByteString, b: ByteString) ⇒ likeVecIts(a, b) { (a, b) ⇒ (a ++ b).toSeq } } }
+            @Test def `must concatenating`: Unit = { check { (a: ByteString, b: ByteString) ⇒ likeVecIts(a, b) { (a, b) ⇒ (a ++ b).toSeq } } }
 
-      "calling head" in { check { a: ByteString ⇒ a.isEmpty || likeVecIt(a) { _.head } } }
-      "calling next" in { check { a: ByteString ⇒ a.isEmpty || likeVecIt(a) { _.next() } } }
-      "calling hasNext" in { check { a: ByteString ⇒ likeVecIt(a) { _.hasNext } } }
-      "calling length" in { check { a: ByteString ⇒ likeVecIt(a) { _.length } } }
-      "calling duplicate" in { check { a: ByteString ⇒ likeVecIt(a)({ _.duplicate match { case (a, b) ⇒ (a.toSeq, b.toSeq) } }, strict = false) } }
+      @Test def `must calling head`: Unit = { check { a: ByteString ⇒ a.isEmpty || likeVecIt(a) { _.head } } }
+      @Test def `must calling next`: Unit = { check { a: ByteString ⇒ a.isEmpty || likeVecIt(a) { _.next() } } }
+      @Test def `must calling hasNext`: Unit = { check { a: ByteString ⇒ likeVecIt(a) { _.hasNext } } }
+      @Test def `must calling length`: Unit = { check { a: ByteString ⇒ likeVecIt(a) { _.length } } }
+      @Test def `must calling duplicate`: Unit = { check { a: ByteString ⇒ likeVecIt(a)({ _.duplicate match { case (a, b) ⇒ (a.toSeq, b.toSeq) } }, strict = false) } }
 
       // Have to used toList instead of toSeq here, iterator.span (new in
       // Scala-2.9) seems to be broken in combination with toSeq for the
       // scala.collection default Iterator (see Scala issue SI-5838).
-      "calling span" in { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a)({ _.span(_ != b) match { case (a, b) ⇒ (a.toList, b.toList) } }, strict = false) } }
+      @Test def `must calling span`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a)({ _.span(_ != b) match { case (a, b) ⇒ (a.toList, b.toList) } }, strict = false) } }
 
-      "calling takeWhile" in { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a)({ _.takeWhile(_ != b).toSeq }, strict = false) } }
-      "calling dropWhile" in { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a) { _.dropWhile(_ != b).toSeq } } }
-      "calling indexWhere" in { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a) { _.indexWhere(_ == b) } } }
-      "calling indexOf" in { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a) { _.indexOf(b) } } }
-      "calling toSeq" in { check { a: ByteString ⇒ likeVecIt(a) { _.toSeq } } }
-      "calling foreach" in { check { a: ByteString ⇒ likeVecIt(a) { it ⇒ var acc = 0; it foreach { acc += _ }; acc } } }
-      "calling foldLeft" in { check { a: ByteString ⇒ likeVecIt(a) { _.foldLeft(0) { _ + _ } } } }
-      "calling toArray" in { check { a: ByteString ⇒ likeVecIt(a) { _.toArray.toSeq } } }
+      @Test def `must calling takeWhile`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a)({ _.takeWhile(_ != b).toSeq }, strict = false) } }
+      @Test def `must calling dropWhile`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a) { _.dropWhile(_ != b).toSeq } } }
+      @Test def `must calling indexWhere`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a) { _.indexWhere(_ == b) } } }
+      @Test def `must calling indexOf`: Unit = { check { (a: ByteString, b: Byte) ⇒ likeVecIt(a) { _.indexOf(b) } } }
+      @Test def `must calling toSeq`: Unit = { check { a: ByteString ⇒ likeVecIt(a) { _.toSeq } } }
+      @Test def `must calling foreach`: Unit = { check { a: ByteString ⇒ likeVecIt(a) { it ⇒ var acc = 0; it foreach { acc += _ }; acc } } }
+      @Test def `must calling foldLeft`: Unit = { check { a: ByteString ⇒ likeVecIt(a) { _.foldLeft(0) { _ + _ } } } }
+      @Test def `must calling toArray`: Unit = { check { a: ByteString ⇒ likeVecIt(a) { _.toArray.toSeq } } }
 
-      "calling slice" in {
+      @Test def `must calling slice`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, from, until) ⇒ likeVecIt(xs)({
@@ -378,7 +370,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "calling take and drop" in {
+      @Test def `must calling take and drop`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, from, until) ⇒ likeVecIt(xs)({
@@ -388,7 +380,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "calling copyToArray" in {
+      @Test def `must calling copyToArray`: Unit = {
         check { slice: ByteStringSlice ⇒
           slice match {
             case (xs, from, until) ⇒ likeVecIt(xs)({ it ⇒
@@ -401,8 +393,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
       }
     }
 
-    "function as expected" when {
-      "getting Bytes, using getByte and getBytes" in {
+          @Test def `must getting Bytes, using getByte and getBytes`: Unit = {
         // mixing getByte and getBytes here for more rigorous testing
         check { slice: ByteStringSlice ⇒
           val (bytes, from, until) = slice
@@ -415,7 +406,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "getting Bytes, using the InputStream wrapper" in {
+      @Test def `must getting Bytes, using the InputStream wrapper`: Unit = {
         // combining skip and both read methods here for more rigorous testing
         check { slice: ByteStringSlice ⇒
           val (bytes, from, until) = slice
@@ -443,7 +434,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "calling copyToBuffer" in {
+      @Test def `must calling copyToBuffer`: Unit = {
         check { bytes: ByteString ⇒
           import java.nio.ByteBuffer
           val buffer = ByteBuffer.allocate(bytes.size)
@@ -456,23 +447,20 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
       }
     }
 
-    "decode data correctly" when {
-      "decoding Short in big-endian" in { check { slice: ByteStringSlice ⇒ testShortDecoding(slice, BIG_ENDIAN) } }
-      "decoding Short in little-endian" in { check { slice: ByteStringSlice ⇒ testShortDecoding(slice, LITTLE_ENDIAN) } }
-      "decoding Int in big-endian" in { check { slice: ByteStringSlice ⇒ testIntDecoding(slice, BIG_ENDIAN) } }
-      "decoding Int in little-endian" in { check { slice: ByteStringSlice ⇒ testIntDecoding(slice, LITTLE_ENDIAN) } }
-      "decoding Long in big-endian" in { check { slice: ByteStringSlice ⇒ testLongDecoding(slice, BIG_ENDIAN) } }
-      "decoding Long in little-endian" in { check { slice: ByteStringSlice ⇒ testLongDecoding(slice, LITTLE_ENDIAN) } }
-      "decoding Float in big-endian" in { check { slice: ByteStringSlice ⇒ testFloatDecoding(slice, BIG_ENDIAN) } }
-      "decoding Float in little-endian" in { check { slice: ByteStringSlice ⇒ testFloatDecoding(slice, LITTLE_ENDIAN) } }
-      "decoding Double in big-endian" in { check { slice: ByteStringSlice ⇒ testDoubleDecoding(slice, BIG_ENDIAN) } }
-      "decoding Double in little-endian" in { check { slice: ByteStringSlice ⇒ testDoubleDecoding(slice, LITTLE_ENDIAN) } }
+          @Test def `must decoding Short in big-endian`: Unit = { check { slice: ByteStringSlice ⇒ testShortDecoding(slice, BIG_ENDIAN) } }
+      @Test def `must decoding Short in little-endian`: Unit = { check { slice: ByteStringSlice ⇒ testShortDecoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must decoding Int in big-endian`: Unit = { check { slice: ByteStringSlice ⇒ testIntDecoding(slice, BIG_ENDIAN) } }
+      @Test def `must decoding Int in little-endian`: Unit = { check { slice: ByteStringSlice ⇒ testIntDecoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must decoding Long in big-endian`: Unit = { check { slice: ByteStringSlice ⇒ testLongDecoding(slice, BIG_ENDIAN) } }
+      @Test def `must decoding Long in little-endian`: Unit = { check { slice: ByteStringSlice ⇒ testLongDecoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must decoding Float in big-endian`: Unit = { check { slice: ByteStringSlice ⇒ testFloatDecoding(slice, BIG_ENDIAN) } }
+      @Test def `must decoding Float in little-endian`: Unit = { check { slice: ByteStringSlice ⇒ testFloatDecoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must decoding Double in big-endian`: Unit = { check { slice: ByteStringSlice ⇒ testDoubleDecoding(slice, BIG_ENDIAN) } }
+      @Test def `must decoding Double in little-endian`: Unit = { check { slice: ByteStringSlice ⇒ testDoubleDecoding(slice, LITTLE_ENDIAN) } }
     }
   }
 
-  "A ByteStringBuilder" must {
-    "function like a VectorBuilder" when {
-      "adding various contents using ++= and +=" in {
+            @Test def `must adding various contents using ++= and +=`: Unit = {
         check { (array1: Array[Byte], array2: Array[Byte], bs1: ByteString, bs2: ByteString, bs3: ByteString) ⇒
           likeVecBld { builder ⇒
             builder ++= array1
@@ -484,8 +472,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
     }
-    "function as expected" when {
-      "putting Bytes, using putByte and putBytes" in {
+          @Test def `must putting Bytes, using putByte and putBytes`: Unit = {
         // mixing putByte and putBytes here for more rigorous testing
         check { slice: ArraySlice[Byte] ⇒
           val (data, from, until) = slice
@@ -497,7 +484,7 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
         }
       }
 
-      "putting Bytes, using the OutputStream wrapper" in {
+      @Test def `must putting Bytes, using the OutputStream wrapper`: Unit = {
         // mixing the write methods here for more rigorous testing
         check { slice: ArraySlice[Byte] ⇒
           val (data, from, until) = slice
@@ -510,17 +497,15 @@ class ByteStringSpec extends WordSpec with MustMatchers with Checkers {
       }
     }
 
-    "encode data correctly" when {
-      "encoding Short in big-endian" in { check { slice: ArraySlice[Short] ⇒ testShortEncoding(slice, BIG_ENDIAN) } }
-      "encoding Short in little-endian" in { check { slice: ArraySlice[Short] ⇒ testShortEncoding(slice, LITTLE_ENDIAN) } }
-      "encoding Int in big-endian" in { check { slice: ArraySlice[Int] ⇒ testIntEncoding(slice, BIG_ENDIAN) } }
-      "encoding Int in little-endian" in { check { slice: ArraySlice[Int] ⇒ testIntEncoding(slice, LITTLE_ENDIAN) } }
-      "encoding Long in big-endian" in { check { slice: ArraySlice[Long] ⇒ testLongEncoding(slice, BIG_ENDIAN) } }
-      "encoding Long in little-endian" in { check { slice: ArraySlice[Long] ⇒ testLongEncoding(slice, LITTLE_ENDIAN) } }
-      "encoding Float in big-endian" in { check { slice: ArraySlice[Float] ⇒ testFloatEncoding(slice, BIG_ENDIAN) } }
-      "encoding Float in little-endian" in { check { slice: ArraySlice[Float] ⇒ testFloatEncoding(slice, LITTLE_ENDIAN) } }
-      "encoding Double in big-endian" in { check { slice: ArraySlice[Double] ⇒ testDoubleEncoding(slice, BIG_ENDIAN) } }
-      "encoding Double in little-endian" in { check { slice: ArraySlice[Double] ⇒ testDoubleEncoding(slice, LITTLE_ENDIAN) } }
+          @Test def `must encoding Short in big-endian`: Unit = { check { slice: ArraySlice[Short] ⇒ testShortEncoding(slice, BIG_ENDIAN) } }
+      @Test def `must encoding Short in little-endian`: Unit = { check { slice: ArraySlice[Short] ⇒ testShortEncoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must encoding Int in big-endian`: Unit = { check { slice: ArraySlice[Int] ⇒ testIntEncoding(slice, BIG_ENDIAN) } }
+      @Test def `must encoding Int in little-endian`: Unit = { check { slice: ArraySlice[Int] ⇒ testIntEncoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must encoding Long in big-endian`: Unit = { check { slice: ArraySlice[Long] ⇒ testLongEncoding(slice, BIG_ENDIAN) } }
+      @Test def `must encoding Long in little-endian`: Unit = { check { slice: ArraySlice[Long] ⇒ testLongEncoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must encoding Float in big-endian`: Unit = { check { slice: ArraySlice[Float] ⇒ testFloatEncoding(slice, BIG_ENDIAN) } }
+      @Test def `must encoding Float in little-endian`: Unit = { check { slice: ArraySlice[Float] ⇒ testFloatEncoding(slice, LITTLE_ENDIAN) } }
+      @Test def `must encoding Double in big-endian`: Unit = { check { slice: ArraySlice[Double] ⇒ testDoubleEncoding(slice, BIG_ENDIAN) } }
+      @Test def `must encoding Double in little-endian`: Unit = { check { slice: ArraySlice[Double] ⇒ testDoubleEncoding(slice, LITTLE_ENDIAN) } }
     }
   }
-}

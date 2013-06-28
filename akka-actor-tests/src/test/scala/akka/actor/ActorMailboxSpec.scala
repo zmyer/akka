@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import com.typesafe.config.ConfigFactory
 import akka.testkit._
 import akka.dispatch._
@@ -155,82 +159,81 @@ class ActorMailboxSpec(conf: Config) extends AkkaSpec(conf) with DefaultTimeout 
     q
   }
 
-  "An Actor" must {
-
-    "get an unbounded message queue by default" in {
+  
+    @Test def `must get an unbounded message queue by default`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "default-default", UnboundedMailboxTypes)
     }
 
-    "get an unbounded deque message queue when it is only configured on the props" in {
+    @Test def `must get an unbounded deque message queue when it is only configured on the props`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor].withMailbox("akka.actor.mailbox.unbounded-deque-based"),
         "default-override-from-props", UnboundedDeqMailboxTypes)
     }
 
-    "get an bounded message queue when it's only configured with RequiresMailbox" in {
+    @Test def `must get an bounded message queue when it's only configured with RequiresMailbox`: Unit = {
       checkMailboxQueue(Props[BoundedQueueReportingActor],
         "default-override-from-trait", BoundedMailboxTypes)
     }
 
-    "get an unbounded deque message queue when it's only mixed with Stash" in {
+    @Test def `must get an unbounded deque message queue when it's only mixed with Stash`: Unit = {
       checkMailboxQueue(Props[StashQueueReportingActor],
         "default-override-from-stash", UnboundedDeqMailboxTypes)
     }
 
-    "get a bounded message queue when it's configured as mailbox" in {
+    @Test def `must get a bounded message queue when it's configured as mailbox`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "default-bounded", BoundedMailboxTypes)
     }
 
-    "get an unbounded deque message queue when it's configured as mailbox" in {
+    @Test def `must get an unbounded deque message queue when it's configured as mailbox`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "default-unbounded-deque", UnboundedDeqMailboxTypes)
     }
 
-    "fail to create actor when an unbounded dequeu message queue is configured as mailbox overriding RequestMailbox" in {
+    @Test def `must fail to create actor when an unbounded dequeu message queue is configured as mailbox overriding RequestMailbox`: Unit = {
       intercept[ConfigurationException](system.actorOf(Props[BoundedQueueReportingActor], "default-unbounded-deque-override-trait"))
     }
 
-    "get an unbounded message queue when defined in dispatcher" in {
+    @Test def `must get an unbounded message queue when defined in dispatcher`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "unbounded-default", UnboundedMailboxTypes)
     }
 
-    "fail to create actor when an unbounded message queue is defined in dispatcher overriding RequestMailbox" in {
+    @Test def `must fail to create actor when an unbounded message queue is defined in dispatcher overriding RequestMailbox`: Unit = {
       intercept[ConfigurationException](system.actorOf(Props[BoundedQueueReportingActor], "unbounded-default-override-trait"))
     }
 
-    "get a bounded message queue when it's configured as mailbox overriding unbounded in dispatcher" in {
+    @Test def `must get a bounded message queue when it's configured as mailbox overriding unbounded in dispatcher`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "unbounded-bounded", BoundedMailboxTypes)
     }
 
-    "get a bounded message queue when defined in dispatcher" in {
+    @Test def `must get a bounded message queue when defined in dispatcher`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "bounded-default", BoundedMailboxTypes)
     }
 
-    "get a bounded message queue with 0 push timeout when defined in dispatcher" in {
+    @Test def `must get a bounded message queue with 0 push timeout when defined in dispatcher`: Unit = {
       val q = checkMailboxQueue(Props[QueueReportingActor], "default-bounded-mailbox-with-zero-pushtimeout", BoundedMailboxTypes)
-      q.asInstanceOf[BoundedMessageQueueSemantics].pushTimeOut must be === Duration.Zero
+      assertThat(q.asInstanceOf[BoundedMessageQueueSemantics].pushTimeOut, equalTo(Duration.Zero))
     }
 
-    "get an unbounded message queue when it's configured as mailbox overriding bounded in dispatcher" in {
+    @Test def `must get an unbounded message queue when it's configured as mailbox overriding bounded in dispatcher`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor], "bounded-unbounded", UnboundedMailboxTypes)
     }
 
-    "get an unbounded message queue overriding configuration on the props" in {
+    @Test def `must get an unbounded message queue overriding configuration on the props`: Unit = {
       checkMailboxQueue(Props[QueueReportingActor].withMailbox("akka.actor.mailbox.unbounded-deque-based"),
         "bounded-unbounded-override-props", UnboundedMailboxTypes)
     }
 
-    "get a bounded deque-based message queue if configured and required" in {
+    @Test def `must get a bounded deque-based message queue if configured and required`: Unit = {
       checkMailboxQueue(Props[StashQueueReportingActor], "bounded-deque-requirements-configured", BoundedDeqMailboxTypes)
     }
 
-    "fail with a unbounded deque-based message queue if configured and required" in {
+    @Test def `must fail with a unbounded deque-based message queue if configured and required`: Unit = {
       intercept[ConfigurationException](system.actorOf(Props[StashQueueReportingActor], "bounded-deque-require-unbounded-configured"))
     }
 
-    "fail with a bounded deque-based message queue if not configured" in {
+    @Test def `must fail with a bounded deque-based message queue if not configured`: Unit = {
       intercept[ConfigurationException](system.actorOf(Props[StashQueueReportingActor], "bounded-deque-require-unbounded-unconfigured"))
     }
 
-    "get a bounded deque-based message queue if configured and required with Props" in {
+    @Test def `must get a bounded deque-based message queue if configured and required with Props`: Unit = {
       checkMailboxQueue(
         Props[StashQueueReportingActor]
           .withDispatcher("requiring-bounded-dispatcher")
@@ -239,7 +242,7 @@ class ActorMailboxSpec(conf: Config) extends AkkaSpec(conf) with DefaultTimeout 
         BoundedDeqMailboxTypes)
     }
 
-    "fail with a unbounded deque-based message queue if configured and required with Props" in {
+    @Test def `must fail with a unbounded deque-based message queue if configured and required with Props`: Unit = {
       intercept[ConfigurationException](system.actorOf(
         Props[StashQueueReportingActor]
           .withDispatcher("requiring-bounded-dispatcher")
@@ -247,14 +250,14 @@ class ActorMailboxSpec(conf: Config) extends AkkaSpec(conf) with DefaultTimeout 
         "bounded-deque-require-unbounded-configured-props"))
     }
 
-    "fail with a bounded deque-based message queue if not configured with Props" in {
+    @Test def `must fail with a bounded deque-based message queue if not configured with Props`: Unit = {
       intercept[ConfigurationException](system.actorOf(
         Props[StashQueueReportingActor]
           .withDispatcher("requiring-bounded-dispatcher"),
         "bounded-deque-require-unbounded-unconfigured-props"))
     }
 
-    "get a bounded deque-based message queue if configured and required with Props (dispatcher)" in {
+    @Test def `must get a bounded deque-based message queue if configured and required with Props (dispatcher)`: Unit = {
       checkMailboxQueue(
         Props[StashQueueReportingActor]
           .withDispatcher("requiring-bounded-dispatcher"),
@@ -262,21 +265,21 @@ class ActorMailboxSpec(conf: Config) extends AkkaSpec(conf) with DefaultTimeout 
         BoundedDeqMailboxTypes)
     }
 
-    "fail with a unbounded deque-based message queue if configured and required with Props (dispatcher)" in {
+    @Test def `must fail with a unbounded deque-based message queue if configured and required with Props (dispatcher)`: Unit = {
       intercept[ConfigurationException](system.actorOf(
         Props[StashQueueReportingActor]
           .withDispatcher("requiring-bounded-dispatcher"),
         "bounded-deque-require-unbounded-configured-props-disp"))
     }
 
-    "fail with a bounded deque-based message queue if not configured with Props (dispatcher)" in {
+    @Test def `must fail with a bounded deque-based message queue if not configured with Props (dispatcher)`: Unit = {
       intercept[ConfigurationException](system.actorOf(
         Props[StashQueueReportingActor]
           .withDispatcher("requiring-bounded-dispatcher"),
         "bounded-deque-require-unbounded-unconfigured-props-disp"))
     }
 
-    "get a bounded deque-based message queue if configured and required with Props (mailbox)" in {
+    @Test def `must get a bounded deque-based message queue if configured and required with Props (mailbox)`: Unit = {
       checkMailboxQueue(
         Props[StashQueueReportingActor]
           .withMailbox("akka.actor.mailbox.bounded-deque-based"),
@@ -284,18 +287,17 @@ class ActorMailboxSpec(conf: Config) extends AkkaSpec(conf) with DefaultTimeout 
         BoundedDeqMailboxTypes)
     }
 
-    "fail with a unbounded deque-based message queue if configured and required with Props (mailbox)" in {
+    @Test def `must fail with a unbounded deque-based message queue if configured and required with Props (mailbox)`: Unit = {
       intercept[ConfigurationException](system.actorOf(
         Props[StashQueueReportingActor]
           .withMailbox("akka.actor.mailbox.unbounded-deque-based"),
         "bounded-deque-require-unbounded-configured-props-mail"))
     }
 
-    "fail with a bounded deque-based message queue if not configured with Props (mailbox)" in {
+    @Test def `must fail with a bounded deque-based message queue if not configured with Props (mailbox)`: Unit = {
       intercept[ConfigurationException](system.actorOf(
         Props[StashQueueReportingActor],
         "bounded-deque-require-unbounded-unconfigured-props-mail"))
     }
 
   }
-}

@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.AkkaSpec
@@ -69,11 +73,9 @@ object DeployerSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class DeployerSpec extends AkkaSpec(DeployerSpec.deployerConf) {
-  "A Deployer" must {
-
-    "be able to parse 'akka.actor.deployment._' with all default values" in {
+  
+    @Test def `must be able to parse 'akka.actor.deployment._' with all default values`: Unit = {
       val service = "/service1"
       val deployment = system.asInstanceOf[ActorSystemImpl].provider.deployer.lookup(service.split("/").drop(1))
 
@@ -87,13 +89,13 @@ class DeployerSpec extends AkkaSpec(DeployerSpec.deployerConf) {
           Deploy.NoMailboxGiven)))
     }
 
-    "use None deployment for undefined service" in {
+    @Test def `must use None deployment for undefined service`: Unit = {
       val service = "/undefined"
       val deployment = system.asInstanceOf[ActorSystemImpl].provider.deployer.lookup(service.split("/").drop(1))
-      deployment must be(None)
+      assertThat(deployment, equalTo(None))
     }
 
-    "be able to parse 'akka.actor.deployment._' with dispatcher config" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with dispatcher config`: Unit = {
       val service = "/service3"
       val deployment = system.asInstanceOf[ActorSystemImpl].provider.deployer.lookup(service.split("/").drop(1))
 
@@ -107,7 +109,7 @@ class DeployerSpec extends AkkaSpec(DeployerSpec.deployerConf) {
           Deploy.NoMailboxGiven)))
     }
 
-    "be able to parse 'akka.actor.deployment._' with mailbox config" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with mailbox config`: Unit = {
       val service = "/service4"
       val deployment = system.asInstanceOf[ActorSystemImpl].provider.deployer.lookup(service.split("/").drop(1))
 
@@ -121,7 +123,7 @@ class DeployerSpec extends AkkaSpec(DeployerSpec.deployerConf) {
           mailbox = "my-mailbox")))
     }
 
-    "detect invalid number-of-instances" in {
+    @Test def `must detect invalid number-of-instances`: Unit = {
       intercept[com.typesafe.config.ConfigException.WrongType] {
         val invalidDeployerConf = ConfigFactory.parseString("""
             akka.actor.deployment {
@@ -136,7 +138,7 @@ class DeployerSpec extends AkkaSpec(DeployerSpec.deployerConf) {
       }
     }
 
-    "detect invalid deployment path" in {
+    @Test def `must detect invalid deployment path`: Unit = {
       val e = intercept[InvalidActorNameException] {
         val invalidDeployerConf = ConfigFactory.parseString("""
             akka.actor.deployment {
@@ -153,46 +155,45 @@ class DeployerSpec extends AkkaSpec(DeployerSpec.deployerConf) {
       e.getMessage must include("[/gul/ubåt]")
     }
 
-    "be able to parse 'akka.actor.deployment._' with from-code router" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with from-code router`: Unit = {
       assertRouting("/service-direct", NoRouter, "/service-direct")
     }
 
-    "ignore nr-of-instances with from-code router" in {
+    @Test def `must ignore nr-of-instances with from-code router`: Unit = {
       assertRouting("/service-direct2", NoRouter, "/service-direct2")
     }
 
-    "be able to parse 'akka.actor.deployment._' with round-robin router" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with round-robin router`: Unit = {
       assertRouting("/service-round-robin", RoundRobinRouter(1), "/service-round-robin")
     }
 
-    "be able to parse 'akka.actor.deployment._' with random router" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with random router`: Unit = {
       assertRouting("/service-random", RandomRouter(1), "/service-random")
     }
 
-    "be able to parse 'akka.actor.deployment._' with scatter-gather router" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with scatter-gather router`: Unit = {
       assertRouting("/service-scatter-gather", ScatterGatherFirstCompletedRouter(nrOfInstances = 1, within = 2 seconds), "/service-scatter-gather")
     }
 
-    "be able to parse 'akka.actor.deployment._' with consistent-hashing router" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with consistent-hashing router`: Unit = {
       assertRouting("/service-consistent-hashing", ConsistentHashingRouter(1), "/service-consistent-hashing")
     }
 
-    "be able to parse 'akka.actor.deployment._' with router resizer" in {
+    @Test def `must be able to parse 'akka.actor.deployment._' with router resizer`: Unit = {
       val resizer = DefaultResizer()
       assertRouting("/service-resizer", RoundRobinRouter(resizer = Some(resizer)), "/service-resizer")
     }
 
-    "be able to use wildcards" in {
+    @Test def `must be able to use wildcards`: Unit = {
       assertRouting("/some/wildcardmatch", RandomRouter(1), "/some/*")
       assertRouting("/somewildcardmatch/some", ScatterGatherFirstCompletedRouter(nrOfInstances = 1, within = 2 seconds), "/*/some")
     }
 
     def assertRouting(service: String, expected: RouterConfig, expectPath: String): Unit = {
       val deployment = system.asInstanceOf[ActorSystemImpl].provider.deployer.lookup(service.split("/").drop(1))
-      deployment.map(_.path).getOrElse("NOT FOUND") must be(expectPath)
-      deployment.get.routerConfig.getClass must be(expected.getClass)
-      deployment.get.routerConfig.resizer must be(expected.resizer)
-      deployment.get.scope must be(NoScopeGiven)
+      assertThat(deployment.map(_.path).getOrElse("NOT FOUND"), equalTo(expectPath))
+      assertThat(deployment.get.routerConfig.getClass, equalTo(expected.getClass))
+      assertThat(deployment.get.routerConfig.resizer, equalTo(expected.resizer))
+      assertThat(deployment.get.scope, equalTo(NoScopeGiven))
     }
   }
-}

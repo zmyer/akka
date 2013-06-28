@@ -3,10 +3,13 @@
  */
 package akka.testkit
 
-import language.{ postfixOps, reflectiveCalls }
+import org.junit.Test
+import org.junit.AfterClass
+import org.junit.BeforeClass
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
 
-import org.scalatest.{ WordSpec, BeforeAndAfterAll, Tag }
-import org.scalatest.matchers.MustMatchers
+import language.{ postfixOps, reflectiveCalls }
 import akka.actor.{ Actor, Props, ActorSystem, PoisonPill, DeadLetter, ActorSystemImpl }
 import akka.event.{ Logging, LoggingAdapter }
 import scala.concurrent.duration._
@@ -54,7 +57,7 @@ object AkkaSpec {
 }
 
 abstract class AkkaSpec(_system: ActorSystem)
-  extends TestKit(_system) with WordSpec with MustMatchers with BeforeAndAfterAll with WatchedByCoroner {
+  extends TestKit(_system) with WatchedByCoroner {
 
   def this(config: Config) = this(ActorSystem(AkkaSpec.getCallerName(getClass),
     ConfigFactory.load(config.withFallback(AkkaSpec.testConf))))
@@ -67,12 +70,12 @@ abstract class AkkaSpec(_system: ActorSystem)
 
   val log: LoggingAdapter = Logging(system, this.getClass)
 
-  final override def beforeAll {
+  @BeforeClass final override def beforeAll {
     startCoroner
     atStartup()
   }
 
-  final override def afterAll {
+  @AfterClass final override def afterAll {
     beforeTermination()
     shutdown(system)
     afterTermination()
@@ -97,5 +100,4 @@ abstract class AkkaSpec(_system: ActorSystem)
       if (messageClasses.isEmpty) mute(classOf[AnyRef])
       else messageClasses foreach mute
     }
-
 }

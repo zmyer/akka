@@ -3,28 +3,28 @@
  */
 package akka.actor
 
-import org.scalatest.WordSpec
-import org.scalatest.matchers.MustMatchers
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.net.URLEncoder
 import scala.collection.immutable
 
-class RelativeActorPathSpec extends WordSpec with MustMatchers {
+class RelativeActorPathSpec {
 
   def elements(path: String): immutable.Seq[String] = RelativeActorPath.unapply(path).getOrElse(Nil)
 
-  "RelativeActorPath" must {
-    "match single name" in {
-      elements("foo") must be(List("foo"))
+      @Test def `must match single name`: Unit = {
+      assertThat(elements("foo"), equalTo(List("foo")))
     }
-    "match path separated names" in {
-      elements("foo/bar/baz") must be(List("foo", "bar", "baz"))
+    @Test def `must match path separated names`: Unit = {
+      assertThat(elements("foo/bar/baz"), equalTo(List("foo", "bar", "baz")))
     }
-    "match url encoded name" in {
+    @Test def `must match url encoded name`: Unit = {
       val name = URLEncoder.encode("akka://ClusterSystem@127.0.0.1:2552", "UTF-8")
-      elements(name) must be(List(name))
+      assertThat(elements(name), equalTo(List(name)))
     }
-    "match path with uid fragment" in {
-      elements("foo/bar/baz#1234") must be(List("foo", "bar", "baz#1234"))
+    @Test def `must match path with uid fragment`: Unit = {
+      assertThat(elements("foo/bar/baz#1234"), equalTo(List("foo", "bar", "baz#1234")))
     }
   }
-}

@@ -4,9 +4,12 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
-import org.scalatest.BeforeAndAfterEach
 import scala.concurrent.duration._
 import akka.{ Die, Ping }
 import akka.testkit.TestEvent._
@@ -66,7 +69,6 @@ object SupervisorSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSender with DefaultTimeout {
 
   import SupervisorSpec._
@@ -139,7 +141,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
   }
 
   def ping(pingPongActor: ActorRef) = {
-    Await.result(pingPongActor.?(Ping)(DilatedTimeout), DilatedTimeout) must be === PongMessage
+    assertThat(Await.result(pingPongActor.?(Ping)(DilatedTimeout), DilatedTimeout), equalTo(PongMessage))
     expectMsg(Timeout, PingMessage)
   }
 
@@ -149,9 +151,8 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
     intercept[RuntimeException] { Await.result(result, DilatedTimeout) }
   }
 
-  "A supervisor" must {
-
-    "not restart child more times than permitted" in {
+  
+    @Test def `must not restart child more times than permitted`: Unit = {
       val master = system.actorOf(Props(new Master(testActor)))
 
       master ! Die
@@ -159,7 +160,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       expectNoMsg(1 second)
     }
 
-    "restart properly when same instance is returned" in {
+    @Test def `must restart properly when same instance is returned`: Unit = {
       val restarts = 3 //max number of restarts
       lazy val childInstance = new Actor {
         var preRestarts = 0
@@ -208,7 +209,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       expectNoMsg(1 second)
     }
 
-    "not restart temporary actor" in {
+    @Test def `must not restart temporary actor`: Unit = {
       val (temporaryActor, _) = temporaryActorAllForOne
 
       intercept[RuntimeException] { Await.result(temporaryActor.?(DieReply)(DilatedTimeout), DilatedTimeout) }
@@ -216,47 +217,47 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       expectNoMsg(1 second)
     }
 
-    "start server for nested supervisor hierarchy" in {
+    @Test def `must start server for nested supervisor hierarchy`: Unit = {
       val (actor1, _, _, _) = nestedSupervisorsAllForOne
       ping(actor1)
       expectNoMsg(1 second)
     }
 
-    "kill single actor OneForOne" in {
+    @Test def `must kill single actor OneForOne`: Unit = {
       val (actor, _) = singleActorOneForOne
       kill(actor)
     }
 
-    "call-kill-call single actor OneForOne" in {
+    @Test def `must call-kill-call single actor OneForOne`: Unit = {
       val (actor, supervisor) = singleActorOneForOne
       ping(actor)
       kill(actor)
       ping(actor)
     }
 
-    "kill single actor AllForOne" in {
+    @Test def `must kill single actor AllForOne`: Unit = {
       val (actor, supervisor) = singleActorAllForOne
       kill(actor)
     }
 
-    "call-kill-call single actor AllForOne" in {
+    @Test def `must call-kill-call single actor AllForOne`: Unit = {
       val (actor, supervisor) = singleActorAllForOne
       ping(actor)
       kill(actor)
       ping(actor)
     }
 
-    "kill multiple actors OneForOne 1" in {
+    @Test def `must kill multiple actors OneForOne 1`: Unit = {
       val (actor1, actor2, actor3, supervisor) = multipleActorsOneForOne
       kill(actor1)
     }
 
-    "kill multiple actors OneForOne 2" in {
+    @Test def `must kill multiple actors OneForOne 2`: Unit = {
       val (actor1, actor2, actor3, supervisor) = multipleActorsOneForOne
       kill(actor3)
     }
 
-    "call-kill-call multiple actors OneForOne" in {
+    @Test def `must call-kill-call multiple actors OneForOne`: Unit = {
       val (actor1, actor2, actor3, supervisor) = multipleActorsOneForOne
 
       ping(actor1)
@@ -270,7 +271,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       ping(actor3)
     }
 
-    "kill multiple actors AllForOne" in {
+    @Test def `must kill multiple actors AllForOne`: Unit = {
       val (actor1, actor2, actor3, supervisor) = multipleActorsAllForOne
 
       kill(actor2)
@@ -280,7 +281,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       expectMsg(Timeout, ExceptionMessage)
     }
 
-    "call-kill-call multiple actors AllForOne" in {
+    @Test def `must call-kill-call multiple actors AllForOne`: Unit = {
       val (actor1, actor2, actor3, supervisor) = multipleActorsAllForOne
 
       ping(actor1)
@@ -298,14 +299,14 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       ping(actor3)
     }
 
-    "one-way kill single actor OneForOne" in {
+    @Test def `must one-way kill single actor OneForOne`: Unit = {
       val (actor, _) = singleActorOneForOne
 
       actor ! Die
       expectMsg(Timeout, ExceptionMessage)
     }
 
-    "one-way call-kill-call single actor OneForOne" in {
+    @Test def `must one-way call-kill-call single actor OneForOne`: Unit = {
       val (actor, _) = singleActorOneForOne
 
       actor ! Ping
@@ -317,7 +318,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       expectMsg(Timeout, PingMessage)
     }
 
-    "restart killed actors in nested superviser hierarchy" in {
+    @Test def `must restart killed actors in nested superviser hierarchy`: Unit = {
       val (actor1, actor2, actor3, _) = nestedSupervisorsAllForOne
 
       ping(actor1)
@@ -335,7 +336,7 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       ping(actor3)
     }
 
-    "attempt restart when exception during restart" in {
+    @Test def `must attempt restart when exception during restart`: Unit = {
       val inits = new AtomicInteger(0)
       val supervisor = system.actorOf(Props(new Supervisor(
         OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 10 seconds)(classOf[Exception] :: Nil))))
@@ -371,12 +372,12 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       dyingActor ! Ping
       expectMsg(PongMessage)
 
-      inits.get must be(3)
+      assertThat(inits.get, equalTo(3))
 
       system.stop(supervisor)
     }
 
-    "not lose system messages when a NonFatal exception occurs when processing a system message" in {
+    @Test def `must not lose system messages when a NonFatal exception occurs when processing a system message`: Unit = {
       val parent = system.actorOf(Props(new Actor {
         override val supervisorStrategy = OneForOneStrategy()({
           case e: IllegalStateException if e.getMessage == "OHNOES" ⇒ throw e
@@ -424,4 +425,3 @@ class SupervisorSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSende
       expectMsg("child green")
     }
   }
-}

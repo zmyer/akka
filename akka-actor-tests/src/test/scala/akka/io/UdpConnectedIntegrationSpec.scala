@@ -3,6 +3,10 @@
  */
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.net.InetSocketAddress
 import akka.testkit.{ TestProbe, ImplicitSender, AkkaSpec }
 import akka.util.ByteString
@@ -30,9 +34,8 @@ class UdpConnectedIntegrationSpec extends AkkaSpec("""
     commander.sender
   }
 
-  "The UDP connection oriented implementation" must {
-
-    "be able to send and receive without binding" in {
+  
+    @Test def `must be able to send and receive without binding`: Unit = {
       val serverAddress = addresses(0)
       val server = bindUdp(serverAddress, testActor)
       val data1 = ByteString("To infinity and beyond!")
@@ -41,16 +44,16 @@ class UdpConnectedIntegrationSpec extends AkkaSpec("""
 
       val clientAddress = expectMsgPF() {
         case Udp.Received(d, a) ⇒
-          d must be === data1
+          assertThat(d, equalTo(data1))
           a
       }
 
       server ! Udp.Send(data2, clientAddress)
 
-      expectMsgType[UdpConnected.Received].data must be === data2
+      assertThat(expectMsgType[UdpConnected.Received].data, equalTo(data2))
     }
 
-    "be able to send and receive with binding" in {
+    @Test def `must be able to send and receive with binding`: Unit = {
       val serverAddress = addresses(1)
       val clientAddress = addresses(2)
       val server = bindUdp(serverAddress, testActor)
@@ -60,15 +63,13 @@ class UdpConnectedIntegrationSpec extends AkkaSpec("""
 
       expectMsgPF() {
         case Udp.Received(d, a) ⇒
-          d must be === data1
+          assertThat(d, equalTo(data1))
           a must be === clientAddress
       }
 
       server ! Udp.Send(data2, clientAddress)
 
-      expectMsgType[UdpConnected.Received].data must be === data2
+      assertThat(expectMsgType[UdpConnected.Received].data, equalTo(data2))
     }
 
   }
-
-}

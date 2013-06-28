@@ -3,6 +3,10 @@
  */
 package akka.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.actor._
@@ -67,16 +71,14 @@ object RoutingSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with ImplicitSender {
   implicit val ec = system.dispatcher
   import akka.routing.RoutingSpec._
 
   muteDeadLetters(classOf[akka.dispatch.sysmsg.DeathWatchNotification])()
 
-  "routers in general" must {
-
-    "evict terminated routees" in {
+  
+    @Test def `must evict terminated routees`: Unit = {
       val router = system.actorOf(Props[Echo].withRouter(RoundRobinRouter(2)))
       router ! ""
       router ! ""
@@ -84,7 +86,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       watch(router)
       watch(c2)
       system.stop(c2)
-      expectTerminated(c2).existenceConfirmed must be === true
+      assertThat(expectTerminated(c2).existenceConfirmed, equalTo(true))
       // it might take a while until the Router has actually processed the Terminated message
       awaitCond {
         router ! ""
@@ -95,10 +97,10 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
         res == Seq(c1, c1)
       }
       system.stop(c1)
-      expectTerminated(router).existenceConfirmed must be === true
+      assertThat(expectTerminated(router).existenceConfirmed, equalTo(true))
     }
 
-    "not terminate when resizer is used" in {
+    @Test def `must not terminate when resizer is used`: Unit = {
       val latch = TestLatch(1)
       val resizer = new Resizer {
         def isTimeForResize(messageCounter: Long): Boolean = messageCounter == 0
@@ -112,13 +114,13 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       Await.ready(latch, remaining)
       router ! CurrentRoutees
       val routees = expectMsgType[RouterRoutees].routees
-      routees.size must be(2)
+      assertThat(routees.size, equalTo(2))
       routees foreach system.stop
       // expect no Terminated
       expectNoMsg(2.seconds)
     }
 
-    "be able to send their routees" in {
+    @Test def `must be able to send their routees`: Unit = {
       case class TestRun(id: String, names: immutable.Iterable[String], actors: Int)
       val actor = system.actorOf(Props(new Actor {
         def receive = {
@@ -139,28 +141,28 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       1 to actors foreach { _ ⇒
         val routees = expectMsgType[RouterRoutees].routees
-        routees.map(_.path.name) must be === names
+        assertThat(routees.map(_.path.name), equalTo(names))
       }
       expectNoMsg(500.millis)
     }
 
-    "use configured nr-of-instances when FromConfig" in {
+    @Test def `must use configured nr-of-instances when FromConfig`: Unit = {
       val router = system.actorOf(Props[TestActor].withRouter(FromConfig), "router1")
       router ! CurrentRoutees
-      expectMsgType[RouterRoutees].routees.size must be(3)
+      assertThat(expectMsgType[RouterRoutees].routees.size, equalTo(3))
       watch(router)
       system.stop(router)
       expectTerminated(router)
     }
 
-    "use configured nr-of-instances when router is specified" in {
+    @Test def `must use configured nr-of-instances when router is specified`: Unit = {
       val router = system.actorOf(Props[TestActor].withRouter(RoundRobinRouter(nrOfInstances = 2)), "router2")
       router ! CurrentRoutees
-      expectMsgType[RouterRoutees].routees.size must be(3)
+      assertThat(expectMsgType[RouterRoutees].routees.size, equalTo(3))
       system.stop(router)
     }
 
-    "use specified resizer when resizer not configured" in {
+    @Test def `must use specified resizer when resizer not configured`: Unit = {
       val latch = TestLatch(1)
       val resizer = new Resizer {
         def isTimeForResize(messageCounter: Long): Boolean = messageCounter == 0
@@ -172,11 +174,11 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       val router = system.actorOf(Props[TestActor].withRouter(RoundRobinRouter(resizer = Some(resizer))), "router3")
       Await.ready(latch, remaining)
       router ! CurrentRoutees
-      expectMsgType[RouterRoutees].routees.size must be(3)
+      assertThat(expectMsgType[RouterRoutees].routees.size, equalTo(3))
       system.stop(router)
     }
 
-    "set supplied supervisorStrategy" in {
+    @Test def `must set supplied supervisorStrategy`: Unit = {
       //#supervision
       val escalator = OneForOneStrategy() {
         //#custom-strategy
@@ -200,7 +202,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       expectMsgType[ActorKilledException]
     }
 
-    "set supplied supervisorStrategy for FromConfig" in {
+    @Test def `must set supplied supervisorStrategy for FromConfig`: Unit = {
       val escalator = OneForOneStrategy() {
         case e ⇒ testActor ! e; SupervisorStrategy.Escalate
       }
@@ -212,7 +214,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       expectMsgType[ActorKilledException]
     }
 
-    "default to all-for-one-always-escalate strategy" in {
+    @Test def `must default to all-for-one-always-escalate strategy`: Unit = {
       val restarter = OneForOneStrategy() {
         case e ⇒ testActor ! e; SupervisorStrategy.Restart
       }
@@ -227,13 +229,13 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       EventFilter[Exception]("die", occurrences = 1) intercept {
         router ! "die"
       }
-      expectMsgType[Exception].getMessage must be("die")
+      assertThat(expectMsgType[Exception].getMessage, equalTo("die"))
       expectMsg("restarted")
       expectMsg("restarted")
       expectMsg("restarted")
     }
 
-    "start in-line for context.actorOf()" in {
+    @Test def `must start in-line for context.actorOf()`: Unit = {
       system.actorOf(Props(new Actor {
         def receive = {
           case "start" ⇒
@@ -247,13 +249,12 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
   }
 
-  "no router" must {
-    "be started when constructed" in {
+      @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(NoRouter))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
-    "send message to connection" in {
+    @Test def `must send message to connection`: Unit = {
       class Actor1 extends Actor {
         def receive = {
           case msg ⇒ testActor forward msg
@@ -269,17 +270,16 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
     }
   }
 
-  "round robin router" must {
-    "be started when constructed" in {
+      @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(RoundRobinRouter(nrOfInstances = 1)))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
     //In this test a bunch of actors are created and each actor has its own counter.
     //to test round robin, the routed actor receives the following sequence of messages 1 2 3 .. 1 2 3 .. 1 2 3 which it
     //uses to increment his counter.
     //So after n iteration, the first actor his counter should be 1*n, the second 2*n etc etc.
-    "deliver messages in a round robin fashion" in {
+    @Test def `must deliver messages in a round robin fashion`: Unit = {
       val connectionCount = 10
       val iterationCount = 10
       val doneLatch = new TestLatch(connectionCount)
@@ -313,10 +313,10 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       Await.ready(doneLatch, remaining)
 
       for (i ← 0 until connectionCount)
-        counters(i).get must be((iterationCount * (i + 1)))
+        assertThat(counters(i).get, equalTo((iterationCount * (i + 1))))
     }
 
-    "deliver a broadcast message using the !" in {
+    @Test def `must deliver a broadcast message using the !`: Unit = {
       val doneLatch = new TestLatch(2)
 
       val counter1 = new AtomicInteger
@@ -342,19 +342,18 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       Await.ready(doneLatch, remaining)
 
-      counter1.get must be(1)
-      counter2.get must be(1)
+      assertThat(counter1.get, equalTo(1))
+      assertThat(counter2.get, equalTo(1))
     }
   }
 
-  "random router" must {
-
-    "be started when constructed" in {
+  
+    @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(RandomRouter(nrOfInstances = 1)))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
-    "deliver a broadcast message" in {
+    @Test def `must deliver a broadcast message`: Unit = {
       val doneLatch = new TestLatch(2)
 
       val counter1 = new AtomicInteger
@@ -380,18 +379,17 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       Await.ready(doneLatch, remaining)
 
-      counter1.get must be(1)
-      counter2.get must be(1)
+      assertThat(counter1.get, equalTo(1))
+      assertThat(counter2.get, equalTo(1))
     }
   }
 
-  "smallest mailbox router" must {
-    "be started when constructed" in {
+      @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(SmallestMailboxRouter(nrOfInstances = 1)))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
-    "deliver messages to idle actor" in {
+    @Test def `must deliver messages to idle actor`: Unit = {
       val usedActors = new ConcurrentHashMap[Int, String]()
       val router = system.actorOf(Props(new Actor {
         def receive = {
@@ -427,26 +425,25 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       busy.countDown()
 
       val busyPath = usedActors.get(0)
-      busyPath must not be (null)
+      assertThat(busyPath, notNullValue)
 
       val path1 = usedActors.get(1)
       val path2 = usedActors.get(2)
       val path3 = usedActors.get(3)
 
-      path1 must not be (busyPath)
+      assertThat(path1, not(busyPath))
       path2 must not be (busyPath)
-      path3 must not be (busyPath)
+      assertThat(path3, not(busyPath))
 
     }
   }
 
-  "broadcast router" must {
-    "be started when constructed" in {
+      @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(BroadcastRouter(nrOfInstances = 1)))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
-    "broadcast message using !" in {
+    @Test def `must broadcast message using !`: Unit = {
       val doneLatch = new TestLatch(2)
 
       val counter1 = new AtomicInteger
@@ -471,11 +468,11 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       Await.ready(doneLatch, remaining)
 
-      counter1.get must be(1)
-      counter2.get must be(1)
+      assertThat(counter1.get, equalTo(1))
+      assertThat(counter2.get, equalTo(1))
     }
 
-    "broadcast message using ?" in {
+    @Test def `must broadcast message using ?`: Unit = {
       val doneLatch = new TestLatch(2)
 
       val counter1 = new AtomicInteger
@@ -502,20 +499,19 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       Await.ready(doneLatch, remaining)
 
-      counter1.get must be(1)
-      counter2.get must be(1)
+      assertThat(counter1.get, equalTo(1))
+      assertThat(counter2.get, equalTo(1))
     }
   }
 
-  "Scatter-gather router" must {
-
-    "be started when constructed" in {
+  
+    @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(
         ScatterGatherFirstCompletedRouter(routees = List(newActor(0)), within = 1 seconds)))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
-    "deliver a broadcast message using the !" in {
+    @Test def `must deliver a broadcast message using the !`: Unit = {
       val doneLatch = new TestLatch(2)
 
       val counter1 = new AtomicInteger
@@ -541,11 +537,11 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       Await.ready(doneLatch, TestLatch.DefaultTimeout)
 
-      counter1.get must be(1)
-      counter2.get must be(1)
+      assertThat(counter1.get, equalTo(1))
+      assertThat(counter2.get, equalTo(1))
     }
 
-    "return response, even if one of the actors has stopped" in {
+    @Test def `must return response, even if one of the actors has stopped`: Unit = {
       val shutdownLatch = new TestLatch(1)
       val actor1 = newActor(1, Some(shutdownLatch))
       val actor2 = newActor(14, Some(shutdownLatch))
@@ -554,7 +550,7 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
 
       routedActor ! Broadcast(Stop(Some(1)))
       Await.ready(shutdownLatch, TestLatch.DefaultTimeout)
-      Await.result(routedActor ? Broadcast(0), timeout.duration) must be(14)
+      assertThat(Await.result(routedActor ? Broadcast(0), timeout.duration), equalTo(14))
     }
 
     case class Stop(id: Option[Int] = None)
@@ -576,15 +572,14 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
     }), "Actor:" + id)
   }
 
-  "router FromConfig" must {
-    "throw suitable exception when not configured" in {
+      @Test def `must throw suitable exception when not configured`: Unit = {
       val e = intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(FromConfig), "routerNotDefined")
       }
       e.getMessage must include("routerNotDefined")
     }
 
-    "allow external configuration" in {
+    @Test def `must allow external configuration`: Unit = {
       val sys = ActorSystem("FromConfig", ConfigFactory
         .parseString("akka.actor.deployment./routed.router=round-robin")
         .withFallback(system.settings.config))
@@ -595,19 +590,18 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
       }
     }
 
-    "support custom router" in {
+    @Test def `must support custom router`: Unit = {
       val myrouter = system.actorOf(Props.empty.withRouter(FromConfig), "myrouter")
-      myrouter.isTerminated must be(false)
+      assertThat(myrouter.isTerminated, equalTo(false))
     }
   }
 
-  "custom router" must {
-    "be started when constructed" in {
+      @Test def `must be started when constructed`: Unit = {
       val routedActor = system.actorOf(Props[TestActor].withRouter(VoteCountRouter()))
-      routedActor.isTerminated must be(false)
+      assertThat(routedActor.isTerminated, equalTo(false))
     }
 
-    "count votes as intended - not as in Florida" in {
+    @Test def `must count votes as intended - not as in Florida`: Unit = {
       val routedActor = system.actorOf(Props.empty.withRouter(VoteCountRouter()))
       routedActor ! DemocratVote
       routedActor ! DemocratVote
@@ -687,4 +681,3 @@ class RoutingSpec extends AkkaSpec(RoutingSpec.config) with DefaultTimeout with 
     //#crRouter
     //#CustomRouter
   }
-}

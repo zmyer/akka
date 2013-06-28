@@ -4,10 +4,13 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import java.lang.Thread.sleep
-import org.scalatest.BeforeAndAfterAll
 import scala.concurrent.Await
 import akka.testkit.TestEvent._
 import akka.testkit.EventFilter
@@ -18,7 +21,6 @@ import akka.testkit.TestLatch
 import scala.concurrent.duration._
 import akka.pattern.ask
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class RestartStrategySpec extends AkkaSpec with DefaultTimeout {
 
   override def atStartup {
@@ -28,9 +30,8 @@ class RestartStrategySpec extends AkkaSpec with DefaultTimeout {
   object Ping
   object Crash
 
-  "A RestartStrategy" must {
-
-    "ensure that slave stays dead after max restarts within time range" in {
+  
+    @Test def `must ensure that slave stays dead after max restarts within time range`: Unit = {
       val boss = system.actorOf(Props(new Supervisor(
         OneForOneStrategy(maxNrOfRetries = 2, withinTimeRange = 1 second)(List(classOf[Throwable])))))
 
@@ -77,7 +78,7 @@ class RestartStrategySpec extends AkkaSpec with DefaultTimeout {
       Await.ready(stopLatch, 10 seconds)
     }
 
-    "ensure that slave is immortal without max restarts and time range" in {
+    @Test def `must ensure that slave is immortal without max restarts and time range`: Unit = {
       val boss = system.actorOf(Props(new Supervisor(OneForOneStrategy()(List(classOf[Throwable])))))
 
       val countDownLatch = new TestLatch(100)
@@ -99,7 +100,7 @@ class RestartStrategySpec extends AkkaSpec with DefaultTimeout {
       assert(!slave.isTerminated)
     }
 
-    "ensure that slave restarts after number of crashes not within time range" in {
+    @Test def `must ensure that slave restarts after number of crashes not within time range`: Unit = {
       val boss = system.actorOf(Props(new Supervisor(
         OneForOneStrategy(maxNrOfRetries = 2, withinTimeRange = 500 millis)(List(classOf[Throwable])))))
 
@@ -157,7 +158,7 @@ class RestartStrategySpec extends AkkaSpec with DefaultTimeout {
       assert(!slave.isTerminated)
     }
 
-    "ensure that slave is not restarted after max retries" in {
+    @Test def `must ensure that slave is not restarted after max retries`: Unit = {
       val boss = system.actorOf(Props(new Supervisor(OneForOneStrategy(maxNrOfRetries = 2)(List(classOf[Throwable])))))
 
       val restartLatch = new TestLatch
@@ -208,7 +209,7 @@ class RestartStrategySpec extends AkkaSpec with DefaultTimeout {
       assert(slave.isTerminated)
     }
 
-    "ensure that slave is not restarted within time range" in {
+    @Test def `must ensure that slave is not restarted within time range`: Unit = {
       val restartLatch, stopLatch, maxNoOfRestartsLatch = new TestLatch
       val countDownLatch = new TestLatch(2)
 

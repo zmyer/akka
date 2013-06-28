@@ -1,9 +1,12 @@
 package akka.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import org.junit.runner.RunWith
-import org.scalatest.junit.JUnitRunner
 import com.typesafe.config.Config
 
 import akka.actor.{ Props, ActorSystem, Actor }
@@ -33,16 +36,14 @@ object PriorityDispatcherSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class PriorityDispatcherSpec extends AkkaSpec(PriorityDispatcherSpec.config) with DefaultTimeout {
 
-  "A PriorityDispatcher" must {
-    "Order it's messages according to the specified comparator using an unbounded mailbox" in {
+      @Test def `must Order it's messages according to the specified comparator using an unbounded mailbox`: Unit = {
       val dispatcherKey = "unbounded-prio-dispatcher"
       testOrdering(dispatcherKey)
     }
 
-    "Order it's messages according to the specified comparator using a bounded mailbox" in {
+    @Test def `must Order it's messages according to the specified comparator using a bounded mailbox`: Unit = {
       val dispatcherKey = "bounded-prio-dispatcher"
       testOrdering(dispatcherKey)
     }
@@ -74,7 +75,5 @@ class PriorityDispatcherSpec extends AkkaSpec(PriorityDispatcherSpec.config) wit
 
     }))
 
-    expectMsgType[List[_]] must be === msgs
+    assertThat(expectMsgType[List[_]], equalTo(msgs))
   }
-
-}

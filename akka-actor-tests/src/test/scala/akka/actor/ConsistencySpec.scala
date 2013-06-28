@@ -1,5 +1,9 @@
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.AkkaSpec
@@ -50,8 +54,7 @@ object ConsistencySpec {
 
 class ConsistencySpec extends AkkaSpec(ConsistencySpec.config) {
   import ConsistencySpec._
-  "The Akka actor model implementation" must {
-    "provide memory consistency" in {
+      @Test def `must provide memory consistency`: Unit = {
       val noOfActors = 7
       val props = Props[ConsistencyCheckingActor].withDispatcher("consistency-dispatcher")
       val actors = Vector.fill(noOfActors)(system.actorOf(props))

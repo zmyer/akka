@@ -4,9 +4,12 @@
 
 package akka.event
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
-import org.scalatest.BeforeAndAfterEach
 import akka.testkit._
 import scala.concurrent.duration._
 import java.util.concurrent.atomic._
@@ -22,7 +25,6 @@ object EventBusSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 abstract class EventBusSpec(busName: String) extends AkkaSpec with BeforeAndAfterEach {
   import EventBusSpec._
   type BusType <: EventBus
@@ -49,47 +51,47 @@ abstract class EventBusSpec(busName: String) extends AkkaSpec with BeforeAndAfte
     val classifier = getClassifierFor(event)
     val subscriber = createNewSubscriber()
 
-    "allow subscribers" in {
-      bus.subscribe(subscriber, classifier) must be === true
+    @Test def `must allow subscribers`: Unit = {
+      assertThat(bus.subscribe(subscriber, classifier), equalTo(true))
     }
 
-    "allow to unsubscribe already existing subscriber" in {
-      bus.unsubscribe(subscriber, classifier) must be === true
+    @Test def `must allow to unsubscribe already existing subscriber`: Unit = {
+      assertThat(bus.unsubscribe(subscriber, classifier), equalTo(true))
     }
 
-    "not allow to unsubscribe non-existing subscriber" in {
+    @Test def `must not allow to unsubscribe non-existing subscriber`: Unit = {
       val sub = createNewSubscriber()
-      bus.unsubscribe(sub, classifier) must be === false
+      assertThat(bus.unsubscribe(sub, classifier), equalTo(false))
       disposeSubscriber(system, sub)
     }
 
-    "not allow for the same subscriber to subscribe to the same channel twice" in {
-      bus.subscribe(subscriber, classifier) must be === true
+    @Test def `must not allow for the same subscriber to subscribe to the same channel twice`: Unit = {
+      assertThat(bus.subscribe(subscriber, classifier), equalTo(true))
       bus.subscribe(subscriber, classifier) must be === false
-      bus.unsubscribe(subscriber, classifier) must be === true
+      assertThat(bus.unsubscribe(subscriber, classifier), equalTo(true))
     }
 
-    "not allow for the same subscriber to unsubscribe to the same channel twice" in {
-      bus.subscribe(subscriber, classifier) must be === true
+    @Test def `must not allow for the same subscriber to unsubscribe to the same channel twice`: Unit = {
+      assertThat(bus.subscribe(subscriber, classifier), equalTo(true))
       bus.unsubscribe(subscriber, classifier) must be === true
-      bus.unsubscribe(subscriber, classifier) must be === false
+      assertThat(bus.unsubscribe(subscriber, classifier), equalTo(false))
     }
 
-    "allow to add multiple subscribers" in {
+    @Test def `must allow to add multiple subscribers`: Unit = {
       val subscribers = (1 to 10) map { _ ⇒ createNewSubscriber() }
       val events = createEvents(10)
       val classifiers = events map getClassifierFor
-      subscribers.zip(classifiers) forall { case (s, c) ⇒ bus.subscribe(s, c) } must be === true
+      assertThat(subscribers.zip(classifiers) forall { case (s, c) ⇒ bus.subscribe(s, c) }, equalTo(true))
       subscribers.zip(classifiers) forall { case (s, c) ⇒ bus.unsubscribe(s, c) } must be === true
 
       subscribers foreach (disposeSubscriber(system, _))
     }
 
-    "publishing events without any subscribers shouldn't be a problem" in {
+    @Test def `must publishing events without any subscribers shouldn't be a problem`: Unit = {
       bus.publish(event)
     }
 
-    "publish the given event to the only subscriber" in {
+    @Test def `must publish the given event to the only subscriber`: Unit = {
       bus.subscribe(subscriber, classifier)
       bus.publish(event)
       expectMsg(event)
@@ -97,7 +99,7 @@ abstract class EventBusSpec(busName: String) extends AkkaSpec with BeforeAndAfte
       bus.unsubscribe(subscriber, classifier)
     }
 
-    "publish to the only subscriber multiple times" in {
+    @Test def `must publish to the only subscriber multiple times`: Unit = {
       bus.subscribe(subscriber, classifier)
       bus.publish(event)
       bus.publish(event)
@@ -109,16 +111,16 @@ abstract class EventBusSpec(busName: String) extends AkkaSpec with BeforeAndAfte
       bus.unsubscribe(subscriber, classifier)
     }
 
-    "publish the given event to all intended subscribers" in {
+    @Test def `must publish the given event to all intended subscribers`: Unit = {
       val range = 0 until 10
       val subscribers = range map (_ ⇒ createNewSubscriber())
-      subscribers foreach { s ⇒ bus.subscribe(s, classifier) must be === true }
+      assertThat(subscribers foreach { s ⇒ bus.subscribe(s, classifier), equalTo(true }))
       bus.publish(event)
       range foreach { _ ⇒ expectMsg(event) }
-      subscribers foreach { s ⇒ bus.unsubscribe(s, classifier) must be === true; disposeSubscriber(system, s) }
+      assertThat(subscribers foreach { s ⇒ bus.unsubscribe(s, classifier), equalTo(true; disposeSubscriber(system, s) }))
     }
 
-    "not publish the given event to any other subscribers than the intended ones" in {
+    @Test def `must not publish the given event to any other subscribers than the intended ones`: Unit = {
       val otherSubscriber = createNewSubscriber()
       val otherClassifier = getClassifierFor(events.drop(1).head)
       bus.subscribe(subscriber, classifier)
@@ -130,14 +132,14 @@ abstract class EventBusSpec(busName: String) extends AkkaSpec with BeforeAndAfte
       expectNoMsg(1 second)
     }
 
-    "not publish the given event to a former subscriber" in {
+    @Test def `must not publish the given event to a former subscriber`: Unit = {
       bus.subscribe(subscriber, classifier)
       bus.unsubscribe(subscriber, classifier)
       bus.publish(event)
       expectNoMsg(1 second)
     }
 
-    "cleanup subscriber" in {
+    @Test def `must cleanup subscriber`: Unit = {
       disposeSubscriber(system, subscriber)
     }
   }

@@ -3,6 +3,10 @@
  */
 package akka.actor.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.reflect.ClassTag
 
@@ -47,7 +51,6 @@ object DispatchersSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class DispatchersSpec extends AkkaSpec(DispatchersSpec.config) with ImplicitSender {
   import DispatchersSpec._
   val df = system.dispatchers
@@ -86,53 +89,52 @@ class DispatchersSpec extends AkkaSpec(DispatchersSpec.config) with ImplicitSend
     }
   }
 
-  "Dispatchers" must {
-
-    "use defined properties" in {
+  
+    @Test def `must use defined properties`: Unit = {
       val dispatcher = lookup("myapp.mydispatcher")
-      dispatcher.throughput must be(17)
+      assertThat(dispatcher.throughput, equalTo(17))
     }
 
-    "use specific id" in {
+    @Test def `must use specific id`: Unit = {
       val dispatcher = lookup("myapp.mydispatcher")
-      dispatcher.id must be("myapp.mydispatcher")
+      assertThat(dispatcher.id, equalTo("myapp.mydispatcher"))
     }
 
-    "complain about missing config" in {
+    @Test def `must complain about missing config`: Unit = {
       intercept[ConfigurationException] {
         lookup("myapp.other-dispatcher")
       }
     }
 
-    "have only one default dispatcher" in {
+    @Test def `must have only one default dispatcher`: Unit = {
       val dispatcher = lookup(Dispatchers.DefaultDispatcherId)
-      dispatcher must be === defaultGlobalDispatcher
+      assertThat(dispatcher, equalTo(defaultGlobalDispatcher))
       dispatcher must be === system.dispatcher
     }
 
-    "throw ConfigurationException if type does not exist" in {
+    @Test def `must throw ConfigurationException if type does not exist`: Unit = {
       intercept[ConfigurationException] {
         from(ConfigFactory.parseMap(Map(tipe -> "typedoesntexist", id -> "invalid-dispatcher").asJava).
           withFallback(defaultDispatcherConfig))
       }
     }
 
-    "get the correct types of dispatchers" in {
+    @Test def `must get the correct types of dispatchers`: Unit = {
       //All created/obtained dispatchers are of the expeced type/instance
       assert(typesAndValidators.forall(tuple ⇒ tuple._2(allDispatchers(tuple._1))))
     }
 
-    "provide lookup of dispatchers by id" in {
+    @Test def `must provide lookup of dispatchers by id`: Unit = {
       val d1 = lookup("myapp.mydispatcher")
       val d2 = lookup("myapp.mydispatcher")
-      d1 must be === d2
+      assertThat(d1, equalTo(d2))
     }
 
-    "include system name and dispatcher id in thread names for fork-join-executor" in {
+    @Test def `must include system name and dispatcher id in thread names for fork-join-executor`: Unit = {
       assertMyDispatcherIsUsed(system.actorOf(Props[ThreadNameEcho].withDispatcher("myapp.mydispatcher")))
     }
 
-    "include system name and dispatcher id in thread names for thread-pool-executor" in {
+    @Test def `must include system name and dispatcher id in thread names for thread-pool-executor`: Unit = {
       system.actorOf(Props[ThreadNameEcho].withDispatcher("myapp.thread-pool-dispatcher")) ! "what's the name?"
       val Expected = "(DispatchersSpec-myapp.thread-pool-dispatcher-[1-9][0-9]*)".r
       expectMsgPF(remaining) {
@@ -140,7 +142,7 @@ class DispatchersSpec extends AkkaSpec(DispatchersSpec.config) with ImplicitSend
       }
     }
 
-    "include system name and dispatcher id in thread names for default-dispatcher" in {
+    @Test def `must include system name and dispatcher id in thread names for default-dispatcher`: Unit = {
       system.actorOf(Props[ThreadNameEcho]) ! "what's the name?"
       val Expected = "(DispatchersSpec-akka.actor.default-dispatcher-[1-9][0-9]*)".r
       expectMsgPF(remaining) {
@@ -148,7 +150,7 @@ class DispatchersSpec extends AkkaSpec(DispatchersSpec.config) with ImplicitSend
       }
     }
 
-    "include system name and dispatcher id in thread names for pinned dispatcher" in {
+    @Test def `must include system name and dispatcher id in thread names for pinned dispatcher`: Unit = {
       system.actorOf(Props[ThreadNameEcho].withDispatcher("myapp.my-pinned-dispatcher")) ! "what's the name?"
       val Expected = "(DispatchersSpec-myapp.my-pinned-dispatcher-[1-9][0-9]*)".r
       expectMsgPF(remaining) {
@@ -156,7 +158,7 @@ class DispatchersSpec extends AkkaSpec(DispatchersSpec.config) with ImplicitSend
       }
     }
 
-    "include system name and dispatcher id in thread names for balancing dispatcher" in {
+    @Test def `must include system name and dispatcher id in thread names for balancing dispatcher`: Unit = {
       system.actorOf(Props[ThreadNameEcho].withDispatcher("myapp.balancing-dispatcher")) ! "what's the name?"
       val Expected = "(DispatchersSpec-myapp.balancing-dispatcher-[1-9][0-9]*)".r
       expectMsgPF(remaining) {
@@ -164,15 +166,13 @@ class DispatchersSpec extends AkkaSpec(DispatchersSpec.config) with ImplicitSend
       }
     }
 
-    "use dispatcher in deployment config" in {
+    @Test def `must use dispatcher in deployment config`: Unit = {
       assertMyDispatcherIsUsed(system.actorOf(Props[ThreadNameEcho], name = "echo1"))
     }
 
-    "use dispatcher in deployment config, trumps code" in {
+    @Test def `must use dispatcher in deployment config, trumps code`: Unit = {
       assertMyDispatcherIsUsed(
         system.actorOf(Props[ThreadNameEcho].withDispatcher("myapp.my-pinned-dispatcher"), name = "echo2"))
     }
 
   }
-
-}

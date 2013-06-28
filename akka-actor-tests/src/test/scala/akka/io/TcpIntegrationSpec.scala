@@ -4,6 +4,10 @@
 
 package akka.io
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit.AkkaSpec
 import akka.util.ByteString
 import akka.TestUtils._
@@ -16,9 +20,9 @@ class TcpIntegrationSpec extends AkkaSpec("""
 
   "The TCP transport implementation" should {
 
-    "properly bind a test server" in new TestSetup
+    @Test def `must properly bind a test server`: Unit = new TestSetup
 
-    "allow connecting to and disconnecting from the test server" in new TestSetup {
+    @Test def `must allow connecting to and disconnecting from the test server`: Unit = new TestSetup {
       val (clientHandler, clientConnection, serverHandler, serverConnection) = establishNewClientConnection()
       clientHandler.send(clientConnection, Close)
       clientHandler.expectMsg(Closed)
@@ -27,7 +31,7 @@ class TcpIntegrationSpec extends AkkaSpec("""
       verifyActorTermination(serverConnection)
     }
 
-    "properly handle connection abort from one side" in new TestSetup {
+    @Test def `must properly handle connection abort from one side`: Unit = new TestSetup {
       val (clientHandler, clientConnection, serverHandler, serverConnection) = establishNewClientConnection()
       clientHandler.send(clientConnection, Abort)
       clientHandler.expectMsg(Aborted)
@@ -36,7 +40,7 @@ class TcpIntegrationSpec extends AkkaSpec("""
       verifyActorTermination(serverConnection)
     }
 
-    "properly complete one client/server request/response cycle" in new TestSetup {
+    @Test def `must properly complete one client/server request/response cycle`: Unit = new TestSetup {
       val (clientHandler, clientConnection, serverHandler, serverConnection) = establishNewClientConnection()
 
       object Aye extends Event
@@ -44,11 +48,11 @@ class TcpIntegrationSpec extends AkkaSpec("""
 
       clientHandler.send(clientConnection, Write(ByteString("Captain on the bridge!"), Aye))
       clientHandler.expectMsg(Aye)
-      serverHandler.expectMsgType[Received].data.decodeString("ASCII") must be("Captain on the bridge!")
+      assertThat(serverHandler.expectMsgType[Received].data.decodeString("ASCII"), equalTo("Captain on the bridge!"))
 
       serverHandler.send(serverConnection, Write(ByteString("For the king!"), Yes))
       serverHandler.expectMsg(Yes)
-      clientHandler.expectMsgType[Received].data.decodeString("ASCII") must be("For the king!")
+      assertThat(clientHandler.expectMsgType[Received].data.decodeString("ASCII"), equalTo("For the king!"))
 
       serverHandler.send(serverConnection, Close)
       serverHandler.expectMsg(Closed)
@@ -58,7 +62,7 @@ class TcpIntegrationSpec extends AkkaSpec("""
       verifyActorTermination(serverConnection)
     }
 
-    "support waiting for writes with backpressure" in new TestSetup {
+    @Test def `must support waiting for writes with backpressure`: Unit = new TestSetup {
       val (clientHandler, clientConnection, serverHandler, serverConnection) = establishNewClientConnection()
 
       object Ack extends Event
@@ -72,5 +76,3 @@ class TcpIntegrationSpec extends AkkaSpec("""
       override def connectOptions = List(SO.ReceiveBufferSize(1024))
     }
   }
-
-}

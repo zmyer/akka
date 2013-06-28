@@ -4,10 +4,12 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
-import org.scalatest.BeforeAndAfterEach
-import org.scalatest.matchers.MustMatchers
 
 import akka.actor.Actor._
 import akka.testkit._
@@ -30,13 +32,11 @@ object ActorLifeCycleSpec {
 
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorLifeCycleSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitSender with DefaultTimeout {
   import ActorLifeCycleSpec._
 
-  "An Actor" must {
-
-    "invoke preRestart, preStart, postRestart when using OneForOneStrategy" in {
+  
+    @Test def `must invoke preRestart, preStart, postRestart when using OneForOneStrategy`: Unit = {
       filterException[ActorKilledException] {
         val id = newUuid.toString
         val supervisor = system.actorOf(Props(classOf[Supervisor], OneForOneStrategy(maxNrOfRetries = 3)(List(classOf[Exception]))))
@@ -70,7 +70,7 @@ class ActorLifeCycleSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitS
       }
     }
 
-    "default for preRestart and postRestart is to call postStop and preStart respectively" in {
+    @Test def `must default for preRestart and postRestart is to call postStop and preStart respectively`: Unit = {
       filterException[ActorKilledException] {
         val id = newUuid().toString
         val supervisor = system.actorOf(Props(classOf[Supervisor], OneForOneStrategy(maxNrOfRetries = 3)(List(classOf[Exception]))))
@@ -101,7 +101,7 @@ class ActorLifeCycleSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitS
       }
     }
 
-    "not invoke preRestart and postRestart when never restarted using OneForOneStrategy" in {
+    @Test def `must not invoke preRestart and postRestart when never restarted using OneForOneStrategy`: Unit = {
       val id = newUuid().toString
       val supervisor = system.actorOf(Props(classOf[Supervisor],
         OneForOneStrategy(maxNrOfRetries = 3)(List(classOf[Exception]))))
@@ -117,7 +117,7 @@ class ActorLifeCycleSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitS
       system.stop(supervisor)
     }
 
-    "log failues in postStop" in {
+    @Test def `must log failues in postStop`: Unit = {
       val a = system.actorOf(Props(new Actor {
         def receive = Actor.emptyBehavior
         override def postStop { throw new Exception("hurrah") }
@@ -127,7 +127,7 @@ class ActorLifeCycleSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitS
       }
     }
 
-    "clear the behavior stack upon restart" in {
+    @Test def `must clear the behavior stack upon restart`: Unit = {
       case class Become(recv: ActorContext ⇒ Receive)
       val a = system.actorOf(Props(new Actor {
         def receive = {
@@ -151,5 +151,3 @@ class ActorLifeCycleSpec extends AkkaSpec with BeforeAndAfterEach with ImplicitS
       expectMsg(42)
     }
   }
-
-}

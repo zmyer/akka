@@ -3,11 +3,14 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import java.util.concurrent.{ CountDownLatch, TimeUnit }
 import akka.actor._
-import org.scalatest.BeforeAndAfterAll
 import akka.testkit.{ TestKit, filterEvents, EventFilter }
 import akka.testkit.AkkaSpec
 import akka.testkit.ImplicitSender
@@ -16,8 +19,7 @@ import scala.concurrent.Await
 import akka.pattern.ask
 import scala.concurrent.duration._
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
-class Ticket669Spec extends AkkaSpec with BeforeAndAfterAll with ImplicitSender with DefaultTimeout {
+class Ticket669Spec extends AkkaSpec with ImplicitSender with DefaultTimeout {
   import Ticket669Spec._
 
   // TODO: does this really make sense?
@@ -26,7 +28,7 @@ class Ticket669Spec extends AkkaSpec with BeforeAndAfterAll with ImplicitSender 
   }
 
   "A supervised actor with lifecycle PERMANENT" should {
-    "be able to reply on failure during preRestart" in {
+    @Test def `must be able to reply on failure during preRestart`: Unit = {
       filterEvents(EventFilter[Exception]("test", occurrences = 1)) {
         val supervisor = system.actorOf(Props(new Supervisor(
           AllForOneStrategy(5, 10 seconds)(List(classOf[Exception])))))
@@ -38,7 +40,7 @@ class Ticket669Spec extends AkkaSpec with BeforeAndAfterAll with ImplicitSender 
       }
     }
 
-    "be able to reply on failure during postStop" in {
+    @Test def `must be able to reply on failure during postStop`: Unit = {
       filterEvents(EventFilter[Exception]("test", occurrences = 1)) {
         val supervisor = system.actorOf(Props(new Supervisor(
           AllForOneStrategy(maxNrOfRetries = 0)(List(classOf[Exception])))))
@@ -66,4 +68,3 @@ object Ticket669Spec {
       sender ! "failure2"
     }
   }
-}

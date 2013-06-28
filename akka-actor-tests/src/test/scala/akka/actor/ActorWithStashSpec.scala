@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -12,8 +16,6 @@ import scala.concurrent.Await
 import akka.pattern.ask
 import scala.concurrent.duration._
 import com.typesafe.config.{ Config, ConfigFactory }
-import org.scalatest.BeforeAndAfterEach
-import org.scalatest.junit.JUnitSuite
 
 object ActorWithStashSpec {
 
@@ -81,7 +83,6 @@ object ActorWithStashSpec {
 
 class JavaActorWithStashSpec extends StashJavaAPI with JUnitSuite
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with DefaultTimeout with BeforeAndAfterEach {
   import ActorWithStashSpec._
 
@@ -95,17 +96,16 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
 
   def myProps(creator: ⇒ Actor): Props = Props(creator).withDispatcher("my-dispatcher")
 
-  "An Actor with Stash" must {
-
-    "stash messages" in {
+  
+    @Test def `must stash messages`: Unit = {
       val stasher = system.actorOf(myProps(new StashingActor))
       stasher ! "bye"
       stasher ! "hello"
       state.finished.await
-      state.s must be("bye")
+      assertThat(state.s, equalTo("bye"))
     }
 
-    "support protocols" in {
+    @Test def `must support protocols`: Unit = {
       val protoActor = system.actorOf(myProps(new ActorWithProtocol))
       protoActor ! "open"
       protoActor ! "write"
@@ -117,7 +117,7 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
       state.finished.await
     }
 
-    "throw an IllegalStateException if the same messages is stashed twice" in {
+    @Test def `must throw an IllegalStateException if the same messages is stashed twice`: Unit = {
       state.expectedException = new TestLatch
       val stasher = system.actorOf(myProps(new StashingTwiceActor))
       stasher ! "hello"
@@ -125,7 +125,7 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
       Await.ready(state.expectedException, 10 seconds)
     }
 
-    "process stashed messages after restart" in {
+    @Test def `must process stashed messages after restart`: Unit = {
       val boss = system.actorOf(myProps(new Supervisor(
         OneForOneStrategy(maxNrOfRetries = 2, withinTimeRange = 1 second)(List(classOf[Throwable])))))
 
@@ -162,9 +162,8 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
     }
   }
 
-  "An ActWithStash" must {
-
-    "allow using whenRestarted" in {
+  
+    @Test def `must allow using whenRestarted`: Unit = {
       import ActorDSL._
       val a = actor(new ActWithStash {
         become {
@@ -180,7 +179,7 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
       expectMsg("restarted")
     }
 
-    "allow using whenStopping" in {
+    @Test def `must allow using whenStopping`: Unit = {
       import ActorDSL._
       val a = actor(new ActWithStash {
         whenStopping {
@@ -192,4 +191,3 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
     }
 
   }
-}

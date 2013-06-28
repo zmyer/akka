@@ -3,11 +3,14 @@
  */
 package akka.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit.AkkaSpec
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class CustomRouteSpec extends AkkaSpec {
 
   //#custom-router
@@ -28,9 +31,8 @@ class CustomRouteSpec extends AkkaSpec {
   }
   //#custom-router
 
-  "A custom RouterConfig" must {
-
-    "be testable" in {
+  
+    @Test def `must be testable`: Unit = {
       //#test-route
       import akka.pattern.ask
       import akka.testkit.ExtractRoute
@@ -42,11 +44,10 @@ class CustomRouteSpec extends AkkaSpec {
       val route = ExtractRoute(router)
       val r = Await.result(router.ask(CurrentRoutees)(1 second).
         mapTo[RouterRoutees], 1 second)
-      r.routees.size must be(1)
-      route(testActor -> "hallo") must be(List(Destination(testActor, target)))
-      route(testActor -> 12) must be(List(Destination(testActor, r.routees.head)))
+      assertThat(r.routees.size, equalTo(1))
+      assertThat(route(testActor -> "hallo"), equalTo(List(Destination(testActor, target))))
+      assertThat(route(testActor -> 12), equalTo(List(Destination(testActor, r.routees.head))))
       //#test-route
     }
 
   }
-}

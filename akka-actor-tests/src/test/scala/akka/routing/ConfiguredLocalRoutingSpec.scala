@@ -3,6 +3,10 @@
  */
 package akka.routing
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -45,7 +49,6 @@ object ConfiguredLocalRoutingSpec {
   """
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.config) with DefaultTimeout with ImplicitSender {
 
   def routerConfig(ref: ActorRef): RouterConfig = ref match {
@@ -56,70 +59,68 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
       }
   }
 
-  "RouterConfig" must {
-
-    "be picked up from Props" in {
+  
+    @Test def `must be picked up from Props`: Unit = {
       val actor = system.actorOf(Props(new Actor {
         def receive = {
           case "get" ⇒ sender ! context.props
         }
       }).withRouter(RoundRobinRouter(12)), "someOther")
-      routerConfig(actor) must be === RoundRobinRouter(12)
+      assertThat(routerConfig(actor), equalTo(RoundRobinRouter(12)))
       Await.result(gracefulStop(actor, 3 seconds), 3 seconds)
     }
 
-    "be overridable in config" in {
+    @Test def `must be overridable in config`: Unit = {
       val actor = system.actorOf(Props(new Actor {
         def receive = {
           case "get" ⇒ sender ! context.props
         }
       }).withRouter(RoundRobinRouter(12)), "config")
-      routerConfig(actor) must be === RandomRouter(4)
+      assertThat(routerConfig(actor), equalTo(RandomRouter(4)))
       Await.result(gracefulStop(actor, 3 seconds), 3 seconds)
     }
 
-    "be overridable in explicit deployment" in {
+    @Test def `must be overridable in explicit deployment`: Unit = {
       val actor = system.actorOf(Props(new Actor {
         def receive = {
           case "get" ⇒ sender ! context.props
         }
       }).withRouter(FromConfig).withDeploy(Deploy(routerConfig = RoundRobinRouter(12))), "someOther")
-      routerConfig(actor) must be === RoundRobinRouter(12)
+      assertThat(routerConfig(actor), equalTo(RoundRobinRouter(12)))
       Await.result(gracefulStop(actor, 3 seconds), 3 seconds)
     }
 
-    "be overridable in config even with explicit deployment" in {
+    @Test def `must be overridable in config even with explicit deployment`: Unit = {
       val actor = system.actorOf(Props(new Actor {
         def receive = {
           case "get" ⇒ sender ! context.props
         }
       }).withRouter(FromConfig).withDeploy(Deploy(routerConfig = RoundRobinRouter(12))), "config")
-      routerConfig(actor) must be === RandomRouter(4)
+      assertThat(routerConfig(actor), equalTo(RandomRouter(4)))
       Await.result(gracefulStop(actor, 3 seconds), 3 seconds)
     }
 
-    "fail with an exception if not correct" in {
+    @Test def `must fail with an exception if not correct`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props.empty.withRouter(FromConfig))
       }
     }
 
-    "not get confused when trying to wildcard-configure children" in {
+    @Test def `must not get confused when trying to wildcard-configure children`: Unit = {
       val router = system.actorOf(Props(new Actor {
         testActor ! self
         def receive = { case _ ⇒ }
       }).withRouter(FromConfig), "weird")
       val recv = Set() ++ (for (_ ← 1 to 3) yield expectMsgType[ActorRef])
       val expc = Set('a', 'b', 'c') map (i ⇒ system.actorFor("/user/weird/$" + i))
-      recv must be(expc)
+      assertThat(recv, equalTo(expc))
       expectNoMsg(1 second)
     }
 
   }
 
-  "round robin router" must {
-
-    "be able to shut down its instance" in {
+  
+    @Test def `must be able to shut down its instance`: Unit = {
       val helloLatch = new TestLatch(5)
       val stopLatch = new TestLatch(5)
 
@@ -144,7 +145,7 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
       Await.ready(stopLatch, 5 seconds)
     }
 
-    "deliver messages in a round robin fashion" in {
+    @Test def `must deliver messages in a round robin fashion`: Unit = {
       val connectionCount = 10
       val iterationCount = 10
       val doneLatch = new TestLatch(connectionCount)
@@ -170,7 +171,7 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
         }
       }
 
-      counter.get must be(connectionCount)
+      assertThat(counter.get, equalTo(connectionCount))
 
       actor ! Broadcast("end")
       Await.ready(doneLatch, 5 seconds)
@@ -178,7 +179,7 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
       replies.values foreach { _ must be(iterationCount) }
     }
 
-    "deliver a broadcast message using the !" in {
+    @Test def `must deliver a broadcast message using the !`: Unit = {
       val helloLatch = new TestLatch(5)
       val stopLatch = new TestLatch(5)
 
@@ -200,9 +201,8 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
     }
   }
 
-  "random router" must {
-
-    "be able to shut down its instance" in {
+  
+    @Test def `must be able to shut down its instance`: Unit = {
       val stopLatch = new TestLatch(7)
 
       val actor = system.actorOf(Props(new Actor {
@@ -229,7 +229,7 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
       Await.ready(stopLatch, 5 seconds)
     }
 
-    "deliver messages in a random fashion" in {
+    @Test def `must deliver messages in a random fashion`: Unit = {
       val connectionCount = 10
       val iterationCount = 100
       val doneLatch = new TestLatch(connectionCount)
@@ -255,16 +255,16 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
         }
       }
 
-      counter.get must be(connectionCount)
+      assertThat(counter.get, equalTo(connectionCount))
 
       actor ! Broadcast("end")
       Await.ready(doneLatch, 5 seconds)
 
       replies.values foreach { _ must be > (0) }
-      replies.values.sum must be === iterationCount * connectionCount
+      assertThat(replies.values.sum, equalTo(iterationCount * connectionCount))
     }
 
-    "deliver a broadcast message using the !" in {
+    @Test def `must deliver a broadcast message using the !`: Unit = {
       val helloLatch = new TestLatch(6)
       val stopLatch = new TestLatch(6)
 
@@ -285,4 +285,3 @@ class ConfiguredLocalRoutingSpec extends AkkaSpec(ConfiguredLocalRoutingSpec.con
       Await.ready(stopLatch, 5 seconds)
     }
   }
-}

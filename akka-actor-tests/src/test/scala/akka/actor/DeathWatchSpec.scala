@@ -4,6 +4,10 @@
 
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 import akka.dispatch.sysmsg.{ DeathWatchNotification, Failed }
 import akka.pattern.ask
@@ -11,7 +15,6 @@ import akka.testkit._
 import scala.concurrent.duration._
 import scala.concurrent.Await
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class LocalDeathWatchSpec extends AkkaSpec with ImplicitSender with DefaultTimeout with DeathWatchSpec
 
 object DeathWatchSpec {
@@ -38,12 +41,11 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
 
   def startWatching(target: ActorRef) = Await.result((supervisor ? props(target, testActor)).mapTo[ActorRef], 3 seconds)
 
-  "The Death Watch" must {
-    def expectTerminationOf(actorRef: ActorRef) = expectMsgPF(5 seconds, actorRef + ": Stopped or Already terminated when linking") {
+      def expectTerminationOf(actorRef: ActorRef) = expectMsgPF(5 seconds, actorRef + ": Stopped or Already terminated when linking") {
       case WrappedTerminated(Terminated(`actorRef`)) â‡’ true
     }
 
-    "notify with one Terminated message when an Actor is stopped" in {
+    @Test def `must notify with one Terminated message when an Actor is stopped`: Unit = {
       val terminal = system.actorOf(Props.empty)
       startWatching(terminal) ! "hallo"
       expectMsg("hallo")
@@ -53,7 +55,7 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       expectTerminationOf(terminal)
     }
 
-    "notify with one Terminated message when an Actor is already dead" in {
+    @Test def `must notify with one Terminated message when an Actor is already dead`: Unit = {
       val terminal = system.actorOf(Props.empty)
 
       terminal ! PoisonPill
@@ -62,7 +64,7 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       expectTerminationOf(terminal)
     }
 
-    "notify with all monitors with one Terminated message when an Actor is stopped" in {
+    @Test def `must notify with all monitors with one Terminated message when an Actor is stopped`: Unit = {
       val terminal = system.actorOf(Props.empty)
       val monitor1, monitor2, monitor3 = startWatching(terminal)
 
@@ -77,7 +79,7 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       system.stop(monitor3)
     }
 
-    "notify with _current_ monitors with one Terminated message when an Actor is stopped" in {
+    @Test def `must notify with _current_ monitors with one Terminated message when an Actor is stopped`: Unit = {
       val terminal = system.actorOf(Props.empty)
       val monitor1, monitor3 = startWatching(terminal)
       val monitor2 = system.actorOf(Props(new Actor {
@@ -103,7 +105,7 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       system.stop(monitor3)
     }
 
-    "notify with a Terminated message once when an Actor is stopped but not when restarted" in {
+    @Test def `must notify with a Terminated message once when an Actor is stopped but not when restarted`: Unit = {
       filterException[ActorKilledException] {
         val supervisor = system.actorOf(Props(new Supervisor(
           OneForOneStrategy(maxNrOfRetries = 2)(List(classOf[Exception])))))
@@ -114,17 +116,17 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
 
         terminal ! Kill
         terminal ! Kill
-        Await.result(terminal ? "foo", timeout.duration) must be === "foo"
+        assertThat(Await.result(terminal ? "foo", timeout.duration), equalTo("foo"))
         terminal ! Kill
 
         expectTerminationOf(terminal)
-        terminal.isTerminated must be === true
+        assertThat(terminal.isTerminated, equalTo(true))
 
         system.stop(supervisor)
       }
     }
 
-    "fail a monitor which does not handle Terminated()" in {
+    @Test def `must fail a monitor which does not handle Terminated()`: Unit = {
       filterEvents(EventFilter[ActorKilledException](), EventFilter[DeathPactException]()) {
         case class FF(fail: Failed)
         val strategy = new OneForOneStrategy()(SupervisorStrategy.defaultStrategy.decider) {
@@ -150,11 +152,11 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
           case WrappedTerminated(Terminated(`brother`))                                â‡’ 3
         }
         testActor.isTerminated must not be true
-        result must be(Seq(1, 2, 3))
+        assertThat(result, equalTo(Seq(1, 2, 3)))
       }
     }
 
-    "be able to watch a child with the same name after the old died" in {
+    @Test def `must be able to watch a child with the same name after the old died`: Unit = {
       val parent = system.actorOf(Props(new Actor {
         def receive = {
           case "NKOTB" â‡’
@@ -174,7 +176,7 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       expectMsg("GREEN")
     }
 
-    "only notify when watching" in {
+    @Test def `must only notify when watching`: Unit = {
       val subject = system.actorOf(Props(new Actor { def receive = Actor.emptyBehavior }))
 
       testActor.asInstanceOf[InternalActorRef]
@@ -184,7 +186,7 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       expectNoMsg
     }
 
-    "discard Terminated when unwatched between sysmsg and processing" in {
+    @Test def `must discard Terminated when unwatched between sysmsg and processing`: Unit = {
       case class W(ref: ActorRef)
       case class U(ref: ActorRef)
       class Watcher extends Actor {
@@ -221,5 +223,3 @@ trait DeathWatchSpec { this: AkkaSpec with ImplicitSender with DefaultTimeout â‡
       expectMsg(ActorIdentity((), Some(w)))
     }
   }
-
-}

@@ -4,6 +4,10 @@
 
 package akka.pattern
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import akka.testkit.AkkaSpec
 import akka.testkit.TestProbe
 import scala.concurrent.Future
@@ -13,81 +17,79 @@ class PipeToSpec extends AkkaSpec {
 
   import system.dispatcher
 
-  "PipeTo" must {
-
-    "work" in {
+  
+    @Test def `must work`: Unit = {
       val p = TestProbe()
       Future(42) pipeTo p.ref
       p.expectMsg(42)
     }
 
-    "signal failure" in {
+    @Test def `must signal failure`: Unit = {
       val p = TestProbe()
       Future.failed(new Exception("failed")) pipeTo p.ref
-      p.expectMsgType[Status.Failure].cause.getMessage must be("failed")
+      assertThat(p.expectMsgType[Status.Failure].cause.getMessage, equalTo("failed"))
     }
 
-    "pick up an implicit sender" in {
+    @Test def `must pick up an implicit sender`: Unit = {
       val p = TestProbe()
       implicit val s = testActor
       Future(42) pipeTo p.ref
       p.expectMsg(42)
-      p.lastSender must be(s)
+      assertThat(p.lastSender, equalTo(s))
     }
 
-    "work in Java form" in {
+    @Test def `must work in Java form`: Unit = {
       val p = TestProbe()
       pipe(Future(42)) to p.ref
       p.expectMsg(42)
     }
 
-    "work in Java form with sender" in {
+    @Test def `must work in Java form with sender`: Unit = {
       val p = TestProbe()
       pipe(Future(42)) to (p.ref, testActor)
       p.expectMsg(42)
-      p.lastSender must be(testActor)
+      assertThat(p.lastSender, equalTo(testActor))
     }
 
   }
 
-  "PipeToSelection" must {
-
-    "work" in {
+  
+    @Test def `must work`: Unit = {
       val p = TestProbe()
       val sel = system.actorSelection(p.ref.path)
       Future(42) pipeToSelection sel
       p.expectMsg(42)
     }
 
-    "signal failure" in {
+    @Test def `must signal failure`: Unit = {
       val p = TestProbe()
       val sel = system.actorSelection(p.ref.path)
       Future.failed(new Exception("failed")) pipeToSelection sel
-      p.expectMsgType[Status.Failure].cause.getMessage must be("failed")
+      assertThat(p.expectMsgType[Status.Failure].cause.getMessage, equalTo("failed"))
     }
 
-    "pick up an implicit sender" in {
+    @Test def `must pick up an implicit sender`: Unit = {
       val p = TestProbe()
       val sel = system.actorSelection(p.ref.path)
       implicit val s = testActor
       Future(42) pipeToSelection sel
       p.expectMsg(42)
-      p.lastSender must be(s)
+      assertThat(p.lastSender, equalTo(s))
     }
 
-    "work in Java form" in {
+    @Test def `must work in Java form`: Unit = {
       val p = TestProbe()
       val sel = system.actorSelection(p.ref.path)
       pipe(Future(42)) to sel
       p.expectMsg(42)
     }
 
-    "work in Java form with sender" in {
+    @Test def `must work in Java form with sender`: Unit = {
       val p = TestProbe()
       val sel = system.actorSelection(p.ref.path)
       pipe(Future(42)) to (sel, testActor)
       p.expectMsg(42)
-      p.lastSender must be(testActor)
+      assertThat(p.lastSender, equalTo(testActor))
     }
 
   }

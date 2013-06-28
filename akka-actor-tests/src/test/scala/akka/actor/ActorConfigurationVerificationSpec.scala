@@ -3,6 +3,10 @@
  */
 package akka.actor
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import akka.testkit._
@@ -10,7 +14,6 @@ import akka.testkit.DefaultTimeout
 import akka.testkit.TestEvent._
 import scala.concurrent.duration._
 import akka.routing._
-import org.scalatest.BeforeAndAfterEach
 import akka.ConfigurationException
 
 object ActorConfigurationVerificationSpec {
@@ -33,7 +36,6 @@ object ActorConfigurationVerificationSpec {
     """
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class ActorConfigurationVerificationSpec extends AkkaSpec(ActorConfigurationVerificationSpec.config) with DefaultTimeout with BeforeAndAfterEach {
   import ActorConfigurationVerificationSpec._
 
@@ -41,57 +43,54 @@ class ActorConfigurationVerificationSpec extends AkkaSpec(ActorConfigurationVeri
     system.eventStream.publish(Mute(EventFilter[ConfigurationException]("")))
   }
 
-  "An Actor configured with a BalancingDispatcher" must {
-    "fail verification with a ConfigurationException if also configured with a RoundRobinRouter" in {
+      @Test def `must fail verification with a ConfigurationException if also configured with a RoundRobinRouter`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(RoundRobinRouter(2).withDispatcher("balancing-dispatcher")))
       }
     }
-    "fail verification with a ConfigurationException if also configured with a BroadcastRouter" in {
+    @Test def `must fail verification with a ConfigurationException if also configured with a BroadcastRouter`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(BroadcastRouter(2).withDispatcher("balancing-dispatcher")))
       }
     }
-    "fail verification with a ConfigurationException if also configured with a RandomRouter" in {
+    @Test def `must fail verification with a ConfigurationException if also configured with a RandomRouter`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(RandomRouter(2).withDispatcher("balancing-dispatcher")))
       }
     }
-    "fail verification with a ConfigurationException if also configured with a SmallestMailboxRouter" in {
+    @Test def `must fail verification with a ConfigurationException if also configured with a SmallestMailboxRouter`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(SmallestMailboxRouter(2).withDispatcher("balancing-dispatcher")))
       }
     }
-    "fail verification with a ConfigurationException if also configured with a ScatterGatherFirstCompletedRouter" in {
+    @Test def `must fail verification with a ConfigurationException if also configured with a ScatterGatherFirstCompletedRouter`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(ScatterGatherFirstCompletedRouter(nrOfInstances = 2, within = 2 seconds).withDispatcher("balancing-dispatcher")))
       }
     }
-    "not fail verification with a ConfigurationException also not configured with a Router" in {
+    @Test def `must not fail verification with a ConfigurationException also not configured with a Router`: Unit = {
       system.actorOf(Props[TestActor].withDispatcher("balancing-dispatcher"))
     }
   }
-  "An Actor configured with a non-balancing dispatcher" must {
-    "not fail verification with a ConfigurationException if also configured with a Router" in {
+      @Test def `must not fail verification with a ConfigurationException if also configured with a Router`: Unit = {
       system.actorOf(Props[TestActor].withDispatcher("pinned-dispatcher").withRouter(RoundRobinRouter(2)))
     }
 
-    "fail verification if the dispatcher cannot be found" in {
+    @Test def `must fail verification if the dispatcher cannot be found`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withDispatcher("does not exist"))
       }
     }
 
-    "fail verification if the dispatcher cannot be found for the head of a router" in {
+    @Test def `must fail verification if the dispatcher cannot be found for the head of a router`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withRouter(RoundRobinRouter(1, routerDispatcher = "does not exist")))
       }
     }
 
-    "fail verification if the dispatcher cannot be found for the routees of a router" in {
+    @Test def `must fail verification if the dispatcher cannot be found for the routees of a router`: Unit = {
       intercept[ConfigurationException] {
         system.actorOf(Props[TestActor].withDispatcher("does not exist").withRouter(RoundRobinRouter(1)))
       }
     }
   }
-}

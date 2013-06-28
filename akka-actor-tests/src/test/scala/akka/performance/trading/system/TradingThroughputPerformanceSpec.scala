@@ -1,5 +1,9 @@
 package akka.performance.trading.system
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.Random
@@ -18,7 +22,6 @@ import akka.performance.trading.domain.Orderbook
 import akka.performance.trading.domain.TotalTradeCounterExtension
 
 // -server -Xms512M -Xmx1024M -XX:+UseParallelGC -Dbenchmark=true -Dbenchmark.repeatFactor=500 -Dbenchmark.useDummyOrderbook=true
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class TradingThroughputPerformanceSpec extends PerformanceSpec {
 
   var tradingSystem: AkkaTradingSystem = _
@@ -38,28 +41,28 @@ class TradingThroughputPerformanceSpec extends PerformanceSpec {
   }
 
   getClass.getSimpleName must {
-    "warmup" in {
+    @Test def `must warmup`: Unit = {
       runScenario(4, warmup = true)
     }
-    "warmup more" in {
+    @Test def `must warmup more`: Unit = {
       runScenario(4, warmup = true)
     }
-    "perform with load 1" in {
+    @Test def `must perform with load 1`: Unit = {
       runScenario(1)
     }
-    "perform with load 2" in {
+    @Test def `must perform with load 2`: Unit = {
       runScenario(2)
     }
-    "perform with load 4" in {
+    @Test def `must perform with load 4`: Unit = {
       runScenario(4)
     }
-    "perform with load 6" in {
+    @Test def `must perform with load 6`: Unit = {
       runScenario(6)
     }
-    "perform with load 8" in {
+    @Test def `must perform with load 8`: Unit = {
       runScenario(8)
     }
-    "perform with load 10" in {
+    @Test def `must perform with load 10`: Unit = {
       runScenario(10)
     }
 
@@ -99,9 +102,9 @@ class TradingThroughputPerformanceSpec extends PerformanceSpec {
       val durationNs = (System.nanoTime - start)
 
       if (!warmup) {
-        ok must be(true)
+        assertThat(ok, equalTo(true))
         if (!Orderbook.useDummyOrderbook) {
-          totalTradeCounter.count must be(totalNumberOfOrders / 2)
+          assertThat(totalTradeCounter.count, equalTo(totalNumberOfOrders / 2))
         }
         logMeasurement(numberOfClients, durationNs, totalNumberOfOrders)
       }

@@ -3,7 +3,10 @@
  */
 package akka.util
 
-import org.scalatest.matchers.MustMatchers
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import scala.concurrent.Future
 import akka.testkit.AkkaSpec
 import scala.concurrent.Await
@@ -26,42 +29,41 @@ class IndexSpec extends AkkaSpec with MustMatchers with DefaultTimeout {
     index
   }
 
-  "An Index" must {
-
-    "take and return a value" in {
+  
+    @Test def `must take and return a value`: Unit = {
       val index = emptyIndex
       index.put("s1", 1)
-      index.valueIterator("s1").toSet must be === Set(1)
+      assertThat(index.valueIterator("s1").toSet, equalTo(Set(1)))
     }
-    "take and return several values" in {
+    @Test def `must take and return several values`: Unit = {
       val index = emptyIndex
-      index.put("s1", 1) must be === true
+      assertThat(index.put("s1", 1), equalTo(true))
       index.put("s1", 1) must be === false
       index.put("s1", 2)
       index.put("s1", 3)
       index.put("s2", 4)
-      index.valueIterator("s1").toSet must be === Set(1, 2, 3)
+      assertThat(index.valueIterator("s1").toSet, equalTo(Set(1, 2, 3)))
       index.valueIterator("s2").toSet must be === Set(4)
     }
-    "remove values" in {
+    @Test def `must remove values`: Unit = {
       val index = emptyIndex
       index.put("s1", 1)
       index.put("s1", 2)
       index.put("s2", 1)
       index.put("s2", 2)
       //Remove value
-      index.remove("s1", 1) must be === true
+      assertThat(index.remove("s1", 1), equalTo(true))
       index.remove("s1", 1) must be === false
-      index.valueIterator("s1").toSet must be === Set(2)
+      assertThat(index.valueIterator("s1").toSet, equalTo(Set(2)))
       //Remove key
       index.remove("s2") match {
-        case Some(iter) ⇒ iter.toSet must be === Set(1, 2)
+        assertThat(case Some(iter) ⇒ iter.toSet, equalTo(Set(1, 2)))
         case None       ⇒ fail()
       }
-      index.remove("s2") must be === None
+      assertThat(index.remove("s2"), equalTo(None))
       index.valueIterator("s2").toSet must be === Set()
     }
-    "remove the specified value" in {
+    @Test def `must remove the specified value`: Unit = {
       val index = emptyIndex
       index.put("s1", 1)
       index.put("s1", 2)
@@ -71,27 +73,27 @@ class IndexSpec extends AkkaSpec with MustMatchers with DefaultTimeout {
       index.put("s3", 2)
 
       index.removeValue(1)
-      index.valueIterator("s1").toSet must be === Set(2, 3)
+      assertThat(index.valueIterator("s1").toSet, equalTo(Set(2, 3)))
       index.valueIterator("s2").toSet must be === Set(2)
-      index.valueIterator("s3").toSet must be === Set(2)
+      assertThat(index.valueIterator("s3").toSet, equalTo(Set(2)))
     }
-    "apply a function for all key-value pairs and find every value" in {
+    @Test def `must apply a function for all key-value pairs and find every value`: Unit = {
       val index = indexWithValues
 
       var valueCount = 0
       index.foreach((key, value) ⇒ {
         valueCount = valueCount + 1
-        index.findValue(key)(_ == value) must be === Some(value)
+        assertThat(index.findValue(key)(_ == value), equalTo(Some(value)))
       })
-      valueCount must be === 6
+      assertThat(valueCount, equalTo(6))
     }
-    "be cleared" in {
+    @Test def `must be cleared`: Unit = {
       val index = indexWithValues
-      index.isEmpty must be === false
+      assertThat(index.isEmpty, equalTo(false))
       index.clear()
-      index.isEmpty must be === true
+      assertThat(index.isEmpty, equalTo(true))
     }
-    "be able to be accessed in parallel" in {
+    @Test def `must be able to be accessed in parallel`: Unit = {
       val index = new Index[Int, Int](100, _ compareTo _)
       val nrOfTasks = 10000
       val nrOfKeys = 10
@@ -113,7 +115,7 @@ class IndexSpec extends AkkaSpec with MustMatchers with DefaultTimeout {
         val key = Random.nextInt(nrOfKeys)
         val values = index.valueIterator(key)
         if (key >= nrOfKeys / 2) {
-          values.isEmpty must be === false
+          assertThat(values.isEmpty, equalTo(false))
         }
       }
 
@@ -129,4 +131,3 @@ class IndexSpec extends AkkaSpec with MustMatchers with DefaultTimeout {
       tasks.foreach(Await.result(_, timeout.duration))
     }
   }
-}

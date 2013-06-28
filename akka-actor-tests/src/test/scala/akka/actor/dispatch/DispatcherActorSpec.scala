@@ -1,5 +1,9 @@
 package akka.actor.dispatch
 
+import org.junit.Test
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers._
+
 import language.postfixOps
 
 import java.util.concurrent.{ CountDownLatch, TimeUnit }
@@ -52,28 +56,26 @@ object DispatcherActorSpec {
   }
 }
 
-@org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class DispatcherActorSpec extends AkkaSpec(DispatcherActorSpec.config) with DefaultTimeout {
   import DispatcherActorSpec._
 
   private val unit = TimeUnit.MILLISECONDS
 
-  "A Dispatcher and an Actor" must {
-
-    "support tell" in {
+  
+    @Test def `must support tell`: Unit = {
       val actor = system.actorOf(Props[OneWayTestActor].withDispatcher("test-dispatcher"))
       val result = actor ! "OneWay"
       assert(OneWayTestActor.oneWay.await(1, TimeUnit.SECONDS))
       system.stop(actor)
     }
 
-    "support ask/reply" in {
+    @Test def `must support ask/reply`: Unit = {
       val actor = system.actorOf(Props[TestActor].withDispatcher("test-dispatcher"))
       assert("World" === Await.result(actor ? "Hello", timeout.duration))
       system.stop(actor)
     }
 
-    "respect the throughput setting" in {
+    @Test def `must respect the throughput setting`: Unit = {
       val throughputDispatcher = "test-throughput-dispatcher"
 
       val works = new AtomicBoolean(true)
@@ -101,7 +103,7 @@ class DispatcherActorSpec extends AkkaSpec(DispatcherActorSpec.config) with Defa
       assert(latch.getCount() === 0)
     }
 
-    "respect throughput deadline" in {
+    @Test def `must respect throughput deadline`: Unit = {
       val deadline = 100 millis
       val throughputDispatcher = "test-throughput-deadline-dispatcher"
 
@@ -134,4 +136,3 @@ class DispatcherActorSpec extends AkkaSpec(DispatcherActorSpec.config) with Defa
       assert(latch.await(2, TimeUnit.SECONDS) === true)
     }
   }
-}
