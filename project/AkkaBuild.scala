@@ -1003,7 +1003,8 @@ object Dependencies {
       val commonsMath  = "org.apache.commons"          % "commons-math"                 % "2.1"              % "test" // ApacheV2
       val commonsIo    = "commons-io"                  % "commons-io"                   % "2.0.1"            % "test" // ApacheV2
       val commonsCodec = "commons-codec"               % "commons-codec"                % "1.7"              % "test" // ApacheV2
-      val junit        = "junit"                       % "junit"                        % "4.10"             % "test" // Common Public License 1.0
+      val junit        = "junit"                       % "junit-dep"                    % "4.10"             % "test" exclude("org.hamcrest", "hamcrest-core") // Common Public License 1.0
+      val hamcrest     = "org.hamcrest"                % "hamcrest-library"             % "1.3"              % "test" // BSD License
       val logback      = "ch.qos.logback"              % "logback-classic"              % "1.0.7"            % "test" // EPL 1.0 / LGPL 2.1
       val mockito      = "org.mockito"                 % "mockito-all"                  % "1.8.1"            % "test" // MIT
       // changing the scalatest dependency must be reflected in akka-docs/rst/dev/multi-jvm-testing.rst
@@ -1021,33 +1022,33 @@ object Dependencies {
 
   val actor = Seq(config)
 
-  val testkit = Seq(Test.junit, Test.scalatest)
+  val testkit = Seq(Test.junit, Test.hamcrest, Test.scalatest)
 
-  val actorTests = Seq(Test.junit, Test.scalatest, Test.commonsCodec, Test.commonsMath, Test.mockito, Test.scalacheck, protobuf, Test.junitIntf)
+  val actorTests = Seq(Test.junit, Test.hamcrest, Test.scalatest, Test.commonsCodec, Test.commonsMath, Test.mockito, Test.scalacheck, protobuf, Test.junitIntf)
 
-  val remote = Seq(netty, protobuf, uncommonsMath, Test.junit, Test.scalatest)
+  val remote = Seq(netty, protobuf, uncommonsMath, Test.junit, Test.hamcrest, Test.scalatest)
 
-  val remoteTests = Seq(Test.junit, Test.scalatest)
+  val remoteTests = Seq(Test.junit, Test.hamcrest, Test.scalatest)
 
-  val cluster = Seq(Test.junit, Test.scalatest)
+  val cluster = Seq(Test.junit, Test.hamcrest, Test.scalatest)
 
   val slf4j = Seq(slf4jApi, Test.logback)
 
-  val agent = Seq(scalaStm, Test.scalatest, Test.junit)
+  val agent = Seq(scalaStm, Test.scalatest, Test.junit, Test.hamcrest)
 
-  val transactor = Seq(scalaStm, Test.scalatest, Test.junit)
+  val transactor = Seq(scalaStm, Test.scalatest, Test.junit, Test.hamcrest)
 
-  val mailboxes = Seq(Test.scalatest, Test.junit)
+  val mailboxes = Seq(Test.scalatest, Test.junit, Test.hamcrest)
 
-  val fileMailbox = Seq(Test.commonsIo, Test.scalatest, Test.junit)
+  val fileMailbox = Seq(Test.commonsIo, Test.scalatest, Test.junit, Test.hamcrest)
 
-  val kernel = Seq(Test.scalatest, Test.junit)
+  val kernel = Seq(Test.scalatest, Test.junit, Test.hamcrest)
 
-  val camel = Seq(camelCore, Test.scalatest, Test.junit, Test.mockito, Test.logback, Test.commonsIo, Test.junitIntf)
+  val camel = Seq(camelCore, Test.scalatest, Test.junit, Test.hamcrest, Test.mockito, Test.logback, Test.commonsIo, Test.junitIntf)
 
   val camelSample = Seq(camelJetty)
 
-  val osgi = Seq(osgiCore, osgiCompendium, Test.logback, Test.commonsIo, Test.pojosr, Test.tinybundles, Test.scalatest, Test.junit)
+  val osgi = Seq(osgiCore, osgiCompendium, Test.logback, Test.commonsIo, Test.pojosr, Test.tinybundles, Test.scalatest, Test.junit, Test.hamcrest)
 
   val osgiDiningHakkerSampleCore = Seq(config, osgiCore, osgiCompendium)
 
@@ -1059,9 +1060,9 @@ object Dependencies {
 
   val osgiAries = Seq(osgiCore, osgiCompendium, ariesBlueprint, Test.ariesProxy)
 
-  val docs = Seq(Test.scalatest, Test.junit, Test.junitIntf)
+  val docs = Seq(Test.scalatest, Test.junit, Test.hamcrest, Test.junitIntf)
 
-  val zeroMQ = Seq(protobuf, zeroMQClient, Test.scalatest, Test.junit)
+  val zeroMQ = Seq(protobuf, zeroMQClient, Test.scalatest, Test.junit, Test.hamcrest)
 
   val clusterSample = Seq(Test.scalatest, sigar)
 
