@@ -9,13 +9,18 @@ import akka.parboiled2.util.Base64
 import akka.http.model.HttpCharsets._
 import akka.http.util.{ Rendering, ValueRenderable }
 
-sealed trait HttpCredentials extends ValueRenderable {
+import akka.http.model.japi.JavaMapping.Implicits._
+
+sealed abstract class HttpCredentials extends japi.headers.HttpCredentials with ValueRenderable {
   def scheme: String
   def token: String
-  def params: Map[String, String]
+  def parameters: Map[String, String]
+
+  /** Java API */
+  def getParameters: java.util.Map[String, String] = parameters.asJava
 }
 
-final case class BasicHttpCredentials(username: String, password: String) extends HttpCredentials {
+final case class BasicHttpCredentials(username: String, password: String) extends japi.headers.BasicHttpCredentials {
   val cookie = {
     val userPass = username + ':' + password
     val bytes = userPass.getBytes(`ISO-8859-1`.nioCharset)
@@ -25,7 +30,7 @@ final case class BasicHttpCredentials(username: String, password: String) extend
 
   def scheme: String = "Basic"
   def token = cookie.toString
-  def params = Map.empty
+  def parameters = Map.empty
 }
 
 object BasicHttpCredentials {
@@ -39,21 +44,20 @@ object BasicHttpCredentials {
   }
 }
 
-final case class OAuth2BearerToken(token: String) extends HttpCredentials {
+final case class OAuth2BearerToken(token: String) extends japi.headers.OAuth2BearerToken {
   def render[R <: Rendering](r: R): r.type = r ~~ "Bearer " ~~ token
 
   def scheme: String = "Bearer"
-  def params: Map[String, String] = Map.empty
+  def parameters: Map[String, String] = Map.empty
 }
 
 final case class GenericHttpCredentials(scheme: String, token: String,
-                                        params: Map[String, String] = Map.empty) extends HttpCredentials {
-
+                                        parameters: Map[String, String] = Map.empty) extends HttpCredentials {
   def render[R <: Rendering](r: R): r.type = {
     r ~~ scheme
     if (!token.isEmpty) r ~~ ' ' ~~ token
-    if (params.nonEmpty)
-      params foreach new (((String, String)) ⇒ Unit) {
+    if (parameters.nonEmpty)
+      parameters foreach new (((String, String)) ⇒ Unit) {
         var first = true
         def apply(kvp: (String, String)): Unit = {
           val (k, v) = kvp
@@ -67,5 +71,5 @@ final case class GenericHttpCredentials(scheme: String, token: String,
 }
 
 object GenericHttpCredentials {
-  def apply(scheme: String, params: Map[String, String]): GenericHttpCredentials = apply(scheme, "", params)
+  def apply(scheme: String, parameters: Map[String, String]): GenericHttpCredentials = apply(scheme, "", parameters)
 }
