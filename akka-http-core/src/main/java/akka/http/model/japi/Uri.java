@@ -164,28 +164,28 @@ public abstract class Uri {
      * Creates a default Uri to be modified using the modification methods.
      */
     public static Uri create() {
-        return Http.Uri(akka.http.model.Uri.Empty$.MODULE$);
+        return Http$.MODULE$.Uri(akka.http.model.Uri.Empty$.MODULE$);
     }
 
     /**
      * Returns a Uri created by parsing the given string representation.
      */
     public static Uri create(String uri) {
-        return Http.Uri(akka.http.model.Uri.apply(uri));
+        return Http$.MODULE$.Uri(akka.http.model.Uri.apply(uri));
     }
 
     /**
      * Returns a Uri created by parsing the given string representation and parsing-mode.
      */
     public static Uri create(String uri, akka.http.model.Uri.ParsingMode parsingMode) {
-        return Http.Uri(akka.http.model.Uri.apply(ParserInput$.MODULE$.apply(uri), parsingMode));
+        return Http$.MODULE$.Uri(akka.http.model.Uri.apply(ParserInput$.MODULE$.apply(uri), parsingMode));
     }
 
     /**
      * Returns a Uri created by parsing the given string representation, charset, and parsing-mode.
      */
     public static Uri create(String uri, Charset charset, akka.http.model.Uri.ParsingMode parsingMode) {
-        return Http.Uri(akka.http.model.Uri.apply(ParserInput$.MODULE$.apply(uri), charset, parsingMode));
+        return Http$.MODULE$.Uri(akka.http.model.Uri.apply(ParserInput$.MODULE$.apply(uri), charset, parsingMode));
     }
 
 }

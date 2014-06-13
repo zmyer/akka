@@ -4,11 +4,17 @@
 
 package akka.http.model.japi
 
-import akka.http.model
+import akka.http.{ HttpExt, model }
+import akka.actor.ActorSystem
+import java.net.InetSocketAddress
 
 object Http {
-  def HttpRequest(): HttpRequest = model.HttpRequest()
-  def HttpResponse(): HttpResponse = model.HttpResponse()
+  private[http] def HttpRequest(): HttpRequest = model.HttpRequest()
+  private[http] def HttpResponse(): HttpResponse = model.HttpResponse()
 
-  def Uri(uri: model.Uri): Uri = JavaUri(uri)
+  private[http] def Uri(uri: model.Uri): Uri = JavaUri(uri)
+
+  def get(system: ActorSystem): HttpExt = akka.http.Http.get(system)
+
+  def Bind(host: String, port: Int): AnyRef = akka.http.Http.Bind(host, port)
 }

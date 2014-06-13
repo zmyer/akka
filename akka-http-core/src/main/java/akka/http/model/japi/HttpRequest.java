@@ -42,6 +42,6 @@ public abstract class HttpRequest implements HttpMessage, HttpMessage.MessageTra
      * Returns a default request to be changed using the `withX` methods.
      */
     public static HttpRequest create() {
-        return Http.HttpRequest();
+        return Http$.MODULE$.HttpRequest();
     }
 }

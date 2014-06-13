@@ -27,6 +27,6 @@ public abstract class HttpResponse implements HttpMessage, HttpMessage.MessageTr
      * Returns a default response to be changed using the `withX` methods.
      */
     public static HttpResponse create() {
-        return Http.HttpResponse();
+        return Http$.MODULE$.HttpResponse();
     }
 }

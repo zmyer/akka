@@ -13,7 +13,7 @@ import akka.io.{ Inet, Tcp }
 import akka.stream.MaterializerSettings
 import akka.http.client.{ HostConnectorSettings, ClientConnectionSettings }
 import akka.http.server.ServerSettings
-import akka.http.model.{ HttpResponse, HttpRequest, HttpHeader }
+import akka.http.model.{ HttpResponse, HttpRequest, HttpHeader, japi }
 import akka.http.util._
 import akka.actor._
 
@@ -125,11 +125,19 @@ object Http extends ExtensionKey[HttpExt] {
   ///////////////////// server-side events ////////////////////////
 
   final case class ServerBinding(localAddress: InetSocketAddress,
-                                 connectionStream: Producer[IncomingConnection])
+                                 connectionStream: Producer[IncomingConnection]) extends model.japi.ServerBinding {
+    /** Java API */
+    def getConnectionStream: Producer[japi.IncomingConnection] = connectionStream.asInstanceOf[Producer[japi.IncomingConnection]]
+  }
 
   final case class IncomingConnection(remoteAddress: InetSocketAddress,
                                       requestProducer: Producer[HttpRequest],
-                                      responseConsumer: Consumer[HttpResponse])
+                                      responseConsumer: Consumer[HttpResponse]) extends model.japi.IncomingConnection {
+    /** Java API */
+    def getRequestProducer: Producer[japi.HttpRequest] = requestProducer.asInstanceOf[Producer[japi.HttpRequest]]
+    /** Java API */
+    def getResponseConsumer: Consumer[japi.HttpResponse] = responseConsumer.asInstanceOf[Consumer[japi.HttpResponse]]
+  }
 
   val Unbound = Tcp.Unbound
 
