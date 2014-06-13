@@ -9,7 +9,7 @@ import akka.http.model.japi.Util;
 
 public abstract class LinkValue {
     public abstract Uri getUri();
-    public abstract Iterable<LinkParam> getParameters();
+    public abstract Iterable<LinkParam> getParams();
 
     public static LinkValue create(Uri uri, LinkParam... params) {
         return new akka.http.model.headers.LinkValue(

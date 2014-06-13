@@ -14,10 +14,10 @@ import akka.http.model.japi.JavaMapping.Implicits._
 sealed abstract class HttpCredentials extends japi.headers.HttpCredentials with ValueRenderable {
   def scheme: String
   def token: String
-  def parameters: Map[String, String]
+  def params: Map[String, String]
 
   /** Java API */
-  def getParameters: java.util.Map[String, String] = parameters.asJava
+  def getParams: java.util.Map[String, String] = params.asJava
 }
 
 final case class BasicHttpCredentials(username: String, password: String) extends japi.headers.BasicHttpCredentials {
@@ -30,7 +30,7 @@ final case class BasicHttpCredentials(username: String, password: String) extend
 
   def scheme: String = "Basic"
   def token = cookie.toString
-  def parameters = Map.empty
+  def params = Map.empty
 }
 
 object BasicHttpCredentials {
@@ -48,16 +48,16 @@ final case class OAuth2BearerToken(token: String) extends japi.headers.OAuth2Bea
   def render[R <: Rendering](r: R): r.type = r ~~ "Bearer " ~~ token
 
   def scheme: String = "Bearer"
-  def parameters: Map[String, String] = Map.empty
+  def params: Map[String, String] = Map.empty
 }
 
 final case class GenericHttpCredentials(scheme: String, token: String,
-                                        parameters: Map[String, String] = Map.empty) extends HttpCredentials {
+                                        params: Map[String, String] = Map.empty) extends HttpCredentials {
   def render[R <: Rendering](r: R): r.type = {
     r ~~ scheme
     if (!token.isEmpty) r ~~ ' ' ~~ token
-    if (parameters.nonEmpty)
-      parameters foreach new (((String, String)) ⇒ Unit) {
+    if (params.nonEmpty)
+      params foreach new (((String, String)) ⇒ Unit) {
         var first = true
         def apply(kvp: (String, String)): Unit = {
           val (k, v) = kvp
@@ -71,5 +71,5 @@ final case class GenericHttpCredentials(scheme: String, token: String,
 }
 
 object GenericHttpCredentials {
-  def apply(scheme: String, parameters: Map[String, String]): GenericHttpCredentials = apply(scheme, "", parameters)
+  def apply(scheme: String, params: Map[String, String]): GenericHttpCredentials = apply(scheme, "", params)
 }

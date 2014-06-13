@@ -30,7 +30,7 @@ public abstract class MediaRange {
     /**
      * Returns a Map of the parameters of this media-range.
      */
-    public abstract Map<String, String> getParameters();
+    public abstract Map<String, String> getParams();
 
     /**
      * Returns a copy of this instance with a changed qValue.

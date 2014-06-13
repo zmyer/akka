@@ -35,7 +35,7 @@ sealed abstract class MediaRange extends japi.MediaRange with Renderable with Wi
   def withCharset(charsetRange: HttpCharsetRange): ContentTypeRange = ContentTypeRange(this, charsetRange)
 
   /** Java API */
-  def getParameters: util.Map[String, String] = {
+  def getParams: util.Map[String, String] = {
     import collection.JavaConverters._
     params.asJava
   }

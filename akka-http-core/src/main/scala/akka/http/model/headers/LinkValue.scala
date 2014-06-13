@@ -12,15 +12,15 @@ import UriRendering.UriRenderer
 
 import akka.http.model.japi.JavaMapping.Implicits._
 
-final case class LinkValue(uri: Uri, parameters: immutable.Seq[LinkParam]) extends japi.headers.LinkValue with ValueRenderable {
+final case class LinkValue(uri: Uri, params: immutable.Seq[LinkParam]) extends japi.headers.LinkValue with ValueRenderable {
   def render[R <: Rendering](r: R): r.type = {
     r ~~ '<' ~~ uri ~~ '>'
-    if (parameters.nonEmpty) r ~~ "; " ~~ parameters
+    if (params.nonEmpty) r ~~ "; " ~~ params
     r
   }
 
   def getUri: japi.Uri = uri.asJava
-  def getParameters: java.lang.Iterable[japi.headers.LinkParam] = parameters.asJava
+  def getParams: java.lang.Iterable[japi.headers.LinkParam] = params.asJava
 }
 
 object LinkValue {
