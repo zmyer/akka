@@ -57,7 +57,7 @@ public abstract class Util {
     }
     @SuppressWarnings("unchecked")
     public static <T, U extends T> Seq<U> convertArray(T[] els) {
-        return convertIterable(Arrays.asList(els));
+        return Util.<T, U>convertIterable(Arrays.asList(els));
     }
 
     public static akka.http.model.Uri convertUriToScala(Uri uri) {

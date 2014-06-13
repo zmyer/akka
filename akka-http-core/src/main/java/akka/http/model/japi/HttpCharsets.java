@@ -25,7 +25,7 @@ public final class HttpCharsets {
      * Returns None otherwise.
      */
     public static Option<HttpCharset> registerCustom(String value, String... aliases) {
-        scala.Option<akka.http.model.HttpCharset> custom = akka.http.model.HttpCharset.custom(value, Util.convertArray(aliases));
+        scala.Option<akka.http.model.HttpCharset> custom = akka.http.model.HttpCharset.custom(value, Util.<String, String>convertArray(aliases));
         if (custom.isDefined()) return Option.<HttpCharset>some(akka.http.model.HttpCharsets.register(custom.get()));
         else return Option.none();
     }
