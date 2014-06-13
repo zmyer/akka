@@ -313,7 +313,7 @@ final case class `Content-Disposition`(dispositionType: ContentDispositionType, 
   protected def companion = `Content-Disposition`
 
   /** Java API */
-  def getParameters = params.asJava
+  def getParams = params.asJava
 }
 
 // http://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-26#section-3.1.2.2
