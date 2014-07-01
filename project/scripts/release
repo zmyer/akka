@@ -188,6 +188,15 @@ function get_current_branch {
   echo "${branch}"
 }
 
+# get the scalaBinaryVersion from sbt
+# a little messy as the ansi escape codes are included
+function get_scala_binary_version {
+  local result=$(sbt scalaBinaryVersion | tail -1 | cut -f2)
+  # remove ansi escape code from end
+  local code0=$(echo -e "\033[0m")
+  echo ${result%$code0}
+}
+
 # get the current project version from sbt
 # a little messy as the ansi escape codes are included
 function get_current_version {
@@ -274,6 +283,10 @@ echolog "Getting current project version from sbt..."
 declare -r current_version=$(get_current_version)
 echolog "Current version is ${current_version}"
 
+echolog "Getting scalaBinaryVersion from sbt..."
+declare -r scala_binary_version=$(get_scala_binary_version)
+echolog "scalaBinaryVersion is ${scala_binary_version}"
+
 # check out a release branch
 try git checkout -b ${release_branch}
 
@@ -299,7 +312,7 @@ else
 fi
 try sbt $RELEASE_OPT build-release
 echolog "Creating gzipped tar download..."
-try tar -cz -C ${unzipped_dir} -f ${release_dir}/downloads/akka-${version}.tgz akka-${version}
+try tar -cz -C ${unzipped_dir} -f ${release_dir}/downloads/akka_${scala_binary_version}-${version}.tgz akka-${version}
 echolog "Successfully created local release"
 
 # check binary compatibility for dry run
