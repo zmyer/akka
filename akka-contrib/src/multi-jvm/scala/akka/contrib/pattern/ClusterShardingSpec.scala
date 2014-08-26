@@ -72,9 +72,10 @@ object ClusterShardingSpec extends MultiNodeConfig {
   case object Stop
   final case class CounterChanged(delta: Int)
 
-  class Counter extends PersistentActor {
+  class Counter extends PersistentActor with ActorLogging {
     import ShardRegion.Passivate
 
+    log.debug("# constructor Counter: {}", self.path.name)
     context.setReceiveTimeout(120.seconds)
 
     // self.path.parent.parent.name is the type name (utf-8 URL-encoded)
@@ -85,23 +86,32 @@ object ClusterShardingSpec extends MultiNodeConfig {
     //#counter-actor
 
     override def postStop(): Unit = {
+      log.debug("# postStop Counter: {}", self.path.name)
       super.postStop()
       // Simulate that the passivation takes some time, to verify passivation bufffering
       Thread.sleep(500)
     }
     //#counter-actor
 
-    def updateState(event: CounterChanged): Unit =
+    def updateState(event: CounterChanged): Unit = {
+      log.debug("# updateState Counter: {} {}", self.path.name, event)
       count += event.delta
+    }
 
     override def receiveRecover: Receive = {
       case evt: CounterChanged ⇒ updateState(evt)
     }
 
+    Thread.sleep(100)
+
     override def receiveCommand: Receive = {
-      case Increment      ⇒ persist(CounterChanged(+1))(updateState)
-      case Decrement      ⇒ persist(CounterChanged(-1))(updateState)
-      case Get(_)         ⇒ sender() ! count
+      case Increment ⇒
+        log.debug("# receiveCommand Counter: {} {}", self.path.name, Increment)
+        persist(CounterChanged(+1))(updateState)
+      case Decrement ⇒ persist(CounterChanged(-1))(updateState)
+      case Get(_) ⇒
+        log.debug("# Get Counter: {} count {}", self.path.name, count)
+        sender() ! count
       case ReceiveTimeout ⇒ context.parent ! Passivate(stopMessage = Stop)
       case Stop           ⇒ context.stop(self)
     }
@@ -182,16 +192,21 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
 
   def createCoordinator(): Unit = {
     val allocationStrategy = new ShardCoordinator.LeastShardAllocationStrategy(rebalanceThreshold = 2, maxSimultaneousRebalance = 1)
-    val coordinatorProps = ShardCoordinator.props(handOffTimeout = 10.seconds, shardStartTimeout = 10.seconds, rebalanceInterval = 2.seconds,
-      snapshotInterval = 3600.seconds, allocationStrategy)
+    def coordinatorProps(rebalanceEnabled: Boolean) =
+      ShardCoordinator.props(handOffTimeout = 10.seconds, shardStartTimeout = 10.seconds,
+        rebalanceInterval = if (rebalanceEnabled) 2.seconds else 3600.seconds,
+        snapshotInterval = 3600.seconds, allocationStrategy)
 
-    for (coordinatorName ← List("counter", "PersistentCounterEntries", "AnotherPersistentCounter", "PersistentCounter", "AutoMigrateRegionTest"))
-      system.actorOf(ClusterSingletonManager.props(
-        singletonProps = ShardCoordinatorSupervisor.props(failureBackoff = 5.seconds, coordinatorProps),
-        singletonName = "singleton",
-        terminationMessage = PoisonPill,
-        role = None),
-        name = coordinatorName + "Coordinator")
+    List("counter", "rebalancingCounter", "PersistentCounterEntries", "AnotherPersistentCounter",
+      "PersistentCounter", "RebalancingPersistentCounter", "AutoMigrateRegionTest").foreach { coordinatorName ⇒
+        val rebalanceEnabled = coordinatorName.toLowerCase.startsWith("rebalancing")
+        system.actorOf(ClusterSingletonManager.props(
+          singletonProps = ShardCoordinatorSupervisor.props(failureBackoff = 5.seconds, coordinatorProps(rebalanceEnabled)),
+          singletonName = "singleton",
+          terminationMessage = PoisonPill,
+          role = None),
+          name = coordinatorName + "Coordinator")
+      }
   }
 
   def createRegion(typeName: String, rememberEntries: Boolean): ActorRef = system.actorOf(ShardRegion.props(
@@ -210,10 +225,12 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
     name = typeName + "Region")
 
   lazy val region = createRegion("counter", rememberEntries = false)
+  lazy val rebalancingRegion = createRegion("rebalancingCounter", rememberEntries = false)
 
   lazy val persistentEntriesRegion = createRegion("PersistentCounterEntries", rememberEntries = true)
   lazy val anotherPersistentRegion = createRegion("AnotherPersistentCounter", rememberEntries = true)
   lazy val persistentRegion = createRegion("PersistentCounter", rememberEntries = true)
+  lazy val rebalancingPersistentRegion = createRegion("RebalancingPersistentCounter", rememberEntries = true)
   lazy val autoMigrateRegion = createRegion("AutoMigrateRegionTest", rememberEntries = true)
 
   "Cluster sharding" must {
@@ -350,6 +367,7 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
           region ! EntryEnvelope(3, Increment)
         region ! Get(3)
         expectMsg(10)
+        lastSender.path should be(region.path / "3" / "3") // local
       }
       enterBarrier("third-update")
 
@@ -358,6 +376,7 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
           region ! EntryEnvelope(4, Increment)
         region ! Get(4)
         expectMsg(20)
+        lastSender.path should be(region.path / "4" / "4") // local
       }
       enterBarrier("fourth-update")
 
@@ -423,34 +442,13 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
     "rebalance to nodes with less shards" in within(60 seconds) {
 
       runOn(fourth) {
-        // third, fourth and fifth are still alive
-        // shards 3 and 4 are already allocated
-        // make sure shards 1 and 2 (previously on crashed first) are allocated
-        awaitAssert {
-          val probe1 = TestProbe()
-          within(1.second) {
-            region.tell(Get(1), probe1.ref)
-            probe1.expectMsg(2)
-          }
-        }
-        awaitAssert {
-          val probe2 = TestProbe()
-          within(1.second) {
-            region.tell(Get(2), probe2.ref)
-            probe2.expectMsg(4)
-          }
-        }
-
-        // add more shards, which should later trigger rebalance to new node sixth
-        for (n ← 5 to 10)
-          region ! EntryEnvelope(n, Increment)
-
-        for (n ← 5 to 10) {
-          region ! Get(n)
+        for (n ← 1 to 10) {
+          rebalancingRegion ! EntryEnvelope(n, Increment)
+          rebalancingRegion ! Get(n)
           expectMsg(1)
         }
       }
-      enterBarrier("more-added")
+      enterBarrier("rebalancing-shards-allocated")
 
       join(sixth, third)
 
@@ -460,11 +458,12 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
           within(3.seconds) {
             var count = 0
             for (n ← 1 to 10) {
-              region.tell(Get(n), probe.ref)
+              rebalancingRegion.tell(Get(n), probe.ref)
               probe.expectMsgType[Int]
-              if (probe.lastSender.path == region.path / (n % 12).toString / n.toString)
+              if (probe.lastSender.path == rebalancingRegion.path / (n % 12).toString / n.toString)
                 count += 1
             }
+            println(s"# count $count") // FIXME
             count should be >= (2)
           }
         }
@@ -724,6 +723,8 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
       //Start only one region, and force an entry onto that region
       runOn(third) {
         autoMigrateRegion ! EntryEnvelope(1, Increment)
+        autoMigrateRegion ! Get(1)
+        expectMsg(1)
       }
       enterBarrier("shard1-region3")
 
@@ -760,34 +761,35 @@ class ClusterShardingSpec extends MultiNodeSpec(ClusterShardingSpec) with STMult
     "ensure rebalance restarts shards" in within(50.seconds) {
       runOn(fourth) {
         for (i ← 2 to 12) {
-          persistentRegion ! EntryEnvelope(i, Increment)
+          rebalancingPersistentRegion ! EntryEnvelope(i, Increment)
         }
 
         for (i ← 2 to 12) {
-          persistentRegion ! Get(i)
+          rebalancingPersistentRegion ! Get(i)
           expectMsg(1)
         }
       }
       enterBarrier("entries-started")
 
       runOn(fifth) {
-        persistentRegion
+        rebalancingPersistentRegion
       }
       enterBarrier("fifth-joined-shard")
 
       runOn(fifth) {
-        var count = 0
-
-        for (n ← 2 to 12) {
-          val entry = system.actorSelection(system / "PersistentCounterRegion" / (n % 12).toString / n.toString)
-          entry ! Identify(n)
-          receiveOne(3 seconds) match {
-            case ActorIdentity(id, Some(_)) if id == n ⇒ count = count + 1
-            case ActorIdentity(id, None)               ⇒ //Not on the fifth shard
+        awaitAssert {
+          var count = 0
+          for (n ← 2 to 12) {
+            val entry = system.actorSelection(rebalancingPersistentRegion.path / (n % 12).toString / n.toString)
+            entry ! Identify(n)
+            receiveOne(3 seconds) match {
+              case ActorIdentity(id, Some(_)) if id == n ⇒ count = count + 1
+              case ActorIdentity(id, None)               ⇒ //Not on the fifth shard
+            }
           }
+          println(s"# count $count") // FIXME
+          count should be >= (2)
         }
-
-        assert(count >= 3, s"Not enough entries migrated, only ${count}")
       }
 
       enterBarrier("after-15")

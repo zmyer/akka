@@ -690,8 +690,7 @@ class ShardRegion(
     val after = newMembers.headOption
     membersByAge = newMembers
     if (before != after) {
-      if (log.isDebugEnabled)
-        log.debug("Coordinator moved from [{}] to [{}]", before.map(_.address).getOrElse(""), after.map(_.address).getOrElse(""))
+      log.info("Coordinator moved from [{}] to [{}]", before.map(_.address).getOrElse(""), after.map(_.address).getOrElse(""))
       coordinator = None
       register()
     }
@@ -725,7 +724,7 @@ class ShardRegion(
 
   def receiveCoordinatorMessage(msg: CoordinatorMessage): Unit = msg match {
     case HostShard(shard) ⇒
-      log.debug("Host Shard [{}] ", shard)
+      log.info("Host Shard [{}] ", shard)
       regionByShard = regionByShard.updated(shard, self)
       regions = regions.updated(self, regions.getOrElse(self, Set.empty) + shard)
 
@@ -736,7 +735,7 @@ class ShardRegion(
       sender() ! ShardStarted(shard)
 
     case ShardHome(shard, ref) ⇒
-      log.debug("Shard [{}] located at [{}]", shard, ref)
+      log.info("Shard [{}] located at [{}]", shard, ref)
       regionByShard.get(shard) match {
         case Some(r) if r == self && ref != self ⇒
           // should not happen, inconsistency between ShardRegion and ShardCoordinator
@@ -760,7 +759,7 @@ class ShardRegion(
       context.children.foreach(_ ! SnapshotTick)
 
     case BeginHandOff(shard) ⇒
-      log.debug("BeginHandOff shard [{}]", shard)
+      log.info("BeginHandOff shard [{}]", shard)
       if (regionByShard.contains(shard)) {
         val regionRef = regionByShard(shard)
         val updatedShards = regions(regionRef) - shard
@@ -771,7 +770,7 @@ class ShardRegion(
       sender() ! BeginHandOffAck(shard)
 
     case msg @ HandOff(shard) ⇒
-      log.debug("HandOff shard [{}]", shard)
+      log.info("HandOff shard [{}]", shard)
 
       // must drop requests that came in between the BeginHandOff and now,
       // because they might be forwarded from other regions and there
@@ -806,8 +805,7 @@ class ShardRegion(
       val shards = regions(ref)
       regionByShard --= shards
       regions -= ref
-      if (log.isDebugEnabled)
-        log.debug("Region [{}] with shards [{}] terminated", ref, shards.mkString(", "))
+      log.info("Region [{}] with shards [{}] terminated", ref, shards.mkString(", "))
     } else if (shardsByRef.contains(ref)) {
       val shardId: ShardId = shardsByRef(ref)
 
@@ -816,7 +814,7 @@ class ShardRegion(
         shardsByRef = shardsByRef - ref
         shards = shards - shardId
         handingOff = handingOff - ref
-        log.debug("Shard [{}] handoff complete", shardId)
+        log.info("Shard [{}] handoff complete", shardId)
       } else {
         throw new IllegalStateException(s"Shard [$shardId] terminated while not being handed off.")
       }
@@ -833,7 +831,7 @@ class ShardRegion(
   def requestShardBufferHomes(): Unit = {
     shardBuffers.foreach {
       case (shard, _) ⇒ coordinator.foreach { c ⇒
-        log.debug("Retry request for shard [{}] homes", shard)
+        log.info("Retry request for shard [{}] homes", shard)
         c ! GetShardHome(shard)
       }
     }
@@ -854,18 +852,18 @@ class ShardRegion(
       case Some(ref) if ref == self ⇒
         getShard(shard).tell(msg, snd)
       case Some(ref) ⇒
-        log.debug("Forwarding request for shard [{}] to [{}]", shard, ref)
+        log.info("Forwarding request for shard [{}] to [{}]", shard, ref)
         ref.tell(msg, snd)
       case None if (shard == null || shard == "") ⇒
         log.warning("Shard must not be empty, dropping message [{}]", msg.getClass.getName)
         context.system.deadLetters ! msg
       case None ⇒
         if (!shardBuffers.contains(shard)) {
-          log.debug("Request shard [{}] home", shard)
+          log.info("Request shard [{}] home", shard)
           coordinator.foreach(_ ! GetShardHome(shard))
         }
         if (totalBufferSize >= bufferSize) {
-          log.debug("Buffer is full, dropping message for shard [{}]", shard)
+          log.info("Buffer is full, dropping message for shard [{}]", shard)
           context.system.deadLetters ! msg
         } else {
           val buf = shardBuffers.getOrElse(shard, Vector.empty)
@@ -878,7 +876,7 @@ class ShardRegion(
     id,
     entryProps match {
       case Some(props) ⇒
-        log.debug("Starting shard [{}] in region", id)
+        log.info("Starting shard [{}] in region", id)
 
         val name = URLEncoder.encode(id, "utf-8")
         val shard = context.watch(context.actorOf(
@@ -1052,7 +1050,7 @@ private[akka] class Shard(
   }
 
   def persistenceFailure(payload: StateChange): Unit = {
-    log.debug("Persistence of [{}] failed, will backoff and retry", payload)
+    log.info("Persistence of [{}] failed, will backoff and retry", payload)
     if (!messageBuffers.isDefinedAt(payload.entryId)) {
       messageBuffers = messageBuffers.updated(payload.entryId, Vector.empty)
     }
@@ -1061,7 +1059,7 @@ private[akka] class Shard(
   }
 
   def retryPersistence(payload: StateChange): Unit = {
-    log.debug("Retrying Persistence of [{}]", payload)
+    log.info("Retrying Persistence of [{}]", payload)
     persist(payload) { _ ⇒
       payload match {
         case msg: EntryStarted ⇒ sendMsgBuffer(msg)
@@ -1073,7 +1071,7 @@ private[akka] class Shard(
   def handOff(replyTo: ActorRef): Unit = handOffStopper match {
     case Some(_) ⇒ log.warning("HandOff shard [{}] received during existing handOff", shardId)
     case None ⇒
-      log.debug("HandOff shard [{}]", shardId)
+      log.info("HandOff shard [{}]", shardId)
 
       if (state.entries.nonEmpty) {
         handOffStopper = Some(context.watch(context.actorOf(handOffStopperProps(shardId, replyTo, idByRef.keySet))))
@@ -1096,11 +1094,11 @@ private[akka] class Shard(
       if (messageBuffers.getOrElse(id, Vector.empty).nonEmpty) {
         //Note; because we're not persisting the EntryStopped, we don't need
         // to persist the EntryStarted either.
-        log.debug("Starting entry [{}] again, there are buffered messages for it", id)
+        log.info("Starting entry [{}] again, there are buffered messages for it", id)
         sendMsgBuffer(EntryStarted(id))
       } else {
         if (rememberEntries && !passivating.contains(ref)) {
-          log.debug("Entry [{}] stopped without passivating, will restart after backoff", id)
+          log.info("Entry [{}] stopped without passivating, will restart after backoff", id)
           context.system.scheduler.scheduleOnce(entryRestartBackoff, self, RestartEntry(id))
         } else processChange(EntryStopped(id))(passivateCompleted)
       }
@@ -1112,7 +1110,7 @@ private[akka] class Shard(
   def passivate(entry: ActorRef, stopMessage: Any): Unit = {
     idByRef.get(entry) match {
       case Some(id) if !messageBuffers.contains(id) ⇒
-        log.debug("Passivating started on entry {}", id)
+        log.info("Passivating started on entry {}", id)
 
         passivating = passivating + entry
         messageBuffers = messageBuffers.updated(id, Vector.empty)
@@ -1124,7 +1122,7 @@ private[akka] class Shard(
 
   // EntryStopped persistence handler
   def passivateCompleted(event: EntryStopped): Unit = {
-    log.debug("Entry stopped [{}]", event.entryId)
+    log.info("Entry stopped [{}]", event.entryId)
 
     val ref = refById(event.entryId)
     idByRef -= ref
@@ -1141,7 +1139,7 @@ private[akka] class Shard(
     messageBuffers = messageBuffers - event.entryId
 
     if (messages.nonEmpty) {
-      log.debug("Sending message buffer for entry [{}] ([{}] messages)", event.entryId, messages.size)
+      log.info("Sending message buffer for entry [{}] ([{}] messages)", event.entryId, messages.size)
       getEntry(event.entryId)
 
       //Now there is no deliveryBuffer we can try to redeliver
@@ -1162,11 +1160,11 @@ private[akka] class Shard(
         case None ⇒ deliverTo(id, msg, payload, snd)
 
         case Some(buf) if totalBufferSize >= bufferSize ⇒
-          log.debug("Buffer is full, dropping message for entry [{}]", id)
+          log.info("Buffer is full, dropping message for entry [{}]", id)
           context.system.deadLetters ! msg
 
         case Some(buf) ⇒
-          log.debug("Message for entry [{}] buffered", id)
+          log.info("Message for entry [{}] buffered", id)
           messageBuffers = messageBuffers.updated(id, buf :+ ((msg, snd)))
       }
     }
@@ -1191,7 +1189,7 @@ private[akka] class Shard(
   def getEntry(id: EntryId): ActorRef = {
     val name = URLEncoder.encode(id, "utf-8")
     context.child(name).getOrElse {
-      log.debug("Starting entry [{}] in shard [{}]", id, shardId)
+      log.info("Starting entry [{}] in shard [{}]", id, shardId)
 
       val a = context.watch(context.actorOf(entryProps, name))
       idByRef = idByRef.updated(a, id)
@@ -1338,12 +1336,14 @@ object ShardCoordinator {
     override def allocateShard(requester: ActorRef, shardId: ShardId,
                                currentShardAllocations: Map[ActorRef, immutable.IndexedSeq[ShardId]]): ActorRef = {
       val (regionWithLeastShards, _) = currentShardAllocations.minBy { case (_, v) ⇒ v.size }
+      println(s"# allocateShard $shardId requested from $requester to $regionWithLeastShards out of $currentShardAllocations") // FIXME
       regionWithLeastShards
     }
 
     override def rebalance(currentShardAllocations: Map[ActorRef, immutable.IndexedSeq[ShardId]],
                            rebalanceInProgress: Set[ShardId]): Set[ShardId] = {
-      if (rebalanceInProgress.size < maxSimultaneousRebalance) {
+
+      val x: Set[ShardId] = if (rebalanceInProgress.size < maxSimultaneousRebalance) {
         val (regionWithLeastShards, leastShards) = currentShardAllocations.minBy { case (_, v) ⇒ v.size }
         val mostShards = currentShardAllocations.collect {
           case (_, v) ⇒ v.filterNot(s ⇒ rebalanceInProgress(s))
@@ -1353,6 +1353,10 @@ object ShardCoordinator {
         else
           Set.empty
       } else Set.empty
+
+      if (x.nonEmpty)
+        println(s"# rebalance $x") // FIXME
+      x
     }
   }
 
@@ -1573,7 +1577,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
 
   override def receiveRecover: Receive = {
     case evt: DomainEvent ⇒
-      log.debug("receiveRecover {}", evt)
+      log.info("receiveRecover {}", evt)
       evt match {
         case ShardRegionRegistered(region) ⇒
           persistentState = persistentState.updated(evt)
@@ -1583,7 +1587,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
           if (persistentState.regions.contains(region))
             persistentState = persistentState.updated(evt)
           else {
-            log.debug("ShardRegionTerminated, but region {} was not registered. This inconsistency is due to that " +
+            log.info("ShardRegionTerminated, but region {} was not registered. This inconsistency is due to that " +
               " some stored ActorRef in Akka v2.3.0 and v2.3.1 did not contain full address information. It will be " +
               "removed by later watch.", region)
           }
@@ -1597,7 +1601,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
       }
 
     case SnapshotOffer(_, state: State) ⇒
-      log.debug("receiveRecover SnapshotOffer {}", state)
+      log.info("receiveRecover SnapshotOffer {}", state)
       //Old versions of the state object may not have unallocatedShard set,
       // thus it will be null.
       if (state.unallocatedShards == null)
@@ -1614,7 +1618,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
 
   override def receiveCommand: Receive = {
     case Register(region) ⇒
-      log.debug("ShardRegion registered: [{}]", region)
+      log.info("ShardRegion registered: [{}]", region)
       if (persistentState.regions.contains(region))
         sender() ! RegisterAck(self)
       else
@@ -1630,7 +1634,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
         }
 
     case RegisterProxy(proxy) ⇒
-      log.debug("ShardRegion proxy registered: [{}]", proxy)
+      log.info("ShardRegion proxy registered: [{}]", proxy)
       if (persistentState.regionProxies.contains(proxy))
         sender() ! RegisterAck(self)
       else
@@ -1642,7 +1646,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
 
     case Terminated(ref) ⇒
       if (persistentState.regions.contains(ref)) {
-        log.debug("ShardRegion terminated: [{}]", ref)
+        log.info("ShardRegion terminated: [{}]", ref)
 
         require(persistentState.regions.contains(ref), s"Terminated region $ref not registered")
         persistentState.regions(ref).foreach { s ⇒ self ! GetShardHome(s) }
@@ -1652,7 +1656,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
           allocateShardHomes()
         }
       } else if (persistentState.regionProxies.contains(ref)) {
-        log.debug("ShardRegion proxy terminated: [{}]", ref)
+        log.info("ShardRegion proxy terminated: [{}]", ref)
         persist(ShardRegionProxyTerminated(ref)) { evt ⇒
           persistentState = persistentState.updated(evt)
         }
@@ -1669,7 +1673,7 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
                 s"Allocated region $region for shard [$shard] must be one of the registered regions: $persistentState")
               persist(ShardHomeAllocated(shard, region)) { evt ⇒
                 persistentState = persistentState.updated(evt)
-                log.debug("Shard [{}] allocated at [{}]", evt.shard, evt.region)
+                log.info("Shard [{}] allocated at [{}]", evt.shard, evt.region)
 
                 sendHostShardMsg(evt.shard, evt.region)
                 sender() ! ShardHome(evt.shard, evt.region)
@@ -1697,28 +1701,28 @@ class ShardCoordinator(handOffTimeout: FiniteDuration, shardStartTimeout: Finite
         allocationStrategy.rebalance(persistentState.regions, rebalanceInProgress).foreach { shard ⇒
           rebalanceInProgress += shard
           val rebalanceFromRegion = persistentState.shards(shard)
-          log.debug("Rebalance shard [{}] from [{}]", shard, rebalanceFromRegion)
+          log.info("Rebalance shard [{}] from [{}]", shard, rebalanceFromRegion)
           context.actorOf(rebalanceWorkerProps(shard, rebalanceFromRegion, handOffTimeout,
             persistentState.regions.keySet ++ persistentState.regionProxies))
         }
 
     case RebalanceDone(shard, ok) ⇒
       rebalanceInProgress -= shard
-      log.debug("Rebalance shard [{}] done [{}]", shard, ok)
+      log.info("Rebalance shard [{}] done [{}]", shard, ok)
       // The shard could have been removed by ShardRegionTerminated
       if (ok && persistentState.shards.contains(shard))
         persist(ShardHomeDeallocated(shard)) { evt ⇒
           persistentState = persistentState.updated(evt)
-          log.debug("Shard [{}] deallocated", evt.shard)
+          log.info("Shard [{}] deallocated", evt.shard)
           allocateShardHomes()
         }
 
     case SnapshotTick ⇒
-      log.debug("Saving persistent snapshot")
+      log.info("Saving persistent snapshot")
       saveSnapshot(persistentState)
 
     case SaveSnapshotSuccess(_) ⇒
-      log.debug("Persistent snapshot saved successfully")
+      log.info("Persistent snapshot saved successfully")
 
     case SaveSnapshotFailure(_, reason) ⇒
       log.warning("Persistent snapshot failure: {}", reason.getMessage)
