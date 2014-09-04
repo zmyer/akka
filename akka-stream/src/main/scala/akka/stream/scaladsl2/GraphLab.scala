@@ -1,10 +1,6 @@
 package akka.stream.scaladsl2
 
 import akka.stream.Transformer
-import scalax.collection.GraphPredef._
-import scalax.collection.GraphEdge._
-import scalax.collection.edge.LDiEdge
-import scalax.collection.mutable.Graph
 import akka.actor.ActorSystem
 
 // FIXME only for playing around
@@ -109,6 +105,15 @@ object GraphLab extends App {
     b.attachSource(f2, in2)
     b.attachSink(f3, out1)
 
+  }.run(materializer)
+
+  FlowGraph { implicit b =>
+    import FlowGraphBuilderImplicits._
+    val merge = b.merge[String]
+    val bcast = b.broadcast[String]
+    in1 ~> f1 ~> merge ~> f2 ~> bcast ~> f3 ~> out1
+    in2 ~> f4 ~> merge
+    bcast ~> f5 ~> out2
   }.run(materializer)
 }
 

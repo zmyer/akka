@@ -269,3 +269,36 @@ class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
   }
 }
 
+object FlowGraphBuilderImplicits {
+  implicit class SourceOps[In](val source: Source[In]) extends AnyVal {
+    def ~>[Out](flow: ProcessorFlow[In, Out])(implicit builder: FlowGraphBuilder): SourceNextStep[In, Out] = {
+      new SourceNextStep(source, flow, builder)
+    }
+  }
+
+  class SourceNextStep[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
+    def ~>(sink: FanOperation[Out]): FanOperation[Out] = {
+      builder.addEdge(source, flow, sink)
+      sink
+    }
+  }
+
+  implicit class FanOps[In](val fan: FanOperation[In]) extends AnyVal {
+    def ~>[Out](flow: ProcessorFlow[In, Out])(implicit builder: FlowGraphBuilder): FanNextStep[In, Out] = {
+      new FanNextStep(fan, flow, builder)
+    }
+  }
+
+  class FanNextStep[In, Out](fan: FanOperation[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
+    def ~>(sink: FanOperation[Out]): FanOperation[Out] = {
+      builder.addEdge(fan, flow, sink)
+      sink
+    }
+
+    def ~>(sink: Sink[Out]): Unit = {
+      builder.addEdge(fan, flow, sink)
+    }
+  }
+
+  // FIXME add more for FlowWithSource and FlowWithSink
+}
