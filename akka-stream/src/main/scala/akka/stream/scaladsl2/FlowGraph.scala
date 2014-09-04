@@ -52,12 +52,13 @@ private[akka] object FlowGraphInternal {
 
 }
 
-class EdgeBuilder {
+class FlowGraphBuilder private[akka] () {
   import FlowGraphInternal._
 
   implicit val edgeFactory = scalax.collection.edge.LkDiEdge
   private val graph = Graph.empty[Vertex, LDiEdge]
 
+  // FIXME do we need these?
   def merge[T] = new Merge[T]
   def broadcast[T] = new Broadcast[T]
 
@@ -146,15 +147,15 @@ class EdgeBuilder {
     }
   }
 
-  def build(): FlowGraph = new FlowGraph(graph) // FIXME would be nice to convert it to an immutable.Graph here
+  /**
+   * INTERNAL API
+   */
+  private[akka] def build(): FlowGraph = {
+    checkBuildPreconditions()
+    new FlowGraph(graph) // FIXME would be nice to convert it to an immutable.Graph here
+  }
 
-}
-
-class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
-  import FlowGraphInternal._
-  def run(implicit materializer: FlowMaterializer): Unit = {
-    println("# RUN ----------------")
-
+  def checkBuildPreconditions(): Unit = {
     graph.nodes.foreach { n ⇒ println(s"node ${n} has:\n    successors: ${n.diSuccessors}\n    predecessors${n.diPredecessors}\n    edges ${n.edges}") }
 
     graph.findCycle match {
@@ -162,6 +163,8 @@ class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
       case Some(cycle) ⇒ throw new IllegalArgumentException("Cycle detected, not supported yet. " + cycle)
     }
 
+    // We must move the checks of undefined source/sink to `run` if we want to be
+    // able to continue building from a non-complete FlowGraph
     val undefinedSourcesSinks = graph.nodes.filter {
       _.value match {
         case _: UndefinedSource | _: UndefinedSink ⇒ true
@@ -175,6 +178,22 @@ class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
       })
       throw new IllegalArgumentException("Undefined sources or sinks: " + formatted.mkString(", "))
     }
+  }
+
+}
+
+object FlowGraph {
+  def apply(block: FlowGraphBuilder => Unit): FlowGraph = {
+    val builder = new FlowGraphBuilder
+    block(builder)
+    builder.build()
+  }
+}
+
+class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
+  import FlowGraphInternal._
+  def run(implicit materializer: FlowMaterializer): Unit = {
+    println("# RUN ----------------")
 
     // start with sinks
     val startingNodes = graph.nodes.filter(_.diSuccessors.isEmpty)

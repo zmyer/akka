@@ -31,32 +31,33 @@ object GraphLab extends App {
   val out1 = PublisherSink[String]
   val out2 = FutureSink[String]
 
-  val b1 = new EdgeBuilder
-  val merge1 = b1.merge[String]
-  b1.
-    addEdge(in1, f1, merge1).
-    addEdge(in2, f2, merge1).
-    addEdge(merge1, f3, out1)
-  b1.build().run(materializer)
+  FlowGraph { b =>
+    val merge1 = b.merge[String]
+    b.
+      addEdge(in1, f1, merge1).
+      addEdge(in2, f2, merge1).
+      addEdge(merge1, f3, out1)
+  }.run(materializer)
 
-  val b2 = new EdgeBuilder
-  val bcast2 = b2.broadcast[String]
-  b2.
-    addEdge(in1, f1, bcast2).
-    addEdge(bcast2, f2, out1).
-    addEdge(bcast2, f3, out2)
-  b2.build().run(materializer)
+  FlowGraph { b =>
+    val bcast2 = b.broadcast[String]
+    b.
+      addEdge(in1, f1, bcast2).
+      addEdge(bcast2, f2, out1).
+      addEdge(bcast2, f3, out2)
+  }.run(materializer)
 
-  val b3 = new EdgeBuilder
-  val merge3 = b3.merge[String]
-  val bcast3 = b3.broadcast[String]
-  b3.
-    addEdge(in1, f1, merge3).
-    addEdge(in2, f2, merge3).
-    addEdge(merge3, f3, bcast3).
-    addEdge(bcast3, f4, out1).
-    addEdge(bcast3, f5, out2)
-  b3.build().run(materializer)
+  FlowGraph { b =>
+    val merge3 = b.merge[String]
+    val bcast3 = b.broadcast[String]
+    b.
+      addEdge(in1, f1, merge3).
+      addEdge(in2, f2, merge3).
+      addEdge(merge3, f3, bcast3).
+      addEdge(bcast3, f4, out1).
+      addEdge(bcast3, f5, out2)
+    b.build()
+  }.run(materializer)
 
   /**
    * in ---> f1 -+-> f2 -+-> f3 ---> out1
@@ -68,46 +69,47 @@ object GraphLab extends App {
    *                  f6 ---> out2
    */
 
-  val b4 = new EdgeBuilder
-  val merge4 = b4.merge[String]
-  val bcast41 = b4.broadcast[String]
-  val bcast42 = b4.broadcast[String]
-  b4.
-    addEdge(in1, f1, merge4).
-    addEdge(merge4, f2, bcast41).
-    addEdge(bcast41, f3, out1).
-    addEdge(bcast41, f4, bcast42).
-    addEdge(bcast42, f5, merge4). // cycle
-    addEdge(bcast42, f6, out2)
   try {
-    b4.build().run(materializer)
+    FlowGraph { b =>
+      val merge4 = b.merge[String]
+      val bcast41 = b.broadcast[String]
+      val bcast42 = b.broadcast[String]
+      b.
+        addEdge(in1, f1, merge4).
+        addEdge(merge4, f2, bcast41).
+        addEdge(bcast41, f3, out1).
+        addEdge(bcast41, f4, bcast42).
+        addEdge(bcast42, f5, merge4). // cycle
+        addEdge(bcast42, f6, out2)
+    }.run(materializer)
   } catch {
     case e: IllegalArgumentException ⇒ println("Expected: " + e.getMessage)
   }
 
-  val b5 = new EdgeBuilder
-  val merge5 = b5.merge[Fruit]
-  val in3 = IterableSource(List.empty[Apple])
-  val in4 = IterableSource(List.empty[Orange])
-  val f7 = FlowFrom[Fruit].transform("f7", op[Fruit, Fruit])
-  val f8 = FlowFrom[Fruit].transform("f8", op[Fruit, String])
-  b5.
-    addEdge(in3, f7, merge5).
-    addEdge(in4, f7, merge5).
-    addEdge(merge5, f8, out1)
+  FlowGraph { b =>
+    val merge5 = b.merge[Fruit]
+    val in3 = IterableSource(List.empty[Apple])
+    val in4 = IterableSource(List.empty[Orange])
+    val f7 = FlowFrom[Fruit].transform("f7", op[Fruit, Fruit])
+    val f8 = FlowFrom[Fruit].transform("f8", op[Fruit, String])
+    b.
+      addEdge(in3, f7, merge5).
+      addEdge(in4, f7, merge5).
+      addEdge(merge5, f8, out1)
+  }
 
-  val b6 = new EdgeBuilder
-  val merge6 = b6.merge[String]
-  b6.
-    addEdge(f1, merge6).
-    addEdge(f2, merge6).
-    addEdge(merge6, f3)
+  FlowGraph { b =>
+    val merge6 = b.merge[String]
+    b.
+      addEdge(f1, merge6).
+      addEdge(f2, merge6).
+      addEdge(merge6, f3)
 
-  b6.attachSource(f1, in1)
-  b6.attachSource(f2, in2)
-  b6.attachSink(f3, out1)
+    b.attachSource(f1, in1)
+    b.attachSource(f2, in2)
+    b.attachSink(f3, out1)
 
-  b6.build().run(materializer)
+  }.run(materializer)
 }
 
 trait Fruit
