@@ -13,7 +13,7 @@ object GraphLab extends App {
   implicit val system = ActorSystem("GraphLab")
   implicit val materializer = FlowMaterializer()
 
-  def op[In, Out]: () => Transformer[In, Out] = { () =>
+  def op[In, Out]: () ⇒ Transformer[In, Out] = { () ⇒
     new Transformer[In, Out] {
       override def onNext(elem: In) = List(elem.asInstanceOf[Out])
     }
@@ -82,7 +82,7 @@ object GraphLab extends App {
   try {
     b4.build().run(materializer)
   } catch {
-    case e: IllegalArgumentException => println("Expected: " + e.getMessage)
+    case e: IllegalArgumentException ⇒ println("Expected: " + e.getMessage)
   }
 
   val b5 = new EdgeBuilder
@@ -96,6 +96,18 @@ object GraphLab extends App {
     addEdge(in4, f7, merge5).
     addEdge(merge5, f8, out1)
 
+  val b6 = new EdgeBuilder
+  val merge6 = b6.merge[String]
+  b6.
+    addEdge(f1, merge6).
+    addEdge(f2, merge6).
+    addEdge(merge6, f3)
+
+  b6.attachSource(f1, in1)
+  b6.attachSource(f2, in2)
+  b6.attachSink(f3, out1)
+
+  b6.build().run(materializer)
 }
 
 trait Fruit
