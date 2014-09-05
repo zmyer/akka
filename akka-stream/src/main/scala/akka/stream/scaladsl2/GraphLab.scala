@@ -115,6 +115,32 @@ object GraphLab extends App {
     in2 ~> f4 ~> merge
     bcast ~> f5 ~> out2
   }.run(materializer)
+
+  val partial1 = PartialFlowGraph { implicit b =>
+    import FlowGraphBuilderImplicits._
+    val merge = b.merge[String]
+    val bcast = b.broadcast[String]
+    undefinedSource ~> f1 ~> merge ~> f2 ~> bcast ~> f3 ~> undefinedSink[String]
+    undefinedSource ~> f4 ~> merge
+    bcast ~> f5 ~> undefinedSink[String]
+  }
+  println("# partial1 flowsWithoutSource: " + partial1.flowsWithoutSource)
+  println("# partial1 flowsWithoutSink: " + partial1.flowsWithoutSink)
+
+  val partial2 = PartialFlowGraph(partial1) { implicit b =>
+    import FlowGraphBuilderImplicits._
+    in1 ~=> f1
+    in2 ~=> f4
+  }
+  println("# partial2 flowsWithoutSource: " + partial2.flowsWithoutSource)
+  println("# partial2 flowsWithoutSink: " + partial2.flowsWithoutSink)
+
+  FlowGraph(partial2) { implicit b =>
+    import FlowGraphBuilderImplicits._
+    f3 ~=> out1
+    f5 ~=> out2
+  }.run(materializer)
+
 }
 
 trait Fruit

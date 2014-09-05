@@ -6,6 +6,7 @@ package akka.stream.scaladsl2
 import scala.language.existentials
 import scalax.collection.edge.LDiEdge
 import scalax.collection.mutable.Graph
+import scalax.collection.immutable.{ Graph => ImmutableGraph }
 import org.reactivestreams.Subscriber
 import akka.stream.impl.BlackholeSubscriber
 import org.reactivestreams.Publisher
@@ -52,11 +53,15 @@ private[akka] object FlowGraphInternal {
 
 }
 
-class FlowGraphBuilder private[akka] () {
+class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
   import FlowGraphInternal._
 
+  private[akka] def this() = this(Graph.empty[FlowGraphInternal.Vertex, LDiEdge])
+
+  private[akka] def this(immutableGraph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) =
+    this(Graph.from(edges = immutableGraph.edges.map(e => LDiEdge(e.from.value, e.to.value)(e.label)).toIterable))
+
   implicit val edgeFactory = scalax.collection.edge.LkDiEdge
-  private val graph = Graph.empty[Vertex, LDiEdge]
 
   // FIXME do we need these?
   def merge[T] = new Merge[T]
@@ -151,20 +156,33 @@ class FlowGraphBuilder private[akka] () {
    * INTERNAL API
    */
   private[akka] def build(): FlowGraph = {
+    checkPartialBuildPreconditions()
     checkBuildPreconditions()
-    new FlowGraph(graph) // FIXME would be nice to convert it to an immutable.Graph here
+    new FlowGraph(immutableGraph())
   }
 
-  def checkBuildPreconditions(): Unit = {
+  /**
+   * INTERNAL API
+   */
+  private[akka] def partialBuild(): PartialFlowGraph = {
+    checkPartialBuildPreconditions()
+    new PartialFlowGraph(immutableGraph())
+  }
+
+  //convert it to an immutable.Graph
+  private def immutableGraph(): ImmutableGraph[Vertex, LDiEdge] =
+    ImmutableGraph.from(edges = graph.edges.map(e => LDiEdge(e.from.value, e.to.value)(e.label)).toIterable)
+
+  private def checkPartialBuildPreconditions(): Unit = {
     graph.nodes.foreach { n ⇒ println(s"node ${n} has:\n    successors: ${n.diSuccessors}\n    predecessors${n.diPredecessors}\n    edges ${n.edges}") }
 
     graph.findCycle match {
       case None        ⇒
       case Some(cycle) ⇒ throw new IllegalArgumentException("Cycle detected, not supported yet. " + cycle)
     }
+  }
 
-    // We must move the checks of undefined source/sink to `run` if we want to be
-    // able to continue building from a non-complete FlowGraph
+  private def checkBuildPreconditions(): Unit = {
     val undefinedSourcesSinks = graph.nodes.filter {
       _.value match {
         case _: UndefinedSource | _: UndefinedSink ⇒ true
@@ -188,9 +206,15 @@ object FlowGraph {
     block(builder)
     builder.build()
   }
+
+  def apply(partialFlowGraph: PartialFlowGraph)(block: FlowGraphBuilder => Unit): FlowGraph = {
+    val builder = new FlowGraphBuilder(partialFlowGraph.graph)
+    block(builder)
+    builder.build()
+  }
 }
 
-class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
+class FlowGraph private[akka] (graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) {
   import FlowGraphInternal._
   def run(implicit materializer: FlowMaterializer): Unit = {
     println("# RUN ----------------")
@@ -269,11 +293,47 @@ class FlowGraph(graph: Graph[FlowGraphInternal.Vertex, LDiEdge]) {
   }
 }
 
+object PartialFlowGraph {
+  def apply(block: FlowGraphBuilder => Unit): PartialFlowGraph = {
+    val builder = new FlowGraphBuilder
+    block(builder)
+    builder.partialBuild()
+  }
+
+  def apply(partialFlowGraph: PartialFlowGraph)(block: FlowGraphBuilder => Unit): PartialFlowGraph = {
+    val builder = new FlowGraphBuilder(partialFlowGraph.graph)
+    block(builder)
+    builder.partialBuild()
+  }
+}
+
+/**
+ * `PartialFlowGraph` may have sources and sinks that are not attach, and it can therefore not
+ * be `run`.
+ */
+class PartialFlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) {
+  import FlowGraphInternal._
+
+  def flowsWithoutSource: Set[HasNoSource[_]] =
+    graph.nodes.collect {
+      case n if n.value.isInstanceOf[UndefinedSource] => n.outgoing.head.label.asInstanceOf[HasNoSource[_]]
+    }(collection.breakOut)
+
+  def flowsWithoutSink: Set[HasNoSink[_]] =
+    graph.nodes.collect {
+      case n if n.value.isInstanceOf[UndefinedSink] => n.incoming.head.label.asInstanceOf[HasNoSink[_]]
+    }(collection.breakOut)
+
+}
+
 object FlowGraphBuilderImplicits {
   implicit class SourceOps[In](val source: Source[In]) extends AnyVal {
     def ~>[Out](flow: ProcessorFlow[In, Out])(implicit builder: FlowGraphBuilder): SourceNextStep[In, Out] = {
       new SourceNextStep(source, flow, builder)
     }
+
+    def ~=>(flow: HasNoSource[In])(implicit builder: FlowGraphBuilder): Unit =
+      builder.attachSource(flow, source)
   }
 
   class SourceNextStep[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
@@ -298,7 +358,44 @@ object FlowGraphBuilderImplicits {
     def ~>(sink: Sink[Out]): Unit = {
       builder.addEdge(fan, flow, sink)
     }
+
+    def ~>(sink: UndefSink[Out]): Unit = {
+      builder.addEdge(fan, flow)
+    }
+  }
+
+  implicit class FlowWithSourceOps[In, Out](val flow: FlowWithSource[In, Out]) extends AnyVal {
+    def ~>(sink: FanOperation[Out])(implicit builder: FlowGraphBuilder): FanOperation[Out] = {
+      builder.addEdge(flow, sink)
+      sink
+    }
   }
 
   // FIXME add more for FlowWithSource and FlowWithSink
+
+  class UndefSource[In]
+
+  def undefinedSource[In](implicit builder: FlowGraphBuilder): UndefSource[In] = new UndefSource[In]
+
+  implicit class UndefinedSourceOps[In](val source: UndefSource[In]) extends AnyVal {
+    def ~>[Out](flow: ProcessorFlow[In, Out])(implicit builder: FlowGraphBuilder): UndefinedSourceNextStep[In, Out] = {
+      new UndefinedSourceNextStep(flow, builder)
+    }
+  }
+
+  class UndefinedSourceNextStep[In, Out](flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
+    def ~>(sink: FanOperation[Out]): FanOperation[Out] = {
+      builder.addEdge(flow, sink)
+      sink
+    }
+  }
+
+  class UndefSink[Out]
+
+  def undefinedSink[Out](implicit builder: FlowGraphBuilder): UndefSink[Out] = new UndefSink[Out]
+
+  implicit class HasNoSinkOps[Out](val flow: HasNoSink[Out]) extends AnyVal {
+    def ~=>(sink: Sink[Out])(implicit builder: FlowGraphBuilder): Unit =
+      builder.attachSink(flow, sink)
+  }
 }
