@@ -4,18 +4,16 @@
 package akka.stream.impl2
 
 import java.util.concurrent.atomic.AtomicLong
-
 import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.concurrent.Await
-
 import org.reactivestreams.{ Processor, Publisher, Subscriber }
-
 import akka.actor._
 import akka.pattern.ask
 import akka.stream.{ MaterializerSettings, Transformer }
 import akka.stream.impl.{ ActorProcessor, ActorPublisher, ExposedPublisher, TransformProcessorImpl }
 import akka.stream.scaladsl2._
+import akka.stream.impl.MergeImpl
 
 /**
  * INTERNAL API
@@ -26,6 +24,10 @@ private[akka] object Ast {
   }
 
   case class Transform(name: String, mkTransformer: () ⇒ Transformer[Any, Any]) extends AstNode
+
+  trait MergeNode extends AstNode {
+    override def name = "merge"
+  }
 
 }
 
@@ -116,6 +118,12 @@ case class ActorBasedFlowMaterializer(override val settings: MaterializerSetting
       override def onNext(element: Any) = List(element)
     })
 
+  override def materializeProcessor[In, Out](op: Ast.AstNode): Processor[In, Out] = {
+    // FIXME the naming of of FlowGraph processors might need to be revisited to make sense
+    val flowName = createFlowName()
+    processorForNode(op, flowName, 0).asInstanceOf[Processor[In, Out]]
+  }
+
   private def processorForNode(op: AstNode, flowName: String, n: Int): Processor[Any, Any] = {
     val impl = actorOf(ActorProcessorFactory.props(settings, op), s"$flowName-$n-${op.name}")
     ActorProcessorFactory(impl)
@@ -182,6 +190,8 @@ private[akka] object ActorProcessorFactory {
   def props(settings: MaterializerSettings, op: AstNode): Props =
     (op match {
       case t: Transform ⇒ Props(new TransformProcessorImpl(settings, t.mkTransformer()))
+      //      case m: MergeNode ⇒ Props(new MergeImpl(settings, m.other))
+
     }).withDispatcher(settings.dispatcher)
 
   def apply[I, O](impl: ActorRef): ActorProcessor[I, O] = {

@@ -11,11 +11,12 @@ import org.reactivestreams.Subscriber
 import akka.stream.impl.BlackholeSubscriber
 import org.reactivestreams.Publisher
 import org.reactivestreams.Processor
+import akka.stream.impl2.Ast.MergeNode
 
 object Merge {
   def apply[T]: Merge[T] = new Merge[T]
 }
-class Merge[T] extends FanInOperation[T] {
+class Merge[T] extends FanInOperation[T] with MergeNode {
   override def toString = "merge"
 }
 
@@ -290,8 +291,7 @@ class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraph
                 case FanOperationVertex(fanOp) ⇒
                   val processor = fanOp match {
                     case merge: Merge[_] ⇒
-                      // FIXME materialize Merge
-                      dummyProcessor("merge-processor")
+                      materializer.materializeProcessor[Any, Any](merge)
                     case bcast: Broadcast[_] ⇒
                       memo.nodeProcessor.getOrElse(edge.from, {
                         // FIXME materialize Broadcast

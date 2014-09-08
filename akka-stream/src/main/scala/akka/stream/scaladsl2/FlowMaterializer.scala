@@ -6,6 +6,7 @@ package akka.stream.scaladsl2
 import akka.actor.{ ActorContext, ActorRefFactory, ActorSystem, ExtendedActorSystem }
 import akka.stream.MaterializerSettings
 import akka.stream.impl2.{ ActorBasedFlowMaterializer, Ast, FlowNameCounter, StreamSupervisor }
+import org.reactivestreams.Processor
 
 object FlowMaterializer {
 
@@ -136,6 +137,8 @@ abstract class FlowMaterializer(val settings: MaterializerSettings) {
    * local actor chains to remote-deployed processing networks.
    */
   def materialize[In, Out](source: Source[In], sink: Sink[Out], ops: List[Ast.AstNode]): MaterializedFlow
+
+  def materializeProcessor[In, Out](op: Ast.AstNode): Processor[In, Out]
 
 }
 
