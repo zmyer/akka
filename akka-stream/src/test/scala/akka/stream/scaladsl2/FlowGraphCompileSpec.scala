@@ -84,20 +84,6 @@ class FlowGraphCompileSpec extends AkkaSpec {
      */
     "detect cycle in " in {
       intercept[IllegalArgumentException] {
-        FlowGraph { implicit b ⇒
-          val merge = Merge[String]
-          val bcast1 = Broadcast[String]
-          val bcast2 = Broadcast[String]
-          import FlowGraphImplicits._
-          in1 ~> f1 ~> merge ~> f2 ~> bcast1 ~> f3 ~> out1
-          bcast1 ~> f4 ~> bcast2 ~> f5 ~> merge
-          bcast2 ~> f6 ~> out2
-        }
-      }.getMessage.toLowerCase should include("cycle")
-    }
-
-    "express complex topologies in a readable way" in {
-      intercept[IllegalArgumentException] {
         FlowGraph { b ⇒
           val merge = Merge[String]
           val bcast1 = Broadcast[String]
@@ -109,6 +95,21 @@ class FlowGraphCompileSpec extends AkkaSpec {
             addEdge(bcast1, f4, bcast2).
             addEdge(bcast2, f5, merge). // cycle
             addEdge(bcast2, f6, out2)
+        }
+      }.getMessage.toLowerCase should include("cycle")
+
+    }
+
+    "express complex topologies in a readable way" in {
+      intercept[IllegalArgumentException] {
+        FlowGraph { implicit b ⇒
+          val merge = Merge[String]
+          val bcast1 = Broadcast[String]
+          val bcast2 = Broadcast[String]
+          import FlowGraphImplicits._
+          in1 ~> f1 ~> merge ~> f2 ~> bcast1 ~> f3 ~> out1
+          bcast1 ~> f4 ~> bcast2 ~> f5 ~> merge
+          bcast2 ~> f6 ~> out2
         }
       }.getMessage.toLowerCase should include("cycle")
     }
