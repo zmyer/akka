@@ -27,7 +27,7 @@ object GraphLab extends App {
   val out1 = PublisherSink[String]
   val out2 = FutureSink[String]
 
-  FlowGraph { b =>
+  FlowGraph { b ⇒
     val merge1 = b.merge[String]
     b.
       addEdge(in1, f1, merge1).
@@ -35,7 +35,7 @@ object GraphLab extends App {
       addEdge(merge1, f3, out1)
   }.run(materializer)
 
-  FlowGraph { b =>
+  FlowGraph { b ⇒
     val bcast2 = b.broadcast[String]
     b.
       addEdge(in1, f1, bcast2).
@@ -43,7 +43,7 @@ object GraphLab extends App {
       addEdge(bcast2, f3, out2)
   }.run(materializer)
 
-  FlowGraph { b =>
+  FlowGraph { b ⇒
     val merge3 = b.merge[String]
     val bcast3 = b.broadcast[String]
     b.
@@ -66,7 +66,7 @@ object GraphLab extends App {
    */
 
   try {
-    FlowGraph { b =>
+    FlowGraph { b ⇒
       val merge4 = b.merge[String]
       val bcast41 = b.broadcast[String]
       val bcast42 = b.broadcast[String]
@@ -82,7 +82,7 @@ object GraphLab extends App {
     case e: IllegalArgumentException ⇒ println("Expected: " + e.getMessage)
   }
 
-  FlowGraph { b =>
+  FlowGraph { b ⇒
     val merge5 = b.merge[Fruit]
     val in3 = IterableSource(List.empty[Apple])
     val in4 = IterableSource(List.empty[Orange])
@@ -94,7 +94,7 @@ object GraphLab extends App {
       addEdge(merge5, f8, out1)
   }
 
-  FlowGraph { b =>
+  val mg = FlowGraph { b ⇒
     val merge6 = b.merge[String]
     b.
       addEdge(f1, merge6).
@@ -106,8 +106,9 @@ object GraphLab extends App {
     b.attachSink(f3, out1)
 
   }.run(materializer)
+  assert(out1.publisher(mg) != null)
 
-  FlowGraph { implicit b =>
+  FlowGraph { implicit b ⇒
     import FlowGraphBuilderImplicits._
     val merge = b.merge[String]
     val bcast = b.broadcast[String]
@@ -116,7 +117,7 @@ object GraphLab extends App {
     bcast ~> f5 ~> out2
   }.run(materializer)
 
-  val partial1 = PartialFlowGraph { implicit b =>
+  val partial1 = PartialFlowGraph { implicit b ⇒
     import FlowGraphBuilderImplicits._
     val merge = b.merge[String]
     val bcast = b.broadcast[String]
@@ -127,7 +128,7 @@ object GraphLab extends App {
   println("# partial1 flowsWithoutSource: " + partial1.flowsWithoutSource)
   println("# partial1 flowsWithoutSink: " + partial1.flowsWithoutSink)
 
-  val partial2 = PartialFlowGraph(partial1) { implicit b =>
+  val partial2 = PartialFlowGraph(partial1) { implicit b ⇒
     import FlowGraphBuilderImplicits._
     in1 ~=> f1
     in2 ~=> f4
@@ -135,7 +136,7 @@ object GraphLab extends App {
   println("# partial2 flowsWithoutSource: " + partial2.flowsWithoutSource)
   println("# partial2 flowsWithoutSink: " + partial2.flowsWithoutSink)
 
-  FlowGraph(partial2) { implicit b =>
+  FlowGraph(partial2) { implicit b ⇒
     import FlowGraphBuilderImplicits._
     f3 ~=> out1
     f5 ~=> out2
@@ -144,5 +145,5 @@ object GraphLab extends App {
 }
 
 trait Fruit
-trait Apple extends Fruit
-trait Orange extends Fruit
+class Apple extends Fruit
+class Orange extends Fruit

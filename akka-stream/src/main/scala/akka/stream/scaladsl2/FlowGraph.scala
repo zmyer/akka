@@ -6,11 +6,12 @@ package akka.stream.scaladsl2
 import scala.language.existentials
 import scalax.collection.edge.LDiEdge
 import scalax.collection.mutable.Graph
-import scalax.collection.immutable.{ Graph => ImmutableGraph }
+import scalax.collection.immutable.{ Graph ⇒ ImmutableGraph }
 import org.reactivestreams.Subscriber
 import akka.stream.impl.BlackholeSubscriber
 import org.reactivestreams.Publisher
 import org.reactivestreams.Processor
+import scalax.collection.edge.LBase.LEdgeImplicits
 
 class Merge[T] extends FanInOperation[T] {
   override def toString = "merge"
@@ -59,9 +60,9 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
   private[akka] def this() = this(Graph.empty[FlowGraphInternal.Vertex, LDiEdge])
 
   private[akka] def this(immutableGraph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) =
-    this(Graph.from(edges = immutableGraph.edges.map(e => LDiEdge(e.from.value, e.to.value)(e.label)).toIterable))
+    this(Graph.from(edges = immutableGraph.edges.map(e ⇒ LDiEdge(e.from.value, e.to.value)(e.label)).toIterable))
 
-  implicit val edgeFactory = scalax.collection.edge.LkDiEdge
+  implicit val edgeFactory = scalax.collection.edge.LDiEdge
 
   // FIXME do we need these?
   def merge[T] = new Merge[T]
@@ -114,7 +115,7 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
     // we can't use LkDiEdge becase the flow may exist several times in the graph
     val replaceEdges = graph.edges.filter(_.label == flow)
     require(replaceEdges.nonEmpty, s"No matching flow [${flow}]")
-    replaceEdges.foreach { edge =>
+    replaceEdges.foreach { edge ⇒
       require(edge.to.value.isInstanceOf[UndefinedSink], s"Flow already attached to a sink [${edge.to.value}]")
       graph.remove(edge.to.value)
       graph.addLEdge(edge.from.value, SinkVertex(sink))(flow)
@@ -126,7 +127,7 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
     // we can't use LkDiEdge becase the flow may exist several times in the graph
     val replaceEdges = graph.edges.filter(_.label == flow)
     require(replaceEdges.nonEmpty, s"No matching flow [${flow}]")
-    replaceEdges.foreach { edge =>
+    replaceEdges.foreach { edge ⇒
       require(edge.from.value.isInstanceOf[UndefinedSource], s"Flow already attached to a source [${edge.from.value}]")
       graph.remove(edge.from.value)
       graph.addLEdge(SourceVertex(source), edge.to.value)(flow)
@@ -136,19 +137,19 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
 
   private def checkFanPrecondition(fan: FanOperation[_], in: Boolean): Unit = {
     fan match {
-      case _: FanOutOperation[_] if in =>
+      case _: FanOutOperation[_] if in ⇒
         graph.find(FanOperationVertex(fan)) match {
-          case Some(existing) if existing.incoming.nonEmpty =>
+          case Some(existing) if existing.incoming.nonEmpty ⇒
             throw new IllegalArgumentException(s"Fan-out [$fan] is already attached to input [${existing.incoming.head}]")
-          case _ => // ok
+          case _ ⇒ // ok
         }
-      case _: FanInOperation[_] if !in =>
+      case _: FanInOperation[_] if !in ⇒
         graph.find(FanOperationVertex(fan)) match {
-          case Some(existing) if existing.outgoing.nonEmpty =>
+          case Some(existing) if existing.outgoing.nonEmpty ⇒
             throw new IllegalArgumentException(s"Fan-in [$fan] is already attached to output [${existing.outgoing.head}]")
-          case _ => // ok
+          case _ ⇒ // ok
         }
-      case _ => // ok
+      case _ ⇒ // ok
     }
   }
 
@@ -171,7 +172,7 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
 
   //convert it to an immutable.Graph
   private def immutableGraph(): ImmutableGraph[Vertex, LDiEdge] =
-    ImmutableGraph.from(edges = graph.edges.map(e => LDiEdge(e.from.value, e.to.value)(e.label)).toIterable)
+    ImmutableGraph.from(edges = graph.edges.map(e ⇒ LDiEdge(e.from.value, e.to.value)(e.label)).toIterable)
 
   private def checkPartialBuildPreconditions(): Unit = {
     graph.nodes.foreach { n ⇒ println(s"node ${n} has:\n    successors: ${n.diSuccessors}\n    predecessors${n.diPredecessors}\n    edges ${n.edges}") }
@@ -190,121 +191,172 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
       }
     }
     if (undefinedSourcesSinks.nonEmpty) {
-      val formatted = undefinedSourcesSinks.map(n => n.value match {
-        case u: UndefinedSource => s"$u -> ${n.outgoing.head.label} -> ${n.outgoing.head.to}"
-        case u: UndefinedSink   => s"${n.incoming.head.from} -> ${n.incoming.head.label} -> $u"
+      val formatted = undefinedSourcesSinks.map(n ⇒ n.value match {
+        case u: UndefinedSource ⇒ s"$u -> ${n.outgoing.head.label} -> ${n.outgoing.head.to}"
+        case u: UndefinedSink   ⇒ s"${n.incoming.head.from} -> ${n.incoming.head.label} -> $u"
       })
       throw new IllegalArgumentException("Undefined sources or sinks: " + formatted.mkString(", "))
     }
+
+    // we will be able to relax these checks
+    graph.nodes.foreach { node ⇒
+      node.value match {
+        case FanOperationVertex(merge: Merge[_]) ⇒
+          require(node.incoming.size == 2, "Merge must have two incoming edges: " + node.incoming)
+          require(node.outgoing.size == 1, "Merge must have one outgoing edge: " + node.outgoing)
+        case FanOperationVertex(bcast: Broadcast[_]) ⇒
+          require(node.incoming.size == 1, "Broadcast must have one incoming edge: " + node.incoming)
+          require(node.outgoing.size == 2, "Broadcast must have two outgoing edges: " + node.outgoing)
+        case _ ⇒ // no check for other node types
+      }
+    }
+
+    require(graph.isConnected, "Graph must be connected")
   }
 
 }
 
 object FlowGraph {
-  def apply(block: FlowGraphBuilder => Unit): FlowGraph = {
-    val builder = new FlowGraphBuilder
-    block(builder)
-    builder.build()
-  }
+  def apply(block: FlowGraphBuilder ⇒ Unit): FlowGraph =
+    apply(ImmutableGraph.empty[FlowGraphInternal.Vertex, LDiEdge])(block)
 
-  def apply(partialFlowGraph: PartialFlowGraph)(block: FlowGraphBuilder => Unit): FlowGraph = {
-    val builder = new FlowGraphBuilder(partialFlowGraph.graph)
+  def apply(partialFlowGraph: PartialFlowGraph)(block: FlowGraphBuilder ⇒ Unit): FlowGraph =
+    apply(partialFlowGraph.graph)(block)
+
+  def apply(flowGraph: FlowGraph)(block: FlowGraphBuilder ⇒ Unit): FlowGraph =
+    apply(flowGraph.graph)(block)
+
+  private def apply(graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge])(block: FlowGraphBuilder ⇒ Unit): FlowGraph = {
+    val builder = new FlowGraphBuilder(graph)
     block(builder)
     builder.build()
   }
 }
 
-class FlowGraph private[akka] (graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) {
+class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) {
   import FlowGraphInternal._
-  def run(implicit materializer: FlowMaterializer): Unit = {
+  def run(implicit materializer: FlowMaterializer): MaterializedFlowGraph = {
     println("# RUN ----------------")
 
-    // start with sinks
-    val startingNodes = graph.nodes.filter(_.diSuccessors.isEmpty)
-
-    def dummySubscriber(name: String): Subscriber[Any] = new BlackholeSubscriber[Any](1) {
-      override def toString = name
-    }
-    def dummyPublisher(name: String): Publisher[Any] = new Publisher[Any] {
+    def dummyProcessor(name: String): Processor[Any, Any] = new BlackholeSubscriber[Any](1) with Publisher[Any] with Processor[Any, Any] {
       def subscribe(subscriber: Subscriber[Any]): Unit = subscriber.onComplete()
       override def toString = name
     }
 
+    // start with sinks
+    val startingNodes = graph.nodes.filter(_.diSuccessors.isEmpty)
+
     println("Starting nodes: " + startingNodes)
-    var sources = Map.empty[Source[_], Subscriber[_]]
 
-    var broadcasts = Map.empty[Any, (Subscriber[Any], Publisher[Any])]
+    import scalax.collection.GraphTraversal._
 
-    def traverse(edge: graph.EdgeT, downstreamSubscriber: Subscriber[Any]): Unit = {
-      edge._1.value match {
-        case SourceVertex(src) ⇒
-          println("# source: " + src)
-          sources += (src -> downstreamSubscriber)
+    case class Memo(visited: Set[graph.EdgeT] = Set.empty,
+                    nodeProcessor: Map[graph.NodeT, Processor[Any, Any]] = Map.empty,
+                    sources: Map[Source[_], FlowWithSink[Any, Any]] = Map.empty,
+                    materializedSinks: Map[Sink[_], Any] = Map.empty)
 
-        case FanOperationVertex(from: Merge[_]) ⇒
-          println("# merge")
-          require(edge._1.incoming.size == 2) // FIXME
-          // FIXME materialize Merge and attach its output Publisher to the downstreamSubscriber
-          val downstreamSub1 = dummySubscriber("subscriber1-" + edge._1.value)
-          val downstreamSub2 = dummySubscriber("subscriber2-" + edge._1.value)
-          traverse(edge._1.incoming.head, downstreamSub1)
-          traverse(edge._1.incoming.tail.head, downstreamSub2)
+    val result = startingNodes.foldLeft(Memo()) {
+      case (memo, start) ⇒
 
-        case FanOperationVertex(from: Broadcast[_]) ⇒
-          require(edge._1.incoming.size == 1) // FIXME
-          require(edge._1.outgoing.size == 2) // FIXME
-          broadcasts.get(from) match {
-            case Some((sub, pub)) ⇒
-              println("# broadcast second")
-              // already materialized
-              pub.subscribe(downstreamSubscriber)
-            case None ⇒
-              println("# broadcast first")
-              // FIXME materialize Broadcast and attach its output Publisher to the downstreamSubscriber
-              val pub = dummyPublisher("publisher-" + edge._1.value)
-              val sub = dummySubscriber("subscriber-" + edge._1.value)
-              broadcasts += (from -> ((sub, pub)))
-              pub.subscribe(downstreamSubscriber)
-              traverse(edge._1.incoming.head, sub)
-          }
+        println("# starting at sink: " + start + " flow: " + start.incoming.head.label)
 
-        case other => throw new IllegalArgumentException("Unknown vertex: " + other)
+        val traverser = graph.innerEdgeTraverser(start, parameters = Parameters(direction = Predecessors, kind = BreadthFirst),
+          ordering = graph.defaultEdgeOrdering)
+        traverser.foldLeft(memo) {
+          case (memo, edge) ⇒
 
-      }
+            if (memo.visited(edge)) {
+              println("#  already visited: " + edge)
+            } else {
+              println("#  visit: " + edge)
+            }
+
+            if (memo.visited(edge)) {
+              memo
+            } else {
+              val flow = edge.label.asInstanceOf[ProcessorFlow[Any, Any]]
+
+              // returns the materialized sink, if any
+              def connectProcessorToDownstream(processor: Processor[Any, Any]): Option[(SinkWithKey[_, _], Any)] = {
+                val f = flow.withSource(PublisherSource(processor))
+                edge.to.value match {
+                  case SinkVertex(sink: SinkWithKey[_, _]) ⇒
+                    val mf = f.withSink(sink.asInstanceOf[Sink[Any]]).run()
+                    Some(sink -> mf.getSinkFor(sink))
+                  case SinkVertex(sink) ⇒
+                    f.withSink(sink.asInstanceOf[Sink[Any]]).run()
+                    None
+                  case _ ⇒
+                    f.withSink(SubscriberSink(memo.nodeProcessor(edge.to))).run()
+                    None
+                }
+              }
+
+              edge.from.value match {
+                case SourceVertex(src) ⇒
+                  println("#  source: " + src)
+                  val f = flow.withSink(SubscriberSink(memo.nodeProcessor(edge.to)))
+                  // connect the source with the flow later
+                  memo.copy(visited = memo.visited + edge,
+                    sources = memo.sources.updated(src, f))
+
+                case FanOperationVertex(fanOp) ⇒
+                  val processor = fanOp match {
+                    case merge: Merge[_] ⇒
+                      // FIXME materialize Merge
+                      dummyProcessor("merge-processor")
+                    case bcast: Broadcast[_] ⇒
+                      memo.nodeProcessor.getOrElse(edge.from, {
+                        // FIXME materialize Broadcast
+                        dummyProcessor("bcast-processor")
+                      })
+                    case other ⇒
+                      throw new IllegalArgumentException("Unknown fan operation: " + other)
+                  }
+                  val materializedSink = connectProcessorToDownstream(processor)
+                  memo.copy(
+                    visited = memo.visited + edge,
+                    nodeProcessor = memo.nodeProcessor.updated(edge.from, processor),
+                    materializedSinks = memo.materializedSinks ++ materializedSink)
+              }
+            }
+
+        }
 
     }
 
-    startingNodes.foreach { n ⇒
-      n.value match {
-        case SinkVertex(sink) ⇒
-          require(n.incoming.size == 1) // FIXME
-          val edge = n.incoming.head
-          val flow = edge.label.asInstanceOf[ProcessorFlow[Any, Any]]
-          println("# starting at sink: " + sink + " flow: " + flow)
-          val f = flow.withSink(sink.asInstanceOf[Sink[Any]])
-          val downstreamSubscriber = f.toSubscriber()
-          traverse(edge, downstreamSubscriber)
-        case other => throw new IllegalArgumentException("Unexpected starting node: " + other)
-      }
+    // connect all input sources as the last thing
+    val materializedSources = result.sources.foldLeft(Map.empty[Source[_], Any]) {
+      case (acc, (src, flow)) ⇒
+        println(s"# connecting input src $src to flow $flow")
+        val mf = flow.withSource(src).run()
+        src match {
+          case srcKey: SourceWithKey[_, _] ⇒ acc.updated(src, mf.getSourceFor(srcKey))
+          case _                           ⇒ acc
+        }
     }
 
-    println("# Final sources to connect: " + sources)
-
+    new MaterializedFlowGraph(materializedSources, result.materializedSinks)
   }
+
 }
 
 object PartialFlowGraph {
-  def apply(block: FlowGraphBuilder => Unit): PartialFlowGraph = {
-    val builder = new FlowGraphBuilder
+  def apply(block: FlowGraphBuilder ⇒ Unit): PartialFlowGraph =
+    apply(ImmutableGraph.empty[FlowGraphInternal.Vertex, LDiEdge])(block)
+
+  def apply(partialFlowGraph: PartialFlowGraph)(block: FlowGraphBuilder ⇒ Unit): PartialFlowGraph =
+    apply(partialFlowGraph.graph)(block)
+
+  def apply(flowGraph: FlowGraph)(block: FlowGraphBuilder ⇒ Unit): PartialFlowGraph =
+    apply(flowGraph.graph)(block)
+
+  private def apply(graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge])(block: FlowGraphBuilder ⇒ Unit): PartialFlowGraph = {
+    val builder = new FlowGraphBuilder(graph)
     block(builder)
     builder.partialBuild()
   }
 
-  def apply(partialFlowGraph: PartialFlowGraph)(block: FlowGraphBuilder => Unit): PartialFlowGraph = {
-    val builder = new FlowGraphBuilder(partialFlowGraph.graph)
-    block(builder)
-    builder.partialBuild()
-  }
 }
 
 /**
@@ -316,14 +368,32 @@ class PartialFlowGraph private[akka] (private[akka] val graph: ImmutableGraph[Fl
 
   def flowsWithoutSource: Set[HasNoSource[_]] =
     graph.nodes.collect {
-      case n if n.value.isInstanceOf[UndefinedSource] => n.outgoing.head.label.asInstanceOf[HasNoSource[_]]
+      case n if n.value.isInstanceOf[UndefinedSource] ⇒ n.outgoing.head.label.asInstanceOf[HasNoSource[_]]
     }(collection.breakOut)
 
   def flowsWithoutSink: Set[HasNoSink[_]] =
     graph.nodes.collect {
-      case n if n.value.isInstanceOf[UndefinedSink] => n.incoming.head.label.asInstanceOf[HasNoSink[_]]
+      case n if n.value.isInstanceOf[UndefinedSink] ⇒ n.incoming.head.label.asInstanceOf[HasNoSink[_]]
     }(collection.breakOut)
 
+}
+
+class MaterializedFlowGraph(materializedSources: Map[Source[_], Any], materializedSinks: Map[Sink[_], Any])
+  extends MaterializedSource with MaterializedSink {
+
+  override def getSourceFor[T](key: SourceWithKey[_, T]): T =
+    materializedSources.get(key) match {
+      case Some(matSource) ⇒ matSource.asInstanceOf[T]
+      case None ⇒
+        throw new IllegalArgumentException(s"Source key [$key] doesn't exist in this flow graph")
+    }
+
+  def getSinkFor[T](key: SinkWithKey[_, T]): T =
+    materializedSinks.get(key) match {
+      case Some(matSink) ⇒ matSink.asInstanceOf[T]
+      case None ⇒
+        throw new IllegalArgumentException(s"Sink key [$key] doesn't exist in this flow graph")
+    }
 }
 
 object FlowGraphBuilderImplicits {

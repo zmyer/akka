@@ -54,6 +54,10 @@ trait SimpleSink[-Out] extends Sink[Out] {
    * operations.
    */
   def isActive: Boolean = false
+
+  // these are unique keys, case class equality would break them
+  final override def equals(other: Any): Boolean = super.equals(other)
+  final override def hashCode: Int = super.hashCode
 }
 
 /**
