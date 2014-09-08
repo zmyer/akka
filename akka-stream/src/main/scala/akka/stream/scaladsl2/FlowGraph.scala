@@ -11,10 +11,16 @@ import org.reactivestreams.Subscriber
 import akka.stream.impl.BlackholeSubscriber
 import org.reactivestreams.Publisher
 import org.reactivestreams.Processor
-import scalax.collection.edge.LBase.LEdgeImplicits
 
+object Merge {
+  def apply[T]: Merge[T] = new Merge[T]
+}
 class Merge[T] extends FanInOperation[T] {
   override def toString = "merge"
+}
+
+object Broadcast {
+  def apply[T]: Broadcast[T] = new Broadcast[T]
 }
 class Broadcast[T] extends FanOutOperation[T] {
   override def toString = "broadcast"
@@ -63,10 +69,6 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
     this(Graph.from(edges = immutableGraph.edges.map(e ⇒ LDiEdge(e.from.value, e.to.value)(e.label)).toIterable))
 
   implicit val edgeFactory = scalax.collection.edge.LDiEdge
-
-  // FIXME do we need these?
-  def merge[T] = new Merge[T]
-  def broadcast[T] = new Broadcast[T]
 
   def addEdge[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], sink: FanOperation[Out]): this.type = {
     // FIXME sourcePrecondition
@@ -175,8 +177,6 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
     ImmutableGraph.from(edges = graph.edges.map(e ⇒ LDiEdge(e.from.value, e.to.value)(e.label)).toIterable)
 
   private def checkPartialBuildPreconditions(): Unit = {
-    graph.nodes.foreach { n ⇒ println(s"node ${n} has:\n    successors: ${n.diSuccessors}\n    predecessors${n.diPredecessors}\n    edges ${n.edges}") }
-
     graph.findCycle match {
       case None        ⇒
       case Some(cycle) ⇒ throw new IllegalArgumentException("Cycle detected, not supported yet. " + cycle)
@@ -235,9 +235,10 @@ object FlowGraph {
 
 class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraphInternal.Vertex, LDiEdge]) {
   import FlowGraphInternal._
-  def run(implicit materializer: FlowMaterializer): MaterializedFlowGraph = {
-    println("# RUN ----------------")
+  def run()(implicit materializer: FlowMaterializer): MaterializedFlowGraph = {
+    import scalax.collection.GraphTraversal._
 
+    // FIXME remove when real materialization is done
     def dummyProcessor(name: String): Processor[Any, Any] = new BlackholeSubscriber[Any](1) with Publisher[Any] with Processor[Any, Any] {
       def subscribe(subscriber: Subscriber[Any]): Unit = subscriber.onComplete()
       override def toString = name
@@ -245,10 +246,6 @@ class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraph
 
     // start with sinks
     val startingNodes = graph.nodes.filter(_.diSuccessors.isEmpty)
-
-    println("Starting nodes: " + startingNodes)
-
-    import scalax.collection.GraphTraversal._
 
     case class Memo(visited: Set[graph.EdgeT] = Set.empty,
                     nodeProcessor: Map[graph.NodeT, Processor[Any, Any]] = Map.empty,
@@ -258,19 +255,10 @@ class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraph
     val result = startingNodes.foldLeft(Memo()) {
       case (memo, start) ⇒
 
-        println("# starting at sink: " + start + " flow: " + start.incoming.head.label)
-
         val traverser = graph.innerEdgeTraverser(start, parameters = Parameters(direction = Predecessors, kind = BreadthFirst),
           ordering = graph.defaultEdgeOrdering)
         traverser.foldLeft(memo) {
           case (memo, edge) ⇒
-
-            if (memo.visited(edge)) {
-              println("#  already visited: " + edge)
-            } else {
-              println("#  visit: " + edge)
-            }
-
             if (memo.visited(edge)) {
               memo
             } else {
@@ -294,7 +282,6 @@ class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraph
 
               edge.from.value match {
                 case SourceVertex(src) ⇒
-                  println("#  source: " + src)
                   val f = flow.withSink(SubscriberSink(memo.nodeProcessor(edge.to)))
                   // connect the source with the flow later
                   memo.copy(visited = memo.visited + edge,
@@ -328,7 +315,6 @@ class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraph
     // connect all input sources as the last thing
     val materializedSources = result.sources.foldLeft(Map.empty[Source[_], Any]) {
       case (acc, (src, flow)) ⇒
-        println(s"# connecting input src $src to flow $flow")
         val mf = flow.withSource(src).run()
         src match {
           case srcKey: SourceWithKey[_, _] ⇒ acc.updated(src, mf.getSourceFor(srcKey))
@@ -396,14 +382,11 @@ class MaterializedFlowGraph(materializedSources: Map[Source[_], Any], materializ
     }
 }
 
-object FlowGraphBuilderImplicits {
+object FlowGraphImplicits {
   implicit class SourceOps[In](val source: Source[In]) extends AnyVal {
     def ~>[Out](flow: ProcessorFlow[In, Out])(implicit builder: FlowGraphBuilder): SourceNextStep[In, Out] = {
       new SourceNextStep(source, flow, builder)
     }
-
-    def ~=>(flow: HasNoSource[In])(implicit builder: FlowGraphBuilder): Unit =
-      builder.attachSource(flow, source)
   }
 
   class SourceNextStep[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
@@ -441,7 +424,7 @@ object FlowGraphBuilderImplicits {
     }
   }
 
-  // FIXME add more for FlowWithSource and FlowWithSink
+  // FIXME add more for FlowWithSource and FlowWithSink, and shortcuts injecting identity flows
 
   class UndefSource[In]
 
@@ -464,8 +447,4 @@ object FlowGraphBuilderImplicits {
 
   def undefinedSink[Out](implicit builder: FlowGraphBuilder): UndefSink[Out] = new UndefSink[Out]
 
-  implicit class HasNoSinkOps[Out](val flow: HasNoSink[Out]) extends AnyVal {
-    def ~=>(sink: Sink[Out])(implicit builder: FlowGraphBuilder): Unit =
-      builder.attachSink(flow, sink)
-  }
 }
