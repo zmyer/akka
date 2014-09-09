@@ -340,12 +340,12 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LkDiEdge]
     // we will be able to relax these checks
     graph.nodes.foreach { node ⇒
       node.value match {
-        case merge: Merge[_] ⇒
-          require(node.incoming.size == 2, "Merge must have two incoming edges: " + node.incoming)
-          require(node.outgoing.size == 1, "Merge must have one outgoing edge: " + node.outgoing)
-        case bcast: Broadcast[_] ⇒
-          require(node.incoming.size == 1, "Broadcast must have one incoming edge: " + node.incoming)
-          require(node.outgoing.size >= 1, "Broadcast must have at least one outgoing edge: " + node.outgoing)
+        case merge: FanInOperation[_] ⇒
+          require(node.incoming.size >= 2, "Fan-in operations must have at least two incoming edges: " + node.incoming)
+          require(node.outgoing.size == 1, "Fan-in operations must have one outgoing edge: " + node.outgoing)
+        case bcast: FanOutOperation[_] ⇒
+          require(node.incoming.size == 1, "Fan-out operations must have one incoming edge: " + node.incoming)
+          require(node.outgoing.size >= 1, "Fan-out operations must have at least one outgoing edge: " + node.outgoing)
         case _ ⇒ // no check for other node types
       }
     }

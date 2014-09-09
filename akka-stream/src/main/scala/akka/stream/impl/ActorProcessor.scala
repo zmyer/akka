@@ -3,14 +3,12 @@
  */
 package akka.stream.impl
 
-import akka.stream.ReactiveStreamsConstants
 import org.reactivestreams.{ Publisher, Subscriber, Subscription, Processor }
 import akka.actor._
-import akka.stream.MaterializerSettings
+import akka.stream.{ ReactiveStreamsConstants, MaterializerSettings, TimerTransformer }
 import akka.stream.actor.ActorSubscriber.OnSubscribe
 import akka.stream.actor.ActorSubscriberMessage.{ OnNext, OnComplete, OnError }
 import java.util.Arrays
-import akka.stream.TimerTransformer
 
 /**
  * INTERNAL API
@@ -162,7 +160,7 @@ private[akka] abstract class BatchingInputBuffer(val size: Int, val pump: Pump) 
 /**
  * INTERNAL API
  */
-private[akka] class SimpleOutputs(self: ActorRef, val pump: Pump) extends DefaultOutputTransferStates {
+private[akka] class SimpleOutputs(val self: ActorRef, val pump: Pump) extends DefaultOutputTransferStates {
 
   protected var exposedPublisher: ActorPublisher[Any] = _
 
@@ -198,11 +196,15 @@ private[akka] class SimpleOutputs(self: ActorRef, val pump: Pump) extends Defaul
 
   def isClosed: Boolean = downstreamCompleted
 
+  protected def createSubscription(): Subscription = {
+    new ActorSubscription(self, subscriber)
+  }
+
   private def subscribePending(subscribers: Seq[Subscriber[Any]]): Unit =
     subscribers foreach { sub ⇒
       if (subscriber eq null) {
         subscriber = sub
-        subscriber.onSubscribe(new ActorSubscription(self, subscriber))
+        subscriber.onSubscribe(createSubscription())
       } else sub.onError(new IllegalStateException(s"${getClass.getSimpleName} ${ReactiveStreamsConstants.SupportsOnlyASingleSubscriber}"))
     }
 
