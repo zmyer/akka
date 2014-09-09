@@ -121,6 +121,19 @@ case class ActorBasedFlowMaterializer(override val settings: MaterializerSetting
     ActorProcessorFactory(impl)
   }
 
+  // FIXME, needs more generic solution here, currently specialized for Merge
+  override def materializeMerge[In, Out](inputCount: Int): (Seq[Subscriber[In]], Publisher[Out]) = {
+    val flowName = createFlowName()
+    val impl = actorOf(
+      Props(new FairMerge(settings, inputCount)).withDispatcher(settings.dispatcher),
+      s"$flowName-fairmerge")
+    val publisher = new ActorPublisher[Out](impl, equalityValue = None)
+    impl ! ExposedPublisher(publisher.asInstanceOf[ActorPublisher[Any]])
+    val subscribers = (0 to inputCount) map (FanIn.SubInput[In](impl, _))
+
+    (subscribers.seq, publisher)
+  }
+
   def actorOf(props: Props, name: String): ActorRef = supervisor match {
     case ref: LocalActorRef ⇒
       ref.underlying.attachChild(props, name, systemService = false)
