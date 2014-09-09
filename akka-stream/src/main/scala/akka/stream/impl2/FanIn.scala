@@ -87,9 +87,6 @@ private[akka] object FanIn {
         markedPending -= 1
         pending(id) = false
       }
-      //println(s"Dequeueing from: $id")
-      //println(s"State: ${pending.mkString} ${completed.mkString}")
-      //println(s"Counts: $markedPending $markedCompleted")
       elem
     }
     def dequeueAndPrefer(preferred: Int): Any = {
@@ -118,15 +115,14 @@ private[akka] object FanIn {
     def subreceive: SubReceive = new SubReceive({
       case OnSubscribe(id, subscription) ⇒
         inputs(id).subreceive(ActorSubscriber.OnSubscribe(subscription))
-        println(s"Subscribed $id")
       case OnNext(id, elem) ⇒
-        inputs(id).subreceive(ActorSubscriberMessage.OnNext(elem))
         if (marked(id) && !pending(id)) markedPending += 1
         pending(id) = true
+        inputs(id).subreceive(ActorSubscriberMessage.OnNext(elem))
       case OnComplete(id) ⇒
-        inputs(id).subreceive(ActorSubscriberMessage.OnComplete)
         if (marked(id) && !completed(id)) markedCompleted += 1
         completed(id) = true
+        inputs(id).subreceive(ActorSubscriberMessage.OnComplete)
       case OnError(id, e) ⇒ onError(e)
     })
 
@@ -143,7 +139,6 @@ abstract class FanIn(val settings: MaterializerSettings, val inputPorts: Int) ex
   }
 
   override def pumpFinished(): Unit = {
-    println("COMPLETED")
     inputBunch.cancel()
     primaryOutputs.complete()
     context.stop(self)
