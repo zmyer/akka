@@ -3,7 +3,6 @@
  */
 package akka.stream.scaladsl2
 
-import scala.collection.mutable
 import scala.language.existentials
 import scalax.collection.edge.LDiEdge
 import scalax.collection.mutable.Graph
@@ -50,9 +49,7 @@ object Merge {
  * When building the [[FlowGraph]] you must connect one or more input flows/sources
  * and one output flow/sink to the `Merge` vertex.
  */
-final class Merge[T](override val name: Option[String]) extends FanInOperation[T] with FlowGraphInternal.NamedVertex {
-  override def toString = name.getOrElse("Merge")
-}
+final class Merge[T](override val name: Option[String]) extends FanInOperation[T] with FlowGraphInternal.NamedVertex
 
 object Broadcast {
   /**
@@ -312,6 +309,7 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LDiEdge])
     graph.nodes.foreach { node ⇒
       node.value match {
         case merge: Merge[_] ⇒
+          require(node.incoming.size == 2, "Merge must have two incoming edges: " + node.incoming)
           require(node.outgoing.size == 1, "Merge must have one outgoing edge: " + node.outgoing)
         case bcast: Broadcast[_] ⇒
           require(node.incoming.size == 1, "Broadcast must have one incoming edge: " + node.incoming)
@@ -376,63 +374,91 @@ class FlowGraph private[akka] (private[akka] val graph: ImmutableGraph[FlowGraph
    * Materialize the `FlowGraph` and attach all sinks and sources.
    */
   def run()(implicit materializer: FlowMaterializer): MaterializedFlowGraph = {
-    type V = ImmutableGraph[Vertex, LDiEdge]#NodeT
-    val startVertices = graph.nodes.filter(_.diSuccessors.isEmpty)
-    val bfsQueue: mutable.Queue[V] = mutable.Queue() ++ startVertices
-    val halfFlows = mutable.Map[V, List[FlowWithSink[Any, Any]]]() ++ startVertices.map(v ⇒ (v, Nil))
+    import scalax.collection.GraphTraversal._
 
-    def registerHalfFlow(predecessor: V, halfFlow: FlowWithSink[Any, Any]): Unit = {
-      halfFlows.get(predecessor) match {
-        case None ⇒
-          halfFlows += predecessor -> List(halfFlow)
-          bfsQueue.enqueue(predecessor)
-        case Some(flows) ⇒
-          halfFlows += predecessor -> (halfFlow :: flows)
-      }
+    // FIXME remove when real materialization is done
+    def dummyProcessor(name: String): Processor[Any, Any] = new BlackholeSubscriber[Any](1) with Publisher[Any] with Processor[Any, Any] {
+      def subscribe(subscriber: Subscriber[Any]): Unit = subscriber.onComplete()
+      override def toString = name
     }
 
-    while (bfsQueue.nonEmpty) {
-      val v = bfsQueue.dequeue()
-      println(" PROCESSING " + v.value)
-      val outFlows = halfFlows(v)
-      val inEdges = v.incoming
+    // start with sinks
+    val startingNodes = graph.nodes.filter(n ⇒ n.isLeaf && n.diSuccessors.isEmpty)
 
-      v.value match {
-        case SourceVertex(src) ⇒
-          outFlows foreach { outFlow ⇒
-            val fullFlow = outFlow.withSource(src)
-            println(" LAUNCHING " + fullFlow)
-            fullFlow.run()(materializer)
-          }
-        case SinkVertex(sink) ⇒
-          inEdges foreach { inEdge ⇒
-            val inFlow = inEdge.label.asInstanceOf[ProcessorFlow[Any, Any]]
-            val halfFlow = inFlow.withSink(sink.asInstanceOf[Sink[Any]])
-            registerHalfFlow(inEdge._1, halfFlow)
-          }
+    case class Memo(visited: Set[graph.EdgeT] = Set.empty,
+                    downstreamSubscriber: Map[graph.EdgeT, Subscriber[Any]] = Map.empty,
+                    sources: Map[Source[_], FlowWithSink[Any, Any]] = Map.empty,
+                    materializedSinks: Map[Sink[_], Any] = Map.empty)
 
-        case _: Merge[Any] ⇒
-          val (subscribers, publisher) = materializer.materializeMerge[Any, Any](v.inDegree)
-          val src = PublisherSource(publisher)
-          outFlows foreach { outFlow ⇒
-            val fullFlow = outFlow.withSource(src)
-            println(" LAUNCHING " + fullFlow)
-            fullFlow.run()(materializer)
-          }
+    val result = startingNodes.foldLeft(Memo()) {
+      case (memo, start) ⇒
 
-          inEdges.zip(subscribers) foreach {
-            case (inEdge, subscriber) ⇒
-              val inFlow = inEdge.label.asInstanceOf[ProcessorFlow[Any, Any]]
-              val halfFlow = inFlow.withSink(SubscriberSink(subscriber))
-              registerHalfFlow(inEdge._1, halfFlow)
-          }
-        case other ⇒
-          throw new IllegalArgumentException("Unknown vertex type: " + other)
-      }
+        val traverser = graph.innerEdgeTraverser(start, parameters = Parameters(direction = Predecessors, kind = BreadthFirst),
+          ordering = graph.defaultEdgeOrdering)
+        traverser.foldLeft(memo) {
+          case (memo, edge) ⇒
+            if (memo.visited(edge)) {
+              memo
+            } else {
+              val flow = edge.label.asInstanceOf[ProcessorFlow[Any, Any]]
+
+              // returns the materialized sink, if any
+              def connectToDownstream(publisher: Publisher[Any]): Option[(SinkWithKey[_, _], Any)] = {
+                val f = flow.withSource(PublisherSource(publisher))
+                edge.to.value match {
+                  case SinkVertex(sink: SinkWithKey[_, _]) ⇒
+                    val mf = f.withSink(sink.asInstanceOf[Sink[Any]]).run()
+                    Some(sink -> mf.getSinkFor(sink))
+                  case SinkVertex(sink) ⇒
+                    f.withSink(sink.asInstanceOf[Sink[Any]]).run()
+                    None
+                  case _ ⇒
+                    f.withSink(SubscriberSink(memo.downstreamSubscriber(edge))).run()
+                    None
+                }
+              }
+
+              edge.from.value match {
+                case SourceVertex(src) ⇒
+                  val f = flow.withSink(SubscriberSink(memo.downstreamSubscriber(edge)))
+                  // connect the source with the flow later
+                  memo.copy(visited = memo.visited + edge,
+                    sources = memo.sources.updated(src, f))
+
+                case merge: Merge[_] ⇒
+                  val (subscribers, publisher) = materializer.materializeMerge[Any, Any](edge.from.inDegree)
+                  // one subscriber for each incoming edge of the merge vertex
+                  val edgeSubscribers = edge.from.incoming.zip(subscribers)
+                  val materializedSink = connectToDownstream(publisher)
+                  memo.copy(
+                    visited = memo.visited + edge,
+                    downstreamSubscriber = memo.downstreamSubscriber ++ edgeSubscribers,
+                    materializedSinks = memo.materializedSinks ++ materializedSink)
+
+                //                case bcast: Broadcast[_] ⇒
+                //                // FIXME materialize Broadcast
+
+                case other ⇒
+                  throw new IllegalArgumentException("Unknown fan operation: " + other)
+
+              }
+            }
+
+        }
+
     }
 
-    // FIXME: return the thing here
-    null //new MaterializedFlowGraph(materializedSources, result.materializedSinks)
+    // connect all input sources as the last thing
+    val materializedSources = result.sources.foldLeft(Map.empty[Source[_], Any]) {
+      case (acc, (src, flow)) ⇒
+        val mf = flow.withSource(src).run()
+        src match {
+          case srcKey: SourceWithKey[_, _] ⇒ acc.updated(src, mf.getSourceFor(srcKey))
+          case _                           ⇒ acc
+        }
+    }
+
+    new MaterializedFlowGraph(materializedSources, result.materializedSinks)
   }
 
 }
