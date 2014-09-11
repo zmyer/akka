@@ -26,7 +26,7 @@ class GraphOpsIntegrationSpec extends AkkaSpec {
         val merge = Merge[Int]("merge")
 
         FlowFrom(List(1, 2, 3)) ~> bcast
-        bcast ~> FlowFrom[Int] ~> merge
+        bcast ~> merge
         bcast ~> FlowFrom[Int].map(_ + 3) ~> merge
         merge ~> FlowFrom[Int].grouped(10) ~> resultFuture
       }.run()
@@ -34,37 +34,46 @@ class GraphOpsIntegrationSpec extends AkkaSpec {
       Await.result(g.getSinkFor(resultFuture), 3.seconds).sorted should be(List(1, 2, 3, 4, 5, 6))
     }
 
-    "support wikipedia Topological_sorting" in {
+    "support wikipedia Topological_sorting 2" in {
       // see https://en.wikipedia.org/wiki/Topological_sorting#mediaviewer/File:Directed_acyclic_graph.png
       val resultFuture2 = FutureSink[Seq[Int]]
       val resultFuture9 = FutureSink[Seq[Int]]
       val resultFuture10 = FutureSink[Seq[Int]]
 
       val g = FlowGraph { implicit b ⇒
-        val b3 = Broadcast[Int]
-        val b7 = Broadcast[Int]
-        val b11 = Broadcast[Int]
-        val m8 = Merge[Int]
-        val m9 = Merge[Int]
-        val m10 = Merge[Int]
-        val m11 = Merge[Int]
+        val b3 = Broadcast[Int]("b3")
+        val b7 = Broadcast[Int]("b7")
+        val b11 = Broadcast[Int]("b11")
+        val m8 = Merge[Int]("m8")
+        val m9 = Merge[Int]("m9")
+        val m10 = Merge[Int]("m10")
+        val m11 = Merge[Int]("m11")
         val in3 = IterableSource(List(3))
         val in5 = IterableSource(List(5))
         val in7 = IterableSource(List(7))
 
-        val f = FlowFrom[Int]
+        // First layer
+        in7 ~> b7
+        b7 ~> m11
+        b7 ~> m8
 
-        in7 ~> f ~> b7 ~> f ~> m11 ~> f ~> b11
-        b11 ~> f ~> m9
-        b7 ~> f ~> m8 ~> f ~> m9
-        b11 ~> f ~> m10
-        in5 ~> f ~> m11
-        in3 ~> f ~> b3 ~> f ~> m8
-        b3 ~> f ~> m10
+        in5 ~> m11
 
-        m9 ~> f.grouped(1000) ~> resultFuture9
-        m10 ~> f.grouped(1000) ~> resultFuture10
-        b11 ~> f.grouped(1000) ~> resultFuture2 // there is no vertex 2 because it has only one in and out edges
+        in3 ~> b3
+        b3 ~> m8
+        b3 ~> m10
+
+        // Second layer
+        m11 ~> b11
+        b11 ~> FlowFrom[Int].grouped(1000) ~> resultFuture2 // Vertex 2 is omitted since it has only one in and out
+        b11 ~> m9
+        b11 ~> m10
+
+        m8 ~> m9
+
+        // Third layer
+        m9 ~> FlowFrom[Int].grouped(1000) ~> resultFuture9
+        m10 ~> FlowFrom[Int].grouped(1000) ~> resultFuture10
 
       }.run()
 
@@ -73,6 +82,7 @@ class GraphOpsIntegrationSpec extends AkkaSpec {
       Await.result(g.getSinkFor(resultFuture10), 3.seconds).sorted should be(List(3, 5, 7))
 
     }
+
   }
 
 }
