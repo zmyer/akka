@@ -112,7 +112,8 @@ private[akka] object FanOut {
 
     def enqueueAndYield(elem: Any): Unit = {
       val id = idToEnqueue()
-      preferredId = (id + 1) % outputCount
+      preferredId = id + 1
+      if (preferredId == outputCount) preferredId = 0
       enqueue(id, elem)
     }
 

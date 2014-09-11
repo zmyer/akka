@@ -69,6 +69,7 @@ private[akka] object Ast {
     def name: String
   }
 
+  // FIXME: Try to eliminate these
   sealed trait FanInAstNode extends JunctionAstNode
   sealed trait FanOutAstNode extends JunctionAstNode
 
@@ -77,6 +78,10 @@ private[akka] object Ast {
   }
 
   case object Broadcast extends FanOutAstNode {
+    override def name = "broadcast"
+  }
+
+  case object Zip extends FanInAstNode {
     override def name = "broadcast"
   }
 
@@ -198,6 +203,10 @@ case class ActorBasedFlowMaterializer(override val settings: MaterializerSetting
           case Ast.Merge ⇒
             actorOf(
               Props(new FairMerge(settings, inputCount)).withDispatcher(settings.dispatcher),
+              s"$flowName-merge")
+          case Ast.Zip ⇒
+            actorOf(
+              Props(new Zip(settings)).withDispatcher(settings.dispatcher),
               s"$flowName-fairmerge")
         }
 

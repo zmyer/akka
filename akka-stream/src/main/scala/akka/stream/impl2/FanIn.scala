@@ -90,7 +90,8 @@ private[akka] object FanIn {
 
     def dequeueAndYield(): Any = {
       val id = idToDequeue()
-      preferredId = (id + 1) % inputCount
+      preferredId = id + 1
+      if (preferredId == inputCount) preferredId = 0
       dequeue(id)
     }
     def dequeueAndPrefer(preferred: Int): Any = {

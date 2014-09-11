@@ -21,15 +21,17 @@ abstract class TwoStreamsSetup extends AkkaSpec {
 
   type Outputs
 
-  def operationUnderTest(): FanInOperation[Int]
+  def operationUnderTestLeft(): Junction[Int]
+  def operationUnderTestRight(): Junction[Int]
 
   def setup(p1: Publisher[Int], p2: Publisher[Int]) = {
     val subscriber = StreamTestKit.SubscriberProbe[Int]()
     FlowGraph { implicit b ⇒
       import FlowGraphImplicits._
-      val op = operationUnderTest()
-      FlowFrom(p1) ~> op ~> FlowFrom[Int] ~> SubscriberSink(subscriber)
-      FlowFrom(p2) ~> op
+      val left = operationUnderTestLeft()
+      val right = operationUnderTestRight()
+      FlowFrom(p1) ~> left ~> FlowFrom[Int] ~> SubscriberSink(subscriber)
+      FlowFrom(p2) ~> right
     }.run()
 
     subscriber
