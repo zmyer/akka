@@ -30,7 +30,7 @@ private[akka] object FanOut {
   }
 
   class FanoutOutputs(val id: Int, _impl: ActorRef, _pump: Pump) extends SimpleOutputs(_impl, _pump) {
-    override def createSubscription(): Subscription = new SubstreamSubscription(self, id)
+    override def createSubscription(): Subscription = new SubstreamSubscription(actor, id)
   }
 
   case class ExposedPublishers(publishers: immutable.Seq[ActorPublisher[Any]])

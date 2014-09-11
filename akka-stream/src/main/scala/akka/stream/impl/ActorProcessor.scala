@@ -160,7 +160,7 @@ private[akka] abstract class BatchingInputBuffer(val size: Int, val pump: Pump) 
 /**
  * INTERNAL API
  */
-private[akka] class SimpleOutputs(val self: ActorRef, val pump: Pump) extends DefaultOutputTransferStates {
+private[akka] class SimpleOutputs(val actor: ActorRef, val pump: Pump) extends DefaultOutputTransferStates {
 
   protected var exposedPublisher: ActorPublisher[Any] = _
 
@@ -197,7 +197,7 @@ private[akka] class SimpleOutputs(val self: ActorRef, val pump: Pump) extends De
   def isClosed: Boolean = downstreamCompleted
 
   protected def createSubscription(): Subscription = {
-    new ActorSubscription(self, subscriber)
+    new ActorSubscription(actor, subscriber)
   }
 
   private def subscribePending(subscribers: Seq[Subscriber[Any]]): Unit =
