@@ -9,7 +9,7 @@ import akka.stream.scaladsl2.FlowGraphImplicits._
 
 class GraphZipSpec extends TwoStreamsSetup {
 
-  type Outputs = (Int, Int)
+  override type Outputs = (Int, Int)
   val op = Zip[Int, Int]
   override def operationUnderTestLeft() = op.left
   override def operationUnderTestRight() = op.right

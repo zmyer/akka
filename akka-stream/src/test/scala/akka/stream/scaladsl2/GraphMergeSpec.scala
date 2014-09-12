@@ -10,6 +10,7 @@ import akka.stream.scaladsl2.FlowGraphImplicits._
 
 class GraphMergeSpec extends TwoStreamsSetup {
 
+  override type Outputs = Int
   val op = Merge[Int]
   override def operationUnderTestLeft = op
   override def operationUnderTestRight = op

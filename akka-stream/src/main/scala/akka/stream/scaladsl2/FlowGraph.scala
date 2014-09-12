@@ -16,9 +16,22 @@ import akka.stream.impl2.Ast
  * Fan-in and fan-out vertices in the [[FlowGraph]] implements
  * this marker interface.
  */
-sealed trait Junction[T] {
-  def vertex: FlowGraphInternal.Vertex
+sealed trait Junction[T] extends JunctionInPort[T] with JunctionOutPort[T] {
+  override def port: Int = FlowGraphInternal.UnlabeledPort
+  override def vertex: FlowGraphInternal.Vertex
+  type NextT = T
+  override def next = this
+}
+
+sealed trait JunctionInPort[T] {
   def port: Int = FlowGraphInternal.UnlabeledPort
+  def vertex: FlowGraphInternal.Vertex
+  type NextT
+  def next: JunctionOutPort[NextT]
+}
+sealed trait JunctionOutPort[T] {
+  def port: Int = FlowGraphInternal.UnlabeledPort
+  def vertex: FlowGraphInternal.Vertex
 }
 
 object Merge {
@@ -99,13 +112,17 @@ object Zip {
   def apply[A, B](name: String): Zip[A, B] = new Zip[A, B](Some(name))
 
   // FIXME: hide these somehow
-  class Left[T](val vertex: FlowGraphInternal.Vertex) extends Junction[T] {
+  class Left[A, B](val vertex: Zip[A, B]) extends JunctionInPort[A] {
     override val port = 0
+    type NextT = (A, B)
+    override def next = vertex.out
   }
-  class Right[T](val vertex: FlowGraphInternal.Vertex) extends Junction[T] {
+  class Right[A, B](val vertex: Zip[A, B]) extends JunctionInPort[B] {
     override val port = 1
+    type NextT = (A, B)
+    override def next = vertex.out
   }
-  class Out[A, B](val vertex: FlowGraphInternal.Vertex) extends Junction[(A, B)]
+  class Out[A, B](val vertex: Zip[A, B]) extends JunctionOutPort[(A, B)]
 }
 
 /**
@@ -114,9 +131,9 @@ object Zip {
  * longer than the other, its remaining elements are ignored.
  */
 final class Zip[A, B](override val name: Option[String]) extends FlowGraphInternal.InternalVertex {
-  val left = new Zip.Left[A](this)
-  val right = new Zip.Right[B](this)
-  val out = new Zip.Out[A, B](this)
+  val left = new Zip.Left(this)
+  val right = new Zip.Right(this)
+  val out = new Zip.Out(this)
 
   override val minimumInputCount: Int = 2
   override val maximumInputCount: Int = 2
@@ -252,51 +269,51 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LkDiEdge]
 
   private var cyclesAllowed = false
 
-  def addEdge[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], sink: Junction[Out]): this.type = {
+  def addEdge[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], sink: JunctionInPort[Out]): this.type = {
     val sourceVertex = SourceVertex(source)
     checkAddSourceSinkPrecondition(sourceVertex)
-    checkAddFanPrecondition(sink, in = true)
+    checkJunctionInPortPrecondition(sink)
     addGraphEdge(sourceVertex, sink.vertex, flow, sink.port)
     this
   }
 
-  def addEdge[In, Out](source: UndefinedSource[In], flow: ProcessorFlow[In, Out], sink: Junction[Out]): this.type = {
+  def addEdge[In, Out](source: UndefinedSource[In], flow: ProcessorFlow[In, Out], sink: JunctionInPort[Out]): this.type = {
     checkAddSourceSinkPrecondition(source)
-    checkAddFanPrecondition(sink, in = true)
+    checkJunctionInPortPrecondition(sink)
     addGraphEdge(source, sink.vertex, flow, sink.port)
     this
   }
 
-  def addEdge[In, Out](source: Junction[In], flow: ProcessorFlow[In, Out], sink: Sink[Out]): this.type = {
+  def addEdge[In, Out](source: JunctionOutPort[In], flow: ProcessorFlow[In, Out], sink: Sink[Out]): this.type = {
     val sinkVertex = SinkVertex(sink)
     checkAddSourceSinkPrecondition(sinkVertex)
-    checkAddFanPrecondition(source, in = false)
+    checkJunctionOutPortPrecondition(source)
     // FIXME: output ports are not handled yet
     addGraphEdge(source.vertex, sinkVertex, flow, UnlabeledPort)
     this
   }
 
-  def addEdge[In, Out](source: Junction[In], flow: ProcessorFlow[In, Out], sink: UndefinedSink[Out]): this.type = {
+  def addEdge[In, Out](source: JunctionOutPort[In], flow: ProcessorFlow[In, Out], sink: UndefinedSink[Out]): this.type = {
     checkAddSourceSinkPrecondition(sink)
-    checkAddFanPrecondition(source, in = false)
+    checkJunctionOutPortPrecondition(source)
     // FIXME: output ports are not handled yet
     addGraphEdge(source.vertex, sink, flow, UnlabeledPort)
     this
   }
 
-  def addEdge[In, Out](source: Junction[In], flow: ProcessorFlow[In, Out], sink: Junction[Out]): this.type = {
-    checkAddFanPrecondition(source, in = false)
-    checkAddFanPrecondition(sink, in = true)
+  def addEdge[In, Out](source: JunctionOutPort[In], flow: ProcessorFlow[In, Out], sink: JunctionInPort[Out]): this.type = {
+    checkJunctionOutPortPrecondition(source)
+    checkJunctionInPortPrecondition(sink)
     addGraphEdge(source.vertex, sink.vertex, flow, sink.port)
     this
   }
 
-  def addEdge[In, Out](flow: FlowWithSource[In, Out], sink: Junction[Out]): this.type = {
+  def addEdge[In, Out](flow: FlowWithSource[In, Out], sink: JunctionInPort[Out]): this.type = {
     addEdge(flow.input, flow.withoutSource, sink)
     this
   }
 
-  def addEdge[In, Out](source: Junction[In], flow: FlowWithSink[In, Out]): this.type = {
+  def addEdge[In, Out](source: JunctionOutPort[In], flow: FlowWithSink[In, Out]): this.type = {
     addEdge(source, flow.withoutSink, flow.output)
     this
   }
@@ -346,7 +363,7 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LkDiEdge]
   private def checkAddSourceSinkPrecondition(node: Vertex): Unit =
     require(graph.find(node) == None, s"[$node] instance is already used in this flow graph")
 
-  private def checkAddFanPrecondition(junction: Junction[_], in: Boolean): Unit = {
+  private def checkJunctionInPortPrecondition(junction: JunctionInPort[_]): Unit = {
     // FIXME: Reenable checks
     //    junction match {
     //      case _: FanOutOperation[_] if in ⇒
@@ -355,6 +372,13 @@ class FlowGraphBuilder private (graph: Graph[FlowGraphInternal.Vertex, LkDiEdge]
     //            throw new IllegalArgumentException(s"Fan-out [$junction] is already attached to input [${existing.incoming.head}]")
     //          case _ ⇒ // ok
     //        }
+    //      case _ ⇒ // ok
+    //    }
+  }
+
+  private def checkJunctionOutPortPrecondition(junction: JunctionOutPort[_]): Unit = {
+    // FIXME: Reenable checks
+    //    junction match {
     //      case _: FanInOperation[_] if !in ⇒
     //        graph.find(junction.vertex) match {
     //          case Some(existing) if existing.outgoing.nonEmpty ⇒
@@ -672,20 +696,20 @@ object FlowGraphImplicits {
       new SourceNextStep(source, flow, builder)
     }
 
-    def ~>(sink: Junction[In])(implicit builder: FlowGraphBuilder): Junction[In] = {
+    def ~>(sink: JunctionInPort[In])(implicit builder: FlowGraphBuilder): JunctionOutPort[sink.NextT] = {
       builder.addEdge(source, ProcessorFlow.empty[In], sink)
-      sink
+      sink.next
     }
   }
 
   class SourceNextStep[In, Out](source: Source[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
-    def ~>(sink: Junction[Out]): Junction[Out] = {
+    def ~>(sink: JunctionInPort[Out]): JunctionOutPort[sink.NextT] = {
       builder.addEdge(source, flow, sink)
-      sink
+      sink.next
     }
   }
 
-  implicit class JunctionOps[In](val junction: Junction[In]) extends AnyVal {
+  implicit class JunctionOps[In](val junction: JunctionOutPort[In]) extends AnyVal {
     def ~>[Out](flow: ProcessorFlow[In, Out])(implicit builder: FlowGraphBuilder): JunctionNextStep[In, Out] = {
       new JunctionNextStep(junction, flow, builder)
     }
@@ -696,19 +720,19 @@ object FlowGraphImplicits {
     def ~>(sink: UndefinedSink[In])(implicit builder: FlowGraphBuilder): Unit =
       builder.addEdge(junction, ProcessorFlow.empty[In], sink)
 
-    def ~>(sink: Junction[In])(implicit builder: FlowGraphBuilder): Junction[In] = {
+    def ~>(sink: JunctionInPort[In])(implicit builder: FlowGraphBuilder): JunctionOutPort[sink.NextT] = {
       builder.addEdge(junction, ProcessorFlow.empty[In], sink)
-      sink
+      sink.next
     }
 
     def ~>(flow: FlowWithSink[In, _])(implicit builder: FlowGraphBuilder): Unit =
       builder.addEdge(junction, flow)
   }
 
-  class JunctionNextStep[In, Out](junction: Junction[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
-    def ~>(sink: Junction[Out]): Junction[Out] = {
+  class JunctionNextStep[In, Out](junction: JunctionOutPort[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
+    def ~>(sink: JunctionInPort[Out]): JunctionOutPort[sink.NextT] = {
       builder.addEdge(junction, flow, sink)
-      sink
+      sink.next
     }
 
     def ~>(sink: Sink[Out]): Unit = {
@@ -721,9 +745,9 @@ object FlowGraphImplicits {
   }
 
   implicit class FlowWithSourceOps[In, Out](val flow: FlowWithSource[In, Out]) extends AnyVal {
-    def ~>(sink: Junction[Out])(implicit builder: FlowGraphBuilder): Junction[Out] = {
+    def ~>(sink: JunctionInPort[Out])(implicit builder: FlowGraphBuilder): JunctionOutPort[sink.NextT] = {
       builder.addEdge(flow, sink)
-      sink
+      sink.next
     }
   }
 
@@ -732,17 +756,17 @@ object FlowGraphImplicits {
       new UndefinedSourceNextStep(source, flow, builder)
     }
 
-    def ~>(sink: Junction[In])(implicit builder: FlowGraphBuilder): Junction[In] = {
+    def ~>(sink: JunctionInPort[In])(implicit builder: FlowGraphBuilder): JunctionOutPort[sink.NextT] = {
       builder.addEdge(source, ProcessorFlow.empty[In], sink)
-      sink
+      sink.next
     }
 
   }
 
   class UndefinedSourceNextStep[In, Out](source: UndefinedSource[In], flow: ProcessorFlow[In, Out], builder: FlowGraphBuilder) {
-    def ~>(sink: Junction[Out]): Junction[Out] = {
+    def ~>(sink: JunctionInPort[Out]): JunctionOutPort[sink.NextT] = {
       builder.addEdge(source, flow, sink)
-      sink
+      sink.next
     }
   }
 
