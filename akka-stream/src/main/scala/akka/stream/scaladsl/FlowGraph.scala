@@ -477,12 +477,18 @@ private[akka] object FlowGraphInternal {
      */
     final override def equals(other: Any): Boolean = other match {
       case v: SourceVertex ⇒ (source, v.source) match {
+        case (k1: KeyedActorFlowSource[_], k2: KeyedActorFlowSource[_]) ⇒
+          if (k1.supportsMultipleSubscribers && k2.supportsMultipleSubscribers) super.equals(other)
+          else k1 == k2
         case (k1: KeyedSource[_], k2: KeyedSource[_]) ⇒ k1 == k2
         case _                                        ⇒ super.equals(other)
       }
       case _ ⇒ false
     }
     final override def hashCode: Int = source match {
+      case (k: KeyedActorFlowSource[_]) ⇒
+        if (k.supportsMultipleSubscribers) super.hashCode
+        else k.hashCode
       case k: KeyedSource[_] ⇒ k.hashCode
       case _                 ⇒ super.hashCode
     }
@@ -933,8 +939,12 @@ class FlowGraphBuilder private[akka] (_graph: DirectedGraphBuilder[FlowGraphInte
         s"Use individual instances instead of the same one multiple times. Nodes are: ${graph.nodes}"
 
     vertex match {
-      case v: SourceVertex if v.source.isInstanceOf[KeyedSource[_]] ⇒ require(!graph.contains(v), warningMessage(v.source))
       case v: SinkVertex if v.sink.isInstanceOf[KeyedSink[_]] ⇒ require(!graph.contains(v), warningMessage(v.sink))
+      case v: SourceVertex if v.source.isInstanceOf[KeyedSource[_]] ⇒
+        v.source match {
+          case a: KeyedActorFlowSource[_] if a.supportsMultipleSubscribers ⇒ // ok
+          case _ ⇒ require(!graph.contains(v), warningMessage(v.source))
+        }
       case _ ⇒ // ok
     }
   }

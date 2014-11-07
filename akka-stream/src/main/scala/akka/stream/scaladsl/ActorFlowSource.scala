@@ -77,7 +77,9 @@ trait SimpleActorFlowSource[+Out] extends ActorFlowSource[Out] {
  * to retrieve in order to access aspects of this source (could be a Subscriber, a
  * Future/Promise, etc.).
  */
-trait KeyedActorFlowSource[+Out] extends ActorFlowSource[Out] with KeyedSource[Out]
+trait KeyedActorFlowSource[+Out] extends ActorFlowSource[Out] with KeyedSource[Out] {
+  def supportsMultipleSubscribers: Boolean = false
+}
 
 /**
  * Holds a `Subscriber` representing the input side of the flow.
@@ -211,6 +213,8 @@ final case class TickSource[Out](initialDelay: FiniteDuration, interval: FiniteD
     }
     (ActorPublisher[Out](ref), cancellable)
   }
+
+  override def supportsMultipleSubscribers: Boolean = true
 }
 
 /**

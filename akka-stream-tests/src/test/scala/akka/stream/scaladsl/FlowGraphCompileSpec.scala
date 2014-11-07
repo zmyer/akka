@@ -3,6 +3,7 @@
  */
 package akka.stream.scaladsl
 
+import scala.concurrent.duration._
 import akka.stream.{ OverflowStrategy, Transformer }
 import akka.stream.FlowMaterializer
 import akka.stream.testkit.AkkaSpec
@@ -389,6 +390,17 @@ class FlowGraphCompileSpec extends AkkaSpec {
         import FlowGraphImplicits._
         in1.via(f1) ~> f2.to(out1)
       }.run()
+    }
+
+    "be possible to use TickSource more than once" in {
+      val ticks = Source(1.second, 1.second, () ⇒ "tick")
+      FlowGraph { b ⇒
+        val merge = Merge[String]
+        b.
+          addEdge(ticks, f1, merge).
+          addEdge(ticks, f2, merge).
+          addEdge(merge, f3, out1)
+      }
     }
 
     "build all combinations with implicits" when {

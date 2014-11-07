@@ -5,10 +5,10 @@ package akka.stream.scaladsl
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
-
 import akka.stream.FlowMaterializer
 import akka.stream.testkit.AkkaSpec
 import akka.stream.testkit.StreamTestKit
+import akka.stream.testkit.StreamTestKit.OnNext
 
 class TickSourceSpec extends AkkaSpec {
 
@@ -122,6 +122,26 @@ class TickSourceSpec extends AkkaSpec {
       cancellable.cancel()
       awaitCond(cancellable.isCancelled)
       sub.request(3)
+      c.expectComplete()
+    }
+
+    "be possible to use TickSource more than once in graph" in {
+      val ticks = Source(100.millis, 100.millis, () ⇒ "tick")
+      val c = StreamTestKit.SubscriberProbe[String]()
+      val m = FlowGraph { b ⇒
+        val merge = Merge[String]
+        b.
+          addEdge(ticks, Flow[String].map { elem ⇒ elem + "-1" }, merge).
+          addEdge(ticks, Flow[String].map { elem ⇒ elem + "-2" }, merge).
+          addEdge(merge, Sink(c))
+      }.run()
+      val cancellable = m.get(ticks)
+      val sub = c.expectSubscription()
+      sub.request(6)
+      val received = c.probe.receiveN(6).map { case OnNext(elem) ⇒ elem }
+      received.toSet should be(Set("tick-1", "tick-2"))
+      cancellable.cancel()
+      awaitCond(cancellable.isCancelled)
       c.expectComplete()
     }
 
