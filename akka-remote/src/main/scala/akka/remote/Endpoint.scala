@@ -200,6 +200,8 @@ private[remote] class ReliableDeliverySupervisor(
   val autoResendTimer = context.system.scheduler.schedule(
     settings.SysResendTimeout, settings.SysResendTimeout, self, AttemptSysMsgRedelivery)
 
+  val maxResend = 100
+
   override val supervisorStrategy = OneForOneStrategy(loggingEnabled = false) {
     case e @ (_: AssociationProblem) ⇒ Escalate
     case NonFatal(e) ⇒
@@ -375,8 +377,8 @@ private[remote] class ReliableDeliverySupervisor(
 
   private def resendAll(): Unit = {
     resendNacked()
-    println(s"# ${context.system.name} resendAll ${resendBuffer.nonAcked.size} ") // FIXME
-    resendBuffer.nonAcked foreach { writer ! _ }
+    println(s"# ${context.system.name} resendAll ${resendBuffer.nonAcked.size} ($maxResend)") // FIXME
+    resendBuffer.nonAcked.take(maxResend) foreach { writer ! _ }
   }
 
   private def tryBuffer(s: Send): Unit =
