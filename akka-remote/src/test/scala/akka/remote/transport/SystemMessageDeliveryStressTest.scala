@@ -174,6 +174,8 @@ abstract class SystemMessageDeliveryStressTest(msg: String, cfg: String)
         probeA.expectMsg(30.seconds, m)
       }
 
+      probeA.expectNoMsg(2.seconds)
+      probeB.expectNoMsg(100.millis)
     }
   }
 
@@ -187,7 +189,11 @@ abstract class SystemMessageDeliveryStressTest(msg: String, cfg: String)
       EventFilter.warning(pattern = "received dead letter.*(InboundPayload|Disassociate)")))
   }
 
-  override def afterTermination(): Unit = shutdown(systemB)
+  override def afterTermination(): Unit = {
+    println(s"# shutdown systemB") // FIXME
+    shutdown(systemB)
+    println(s"# shutdown systemA") // FIXME
+  }
 
 }
 

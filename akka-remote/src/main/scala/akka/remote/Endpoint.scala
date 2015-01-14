@@ -461,7 +461,7 @@ private[remote] object EndpointWriter {
 
   case class OutboundAck(ack: Ack)
 
-  // These settings are not configurable because wrong configuration will break the auto-tuning 
+  // These settings are not configurable because wrong configuration will break the auto-tuning
   private val SendBufferBatchSize = 5
   private val MinAdaptiveBackoffNanos = 300000L // 0.3 ms
   private val MaxAdaptiveBackoffNanos = 2000000L // 2 ms
@@ -808,6 +808,7 @@ private[remote] class EndpointWriter(
   }
 
   def flushAndStop(): Unit = {
+    println(s"# flushAndStop ${context.system.name}") // FIXME
     // Try to send a last Ack message
     trySendPureAck()
     stopReason = AssociationHandle.Shutdown

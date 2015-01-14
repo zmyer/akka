@@ -599,6 +599,8 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
     case ShutdownAndFlush ⇒
       // Shutdown all endpoints and signal to sender() when ready (and whether all endpoints were shut down gracefully)
 
+      println(s"# ShutdownAndFlush") // FIXME
+
       def shutdownAll[T](resources: TraversableOnce[T])(shutdown: T ⇒ Future[Boolean]): Future[Boolean] = {
         (Future sequence resources.map(shutdown)) map { _.forall(identity) } recover {
           case NonFatal(_) ⇒ false
@@ -648,6 +650,7 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
               pendingReadHandoffs += ep -> handle
               ep ! EndpointWriter.StopReading(ep, self)
             } else {
+              println(s"# stop and unregisterEndpoint") // FIXME
               context.stop(ep)
               endpoints.unregisterEndpoint(ep)
               pendingReadHandoffs -= ep
@@ -758,17 +761,19 @@ private[remote] class EndpointManager(conf: Config, log: LoggingAdapter) extends
     assert(transportMapping contains localAddress)
     assert(writing || refuseUid.isEmpty)
 
-    if (writing) context.watch(context.actorOf(RARP(extendedSystem).configureDispatcher(ReliableDeliverySupervisor.props(
-      handleOption,
-      localAddress,
-      remoteAddress,
-      refuseUid,
-      transport,
-      endpointSettings,
-      AkkaPduProtobufCodec,
-      receiveBuffers)).withDeploy(Deploy.local),
-      "reliableEndpointWriter-" + AddressUrlEncoder(remoteAddress) + "-" + endpointId.next()))
-    else context.watch(context.actorOf(RARP(extendedSystem).configureDispatcher(EndpointWriter.props(
+    if (writing) {
+      println(s"# creating endpointWriter ${context.system.name} -> $remoteAddress") // FIXME
+      context.watch(context.actorOf(RARP(extendedSystem).configureDispatcher(ReliableDeliverySupervisor.props(
+        handleOption,
+        localAddress,
+        remoteAddress,
+        refuseUid,
+        transport,
+        endpointSettings,
+        AkkaPduProtobufCodec,
+        receiveBuffers)).withDeploy(Deploy.local),
+        "reliableEndpointWriter-" + AddressUrlEncoder(remoteAddress) + "-"))
+    } else context.watch(context.actorOf(RARP(extendedSystem).configureDispatcher(EndpointWriter.props(
       handleOption,
       localAddress,
       remoteAddress,

@@ -99,6 +99,7 @@ case class AckedSendBuffer[T <: HasSequenceNumber](
    * @return An updated buffer containing the remaining unacknowledged messages
    */
   def acknowledge(ack: Ack): AckedSendBuffer[T] = {
+    println(s"# acknowledge ${ack.cumulativeAck}") // FIXME
     if (ack.cumulativeAck > maxSeq)
       throw new IllegalArgumentException(s"Highest SEQ so far was $maxSeq but cumulative ACK is ${ack.cumulativeAck}")
     val newNacked = (nacked ++ nonAcked) filter { m ⇒ ack.nacks(m.seq) }
@@ -115,6 +116,9 @@ case class AckedSendBuffer[T <: HasSequenceNumber](
    * @return The updated buffer
    */
   def buffer(msg: T): AckedSendBuffer[T] = {
+
+    println(s"# buffer ${msg.seq}") // FIXME
+
     if (msg.seq <= maxSeq) throw new IllegalArgumentException(s"Sequence number must be monotonic. Received [${msg.seq}] " +
       s"which is smaller than [$maxSeq]")
 
@@ -147,6 +151,7 @@ case class AckedReceiveBuffer[T <: HasSequenceNumber](
    * @return The updated buffer containing the message.
    */
   def receive(arrivedMsg: T): AckedReceiveBuffer[T] = {
+    println(s"# receive ${arrivedMsg.seq}") // FIXME
     this.copy(
       cumulativeAck = max(arrivedMsg.seq, cumulativeAck),
       buf = if (arrivedMsg.seq > lastDelivered && !buf.contains(arrivedMsg)) buf + arrivedMsg else buf)
@@ -180,6 +185,8 @@ case class AckedReceiveBuffer[T <: HasSequenceNumber](
       }
       prev = bufferedMsg.seq
     }
+
+    println(s"# extractDeliverable ${ack.cumulativeAck}") // FIXME
 
     (this.copy(buf = buf filterNot deliver.contains, lastDelivered = updatedLastDelivered), deliver, ack)
   }
