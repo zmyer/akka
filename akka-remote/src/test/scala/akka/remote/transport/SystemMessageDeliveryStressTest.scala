@@ -169,9 +169,14 @@ abstract class SystemMessageDeliveryStressTest(msg: String, cfg: String)
       systemA.actorOf(Props(classOf[SystemMessageSender], msgCount, burstSize, burstDelay, targetForA))
 
       val toSend = (0 until msgCount).toList
+      val t0 = System.nanoTime()
       for (m ← 0 until msgCount) {
-        probeB.expectMsg(30.seconds, m)
-        probeA.expectMsg(30.seconds, m)
+        val t1 = System.nanoTime()
+        probeB.expectMsg(60.seconds, m)
+        val t2 = System.nanoTime()
+        probeA.expectMsg(60.seconds, m)
+        val t3 = System.nanoTime()
+        println(s"# message $m completed after ${(t2 - t0).nanos.toMillis} / ${(t3 - t0).nanos.toMillis} ms, delta ${(t2 - t1).nanos.toMillis} / ${(t3 - t1).nanos.toMillis} ms") // FIXME
       }
 
       probeA.expectNoMsg(2.seconds)

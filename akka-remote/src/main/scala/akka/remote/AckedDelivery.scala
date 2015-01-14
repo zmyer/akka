@@ -91,7 +91,8 @@ case class AckedSendBuffer[T <: HasSequenceNumber](
   capacity: Int,
   nonAcked: IndexedSeq[T] = Vector.empty[T],
   nacked: IndexedSeq[T] = Vector.empty[T],
-  maxSeq: SeqNo = SeqNo(-1)) {
+  maxSeq: SeqNo = SeqNo(-1),
+  sysName: String = "") {
 
   /**
    * Processes an incoming acknowledgement and returns a new buffer with only unacknowledged elements remaining.
@@ -99,7 +100,8 @@ case class AckedSendBuffer[T <: HasSequenceNumber](
    * @return An updated buffer containing the remaining unacknowledged messages
    */
   def acknowledge(ack: Ack): AckedSendBuffer[T] = {
-    println(s"# acknowledge ${ack.cumulativeAck}") // FIXME
+    val nacksMin = if (ack.nacks.isEmpty) -1 else ack.nacks.min
+    println(s"# $sysName acknowledge ack.cumulativeAck=${ack.cumulativeAck} ack.nacks.size=${ack.nacks.size} ack.nacks.min=$nacksMin") // FIXME
     if (ack.cumulativeAck > maxSeq)
       throw new IllegalArgumentException(s"Highest SEQ so far was $maxSeq but cumulative ACK is ${ack.cumulativeAck}")
     val newNacked = (nacked ++ nonAcked) filter { m ⇒ ack.nacks(m.seq) }
@@ -117,7 +119,7 @@ case class AckedSendBuffer[T <: HasSequenceNumber](
    */
   def buffer(msg: T): AckedSendBuffer[T] = {
 
-    println(s"# buffer ${msg.seq}") // FIXME
+    println(s"# $sysName buffer ${msg.seq}") // FIXME
 
     if (msg.seq <= maxSeq) throw new IllegalArgumentException(s"Sequence number must be monotonic. Received [${msg.seq}] " +
       s"which is smaller than [$maxSeq]")
@@ -141,7 +143,8 @@ case class AckedSendBuffer[T <: HasSequenceNumber](
 case class AckedReceiveBuffer[T <: HasSequenceNumber](
   lastDelivered: SeqNo = SeqNo(-1),
   cumulativeAck: SeqNo = SeqNo(-1),
-  buf: SortedSet[T] = TreeSet.empty[T])(implicit val seqOrdering: Ordering[T]) {
+  buf: SortedSet[T] = TreeSet.empty[T],
+  sysName: String = "")(implicit val seqOrdering: Ordering[T]) {
 
   import SeqNo.ord.max
 
@@ -151,7 +154,7 @@ case class AckedReceiveBuffer[T <: HasSequenceNumber](
    * @return The updated buffer containing the message.
    */
   def receive(arrivedMsg: T): AckedReceiveBuffer[T] = {
-    println(s"# receive ${arrivedMsg.seq}") // FIXME
+    println(s"# $sysName receive ${arrivedMsg.seq}") // FIXME
     this.copy(
       cumulativeAck = max(arrivedMsg.seq, cumulativeAck),
       buf = if (arrivedMsg.seq > lastDelivered && !buf.contains(arrivedMsg)) buf + arrivedMsg else buf)
@@ -186,7 +189,7 @@ case class AckedReceiveBuffer[T <: HasSequenceNumber](
       prev = bufferedMsg.seq
     }
 
-    println(s"# extractDeliverable ${ack.cumulativeAck}") // FIXME
+    println(s"# $sysName extractDeliverable ${ack.cumulativeAck}") // FIXME
 
     (this.copy(buf = buf filterNot deliver.contains, lastDelivered = updatedLastDelivered), deliver, ack)
   }

@@ -219,7 +219,7 @@ private[remote] class ReliableDeliverySupervisor(
   var seqCounter: Long = _
 
   def reset() {
-    resendBuffer = new AckedSendBuffer[Send](settings.SysMsgBufferSize)
+    resendBuffer = new AckedSendBuffer[Send](settings.SysMsgBufferSize, sysName = context.system.name)
     lastCumulativeAck = SeqNo(-1)
     seqCounter = 0L
   }
@@ -356,7 +356,7 @@ private[remote] class ReliableDeliverySupervisor(
     case Terminated(_) ⇒
       // Clear buffer to prevent sending system messages to dead letters -- at this point we are shutting down
       // and don't really know if they were properly delivered or not.
-      resendBuffer = new AckedSendBuffer[Send](0)
+      resendBuffer = new AckedSendBuffer[Send](0, sysName = context.system.name)
       context.stop(self)
     case _ ⇒ // Ignore
   }
@@ -882,7 +882,7 @@ private[remote] class EndpointReader(
   import EndpointWriter.{ OutboundAck, StopReading, StoppedReading }
 
   val provider = RARP(context.system).provider
-  var ackedReceiveBuffer = new AckedReceiveBuffer[Message]
+  var ackedReceiveBuffer = new AckedReceiveBuffer[Message](sysName = context.system.name)
 
   override def preStart(): Unit = {
     receiveBuffers.get(Link(localAddress, remoteAddress)) match {
