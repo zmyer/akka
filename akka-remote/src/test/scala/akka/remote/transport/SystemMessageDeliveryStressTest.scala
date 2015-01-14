@@ -114,7 +114,7 @@ abstract class SystemMessageDeliveryStressTest(msg: String, cfg: String)
   with DefaultTimeout {
   import SystemMessageDeliveryStressTest._
 
-  override def expectedTestDuration: FiniteDuration = 120.seconds
+  override def expectedTestDuration: FiniteDuration = 15.minutes
 
   val systemA = system
   val systemB = ActorSystem("systemB", system.settings.config)
@@ -172,9 +172,9 @@ abstract class SystemMessageDeliveryStressTest(msg: String, cfg: String)
       val t0 = System.nanoTime()
       for (m ← 0 until msgCount) {
         val t1 = System.nanoTime()
-        probeB.expectMsg(60.seconds, m)
+        probeB.expectMsg(10.minutes, m)
         val t2 = System.nanoTime()
-        probeA.expectMsg(60.seconds, m)
+        probeA.expectMsg(10.minutes, m)
         val t3 = System.nanoTime()
         println(s"# message $m completed after ${(t2 - t0).nanos.toMillis} / ${(t3 - t0).nanos.toMillis} ms, delta ${(t2 - t1).nanos.toMillis} / ${(t3 - t1).nanos.toMillis} ms") // FIXME
       }
