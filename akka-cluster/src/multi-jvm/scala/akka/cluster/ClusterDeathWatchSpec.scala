@@ -6,8 +6,6 @@ package akka.cluster
 import language.postfixOps
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
 import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit._
@@ -161,7 +159,9 @@ abstract class ClusterDeathWatchSpec
         // fifth is not cluster member, so the watch is handled by the RemoteWatcher
         awaitAssert {
           remoteWatcher ! RemoteWatcher.Stats
-          expectMsgType[RemoteWatcher.Stats].watchingRefs(subject5.asInstanceOf[InternalActorRef]) should contain(testActor)
+          val stats = expectMsgType[RemoteWatcher.Stats]
+          stats.watchingRefs(subject5.asInstanceOf[InternalActorRef]) should contain(testActor)
+          stats.watchingAddresses should contain(address(fifth))
         }
       }
       enterBarrier("remote-watch")
@@ -170,13 +170,13 @@ abstract class ClusterDeathWatchSpec
       awaitClusterUp(first, fourth, fifth)
 
       runOn(first) {
-        // fifth is member, so the watch is handled by the ClusterRemoteWatcher,
-        // and cleaned up from RemoteWatcher
+        // fifth is member, so the node is handled by the ClusterRemoteWatcher,
+        // but the watch is still in RemoteWatcher
         awaitAssert {
           remoteWatcher ! RemoteWatcher.Stats
-          expectMsgType[RemoteWatcher.Stats].watchingRefs.map {
-            case (watchee, watcher) ⇒ watchee.path.name
-          } should not contain ("subject5")
+          val stats = expectMsgType[RemoteWatcher.Stats]
+          stats.watchingRefs.keys.map(_.path.name) should contain("subject5")
+          stats.watchingAddresses should not contain address(fifth)
         }
       }
 
