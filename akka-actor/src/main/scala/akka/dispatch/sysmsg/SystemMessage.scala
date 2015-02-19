@@ -244,7 +244,7 @@ private[akka] case class Watch(watchee: InternalActorRef, watcher: InternalActor
  * INTERNAL API
  */
 @SerialVersionUID(1L)
-private[akka] final case class Unwatch(watchee: ActorRef, watcher: ActorRef) extends SystemMessage // sent to tear down a DeathWatch
+private[akka] final case class Unwatch(watchee: InternalActorRef, watcher: InternalActorRef) extends SystemMessage // sent to tear down a DeathWatch
 /**
  * INTERNAL API
  */

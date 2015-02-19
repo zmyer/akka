@@ -303,8 +303,8 @@ private[transport] class ThrottlerManager(wrappedTransport: Transport) extends A
       target.tell(mode, ref)
       ref.result.future.transform({
         case Terminated(t) if t.path == target.path ⇒ SetThrottleAck
-        case SetThrottleAck                         ⇒ { internalTarget.sendSystemMessage(Unwatch(target, ref)); SetThrottleAck }
-      }, t ⇒ { internalTarget.sendSystemMessage(Unwatch(target, ref)); t })(ref.internalCallingThreadExecutionContext)
+        case SetThrottleAck                         ⇒ { internalTarget.sendSystemMessage(Unwatch(internalTarget, ref)); SetThrottleAck }
+      }, t ⇒ { internalTarget.sendSystemMessage(Unwatch(internalTarget, ref)); t })(ref.internalCallingThreadExecutionContext)
     }
   }
 

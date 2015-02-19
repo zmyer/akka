@@ -12,22 +12,11 @@ import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit._
 import akka.testkit.TestEvent._
-import akka.actor.Props
-import akka.actor.Actor
-import akka.actor.Address
-import akka.actor.RootActorPath
-import akka.actor.Terminated
-import akka.actor.Address
+import akka.actor._
 import akka.remote.RemoteActorRef
 import java.util.concurrent.TimeoutException
-import akka.actor.ActorSystemImpl
-import akka.actor.ActorIdentity
-import akka.actor.Identify
-import akka.actor.ActorRef
 import akka.remote.RemoteWatcher
-import akka.actor.ActorSystem
 import akka.cluster.MultiNodeClusterSpec.EndActor
-import akka.actor.Deploy
 
 object ClusterDeathWatchMultiJvmSpec extends MultiNodeConfig {
   val first = role("first")
@@ -172,7 +161,7 @@ abstract class ClusterDeathWatchSpec
         // fifth is not cluster member, so the watch is handled by the RemoteWatcher
         awaitAssert {
           remoteWatcher ! RemoteWatcher.Stats
-          expectMsgType[RemoteWatcher.Stats].watchingRefs(subject5) should contain(testActor)
+          expectMsgType[RemoteWatcher.Stats].watchingRefs(subject5.asInstanceOf[InternalActorRef]) should contain(testActor)
         }
       }
       enterBarrier("remote-watch")
