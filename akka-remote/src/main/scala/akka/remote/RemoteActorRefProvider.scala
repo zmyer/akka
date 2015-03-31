@@ -148,7 +148,9 @@ private[akka] class RemoteActorRefProvider(
   // This actor ensures the ordering of shutdown between remoteDaemon and the transport
   @volatile private var remotingTerminator: ActorRef = _
 
-  @volatile private[akka] var remoteWatcher: ActorRef = _
+  @volatile private var _remoteWatcher: ActorRef = _
+  private[akka] def remoteWatcher = _remoteWatcher
+
   @volatile private var remoteDeploymentWatcher: ActorRef = _
 
   def init(system: ActorSystemImpl): Unit = {
@@ -181,7 +183,7 @@ private[akka] class RemoteActorRefProvider(
     // this enables reception of remote requests
     transport.start()
 
-    remoteWatcher = createRemoteWatcher(system)
+    _remoteWatcher = createRemoteWatcher(system)
     remoteDeploymentWatcher = createRemoteDeploymentWatcher(system)
   }
 
