@@ -9,6 +9,7 @@ import akka.dispatch.sysmsg.{ DeathWatchNotification, Watch }
 import akka.dispatch.{ RequiresMessageQueue, UnboundedMessageQueueSemantics }
 import akka.event.AddressTerminatedTopic
 
+import scala.collection.mutable
 import scala.concurrent.duration._
 
 /**
@@ -97,8 +98,11 @@ private[akka] class RemoteWatcher(
 
   // actors that this node is watching, map of watchee -> Set(watchers)
   var watching: Map[InternalActorRef, Set[InternalActorRef]] = Map.empty
+
   // nodes that this node is watching, i.e. expecting hearteats from these nodes
-  var watchingNodes: Set[Address] = Set.empty
+  val watchByNodes = new mutable.HashMap[Address, mutable.Set[InternalActorRef]]() with mutable.MultiMap[Address, InternalActorRef]
+  def watchingNodes = watchByNodes.keySet
+
   var unreachable: Set[Address] = Set.empty
   var addressUids: Map[Address, Int] = Map.empty
 
@@ -126,7 +130,7 @@ private[akka] class RemoteWatcher(
     case Stats ⇒
       sender() ! Stats(
         watching = watching.foldLeft(0) { case (acc, (_, wers)) ⇒ acc + wers.size },
-        watchingNodes = watchingNodes.size)(watching, watchingNodes)
+        watchingNodes = watchingNodes.size)(watching, watchingNodes.toSet)
   }
 
   def receiveHeartbeat(): Unit =
@@ -140,7 +144,7 @@ private[akka] class RemoteWatcher(
     else
       log.debug("Received first heartbeat rsp from [{}]", from)
 
-    if (watchingNodes(from) && !unreachable(from)) {
+    if (watchByNodes.contains(from) && !unreachable(from)) {
       if (!addressUids.contains(from) || addressUids(from) != uid)
         reWatch(from)
       addressUids += (from → uid)
@@ -172,19 +176,20 @@ private[akka] class RemoteWatcher(
 
     log.debug("Watching: [{} -> {}]", watcher.path, watchee.path)
     insertWatch(watchee, watcher)
-    watchNode(watchee.path.address)
+    watchNode(watchee)
 
     // add watch from self, this will actually send a Watch to the target when necessary
     context watch watchee
   }
 
-  def watchNode(watcheeAddress: Address): Unit = {
-    if (!watchingNodes(watcheeAddress) && unreachable(watcheeAddress)) {
+  def watchNode(watchee: InternalActorRef): Unit = {
+    val watcheeAddress = watchee.path.address
+    if (!watchByNodes.contains(watcheeAddress) && unreachable(watcheeAddress)) {
       // first watch to that node after a previous unreachable
       unreachable -= watcheeAddress
       failureDetector.remove(watcheeAddress)
     }
-    watchingNodes += watcheeAddress
+    watchByNodes.addBinding(watcheeAddress, watchee)
   }
 
   def insertWatch(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
@@ -202,7 +207,7 @@ private[akka] class RemoteWatcher(
     watching.get(watchee) match {
       case Some(watchers) if watchers == Set(watcher) ⇒
         clearAllWatches(watchee)
-        checkLastUnwatchOfNode(watchee.path.address)
+        checkLastUnwatchOfNode(watchee)
       case Some(watchers) ⇒
         watching += watchee → (watchers - watcher)
       case None ⇒
@@ -233,11 +238,14 @@ private[akka] class RemoteWatcher(
       } watcher.sendSystemMessage(DeathWatchNotification(watchee, existenceConfirmed, addressTerminated))
 
     watching -= watchee
-    checkLastUnwatchOfNode(watchee.path.address)
+    checkLastUnwatchOfNode(watchee)
   }
 
-  def checkLastUnwatchOfNode(watcheeAddress: Address): Unit = {
-    if (watchingNodes(watcheeAddress) && watching.keys.forall(_.path.address != watcheeAddress)) {
+  def checkLastUnwatchOfNode(watchee: InternalActorRef): Unit = {
+    val watcheeAddress = watchee.path.address
+    val wasWatching = watchByNodes.contains(watcheeAddress)
+    watchByNodes.removeBinding(watcheeAddress, watchee)
+    if (wasWatching && !watchByNodes.contains(watcheeAddress)) {
       // unwatched last watchee on that node
       log.debug("Unwatched last watchee of node: [{}]", watcheeAddress)
       unwatchNode(watcheeAddress)
@@ -245,7 +253,7 @@ private[akka] class RemoteWatcher(
   }
 
   def unwatchNode(watcheeAddress: Address): Unit = {
-    watchingNodes -= watcheeAddress
+    watchByNodes -= watcheeAddress
     addressUids -= watcheeAddress
     failureDetector.remove(watcheeAddress)
   }
@@ -266,7 +274,7 @@ private[akka] class RemoteWatcher(
     }
 
   def triggerFirstHeartbeat(address: Address): Unit =
-    if (watchingNodes(address) && !failureDetector.isMonitoring(address)) {
+    if (watchByNodes.contains(address) && !failureDetector.isMonitoring(address)) {
       log.debug("Trigger extra expected heartbeat from [{}]", address)
       failureDetector.heartbeat(address)
     }

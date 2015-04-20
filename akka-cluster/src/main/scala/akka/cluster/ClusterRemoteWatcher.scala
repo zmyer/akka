@@ -4,16 +4,13 @@
 package akka.cluster
 
 import scala.concurrent.duration.FiniteDuration
-import akka.actor.Actor
-import akka.actor.Address
-import akka.actor.Props
+import akka.actor._
 import akka.cluster.ClusterEvent.CurrentClusterState
 import akka.cluster.ClusterEvent.MemberEvent
 import akka.cluster.ClusterEvent.MemberUp
 import akka.cluster.ClusterEvent.MemberRemoved
 import akka.remote.FailureDetectorRegistry
 import akka.remote.RemoteWatcher
-import akka.actor.Deploy
 
 /**
  * INTERNAL API
@@ -92,8 +89,8 @@ private[cluster] class ClusterRemoteWatcher(
     case _: MemberEvent ⇒ // not interesting
   }
 
-  override def watchNode(watcheeAddress: Address) =
-    if (!clusterNodes(watcheeAddress)) super.watchNode(watcheeAddress)
+  override def watchNode(watchee: InternalActorRef) =
+    if (!clusterNodes(watchee.path.address)) super.watchNode(watchee)
 
   /**
    * When a cluster node is added this class takes over the
@@ -101,7 +98,7 @@ private[cluster] class ClusterRemoteWatcher(
    * by super RemoteWatcher.
    */
   def takeOverResponsibility(address: Address): Unit =
-    if (watchingNodes.contains(address)) {
+    if (watchingNodes(address)) {
       log.debug("Cluster is taking over responsibility of node: [{}]", address)
       unwatchNode(address)
     }
