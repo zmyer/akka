@@ -97,7 +97,7 @@ private[akka] class RemoteWatcher(
   val selfHeartbeatRspMsg = HeartbeatRsp(AddressUidExtension(context.system).addressUid)
 
   // actors that this node is watching, map of watchee -> Set(watchers)
-  var watching: Map[InternalActorRef, Set[InternalActorRef]] = Map.empty
+  val watching = new mutable.HashMap[InternalActorRef, mutable.Set[InternalActorRef]]() with mutable.MultiMap[InternalActorRef, InternalActorRef]
 
   // nodes that this node is watching, i.e. expecting hearteats from these nodes
   val watchByNodes = new mutable.HashMap[Address, mutable.Set[InternalActorRef]]() with mutable.MultiMap[Address, InternalActorRef]
@@ -130,7 +130,7 @@ private[akka] class RemoteWatcher(
     case Stats ⇒
       sender() ! Stats(
         watching = watching.foldLeft(0) { case (acc, (_, wers)) ⇒ acc + wers.size },
-        watchingNodes = watchingNodes.size)(watching, watchingNodes.toSet)
+        watchingNodes = watchingNodes.size)(watching.mapValues(_.toSet).toMap, watchingNodes.toSet)
   }
 
   def receiveHeartbeat(): Unit =
@@ -175,7 +175,7 @@ private[akka] class RemoteWatcher(
       logActorForDeprecationWarning(watchee)
 
     log.debug("Watching: [{} -> {}]", watcher.path, watchee.path)
-    insertWatch(watchee, watcher)
+    watching.addBinding(watchee, watcher)
     watchNode(watchee)
 
     // add watch from self, this will actually send a Watch to the target when necessary
@@ -190,14 +190,6 @@ private[akka] class RemoteWatcher(
       failureDetector.remove(watcheeAddress)
     }
     watchByNodes.addBinding(watcheeAddress, watchee)
-  }
-
-  def insertWatch(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
-    val newWatchers = watching.get(watchee) match {
-      case Some(watchers) ⇒ watchers + watcher
-      case None           ⇒ Set(watcher)
-    }
-    watching += watchee → newWatchers
   }
 
   def unwatchRemote(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
