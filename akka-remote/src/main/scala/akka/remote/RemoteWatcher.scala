@@ -3,23 +3,13 @@
  */
 package akka.remote
 
-import scala.concurrent.duration._
-import akka.actor.Actor
-import akka.actor.ActorLogging
-import akka.actor.ActorRef
-import akka.actor.Address
-import akka.actor.AddressTerminated
-import akka.actor.Props
-import akka.actor.RootActorPath
-import akka.actor.Terminated
-import akka.actor.ExtendedActorSystem
 import akka.ConfigurationException
-import akka.dispatch.{ UnboundedMessageQueueSemantics, RequiresMessageQueue }
-import akka.actor.InternalActorRef
-import akka.dispatch.sysmsg.DeathWatchNotification
-import akka.dispatch.sysmsg.Watch
-import akka.actor.Deploy
+import akka.actor._
+import akka.dispatch.sysmsg.{ DeathWatchNotification, Watch }
+import akka.dispatch.{ RequiresMessageQueue, UnboundedMessageQueueSemantics }
 import akka.event.AddressTerminatedTopic
+
+import scala.concurrent.duration._
 
 /**
  * INTERNAL API
