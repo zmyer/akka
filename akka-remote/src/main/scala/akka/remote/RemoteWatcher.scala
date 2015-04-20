@@ -175,8 +175,11 @@ private[akka] class RemoteWatcher(
     remoteProvider.quarantine(address, uid)
 
   def watchRemote(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
+    assert(watcher != self)
+
     if (watchee.path.uid == akka.actor.ActorCell.undefinedUid)
       logActorForDeprecationWarning(watchee)
+
     log.debug("Watching: [{} -> {}]", watcher.path, watchee.path)
     insertWatch(watchee, watcher)
     watchNode(watchee.path.address)
@@ -237,7 +240,6 @@ private[akka] class RemoteWatcher(
       for {
         watchers ← watching.get(watchee)
         watcher ← watchers
-        if watcher != self
       } watcher.sendSystemMessage(DeathWatchNotification(watchee, existenceConfirmed, addressTerminated))
 
     watching -= watchee
