@@ -4,19 +4,20 @@
 
 package akka.serialization
 
-import language.postfixOps
+import java.io._
 
-import akka.testkit.{ AkkaSpec, EventFilter }
 import akka.actor._
 import akka.dispatch.sysmsg._
-import java.io._
-import scala.concurrent.Await
-import akka.util.Timeout
-import scala.concurrent.duration._
-import scala.beans.BeanInfo
-import com.typesafe.config._
 import akka.pattern.ask
+import akka.testkit.{ AkkaSpec, EventFilter }
+import akka.util.Timeout
+import com.typesafe.config._
 import org.apache.commons.codec.binary.Hex.encodeHex
+
+import scala.beans.BeanInfo
+import scala.concurrent.Await
+import scala.concurrent.duration._
+import scala.language.postfixOps
 
 object SerializationTests {
 
@@ -318,7 +319,6 @@ class ReferenceSerializationSpec extends AkkaSpec(SerializationTests.mostlyRefer
 
 @org.junit.runner.RunWith(classOf[org.scalatest.junit.JUnitRunner])
 class SerializationCompatibilitySpec extends AkkaSpec(SerializationTests.mostlyReferenceSystem) {
-  import SerializationTests._
 
   val ser = SerializationExtension(system)
 
@@ -377,9 +377,9 @@ class SerializationCompatibilitySpec extends AkkaSpec(SerializationTests.mostlyR
     }
     "be preserved for the Unwatch SystemMessage" in {
       verify(Unwatch(null, null),
-        "aced00057372001c616b6b612e64697370617463682e7379736d73672e556e7761746368000000000" +
-          "00000010200024c00077761746368656574001d4c616b6b612f6163746f722f496e7465726e616c41" +
-          "63746f725265663b4c00077761746368657271007e000178707070")
+        "aced00057372001c616b6b612e64697370617463682e7379736d73672e556e776174636800000000" +
+          "000000010200024c0007776174636865657400154c616b6b612f6163746f722f4163746f72526566" +
+          "3b4c00077761746368657271007e000178707070")
     }
     "be preserved for the NoMessage SystemMessage" in {
       verify(NoMessage,

@@ -466,7 +466,7 @@ private[akka] class RemoteActorRef private[akka] (
       message match {
         case Watch(watchee, watcher) if watcher != provider.remoteWatcher ⇒
           provider.remoteWatcher ! RemoteWatcher.WatchRemote(watchee, watcher)
-        case Unwatch(watchee, watcher) if watcher != provider.remoteWatcher ⇒
+        case Unwatch(watchee: InternalActorRef, watcher: InternalActorRef) if watcher != provider.remoteWatcher ⇒
           provider.remoteWatcher ! RemoteWatcher.UnwatchRemote(watchee, watcher)
         case _ ⇒ remote.send(message, None, this)
       }
