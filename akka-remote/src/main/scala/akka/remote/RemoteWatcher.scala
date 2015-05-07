@@ -196,12 +196,13 @@ private[akka] class RemoteWatcher(
     if (watchee.path.uid == akka.actor.ActorCell.undefinedUid)
       logActorForDeprecationWarning(watchee)
     log.debug("Unwatching: [{} -> {}]", watcher.path, watchee.path)
+
+    // Could have used removeBinding, but it does not tell if this was the last entry. This saves a contains call.
     watching.get(watchee) match {
-      case Some(watchers) if watchers == Set(watcher) ⇒
-        clearAllWatches(watchee)
-        checkLastUnwatchOfNode(watchee)
       case Some(watchers) ⇒
-        watching += watchee → (watchers - watcher)
+        watchers -= watcher
+        if (watchers.isEmpty)
+          clearAllWatches(watchee)
       case None ⇒
     }
   }
@@ -211,6 +212,7 @@ private[akka] class RemoteWatcher(
     log.debug("Cleanup self watch of [{}]", watchee.path)
     context unwatch watchee
     watching -= watchee
+    checkLastUnwatchOfNode(watchee)
   }
 
   def logActorForDeprecationWarning(watchee: InternalActorRef): Unit = {
@@ -235,12 +237,17 @@ private[akka] class RemoteWatcher(
 
   def checkLastUnwatchOfNode(watchee: InternalActorRef): Unit = {
     val watcheeAddress = watchee.path.address
-    val wasWatching = watchByNodes.contains(watcheeAddress)
-    watchByNodes.removeBinding(watcheeAddress, watchee)
-    if (wasWatching && !watchByNodes.contains(watcheeAddress)) {
-      // unwatched last watchee on that node
-      log.debug("Unwatched last watchee of node: [{}]", watcheeAddress)
-      unwatchNode(watcheeAddress)
+
+    // Could have used removeBinding, but it does not tell if this was the last entry. This saves a contains call.
+    watchByNodes.get(watcheeAddress) match {
+      case Some(watchees) ⇒
+        watchees -= watchee
+        if (watchees.isEmpty) {
+          // unwatched last watchee on that node
+          log.debug("Unwatched last watchee of node: [{}]", watcheeAddress)
+          unwatchNode(watcheeAddress)
+        }
+      case None ⇒
     }
   }
 
