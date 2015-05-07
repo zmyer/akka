@@ -286,7 +286,10 @@ private[akka] class RemoteWatcher(
    * does not exist.
    */
   def reWatch(address: Address): Unit =
-    watching.keys.withFilter(_.path.address == address) foreach { watchee ⇒
+    for {
+      watchees ← watchByNodes.get(address)
+      watchee ← watchees
+    } {
       val watcher = self.asInstanceOf[InternalActorRef]
       log.debug("Re-watch [{} -> {}]", watcher.path, watchee.path)
       watchee.sendSystemMessage(Watch(watchee, watcher)) // ➡➡➡ NEVER SEND THE SAME SYSTEM MESSAGE OBJECT TO TWO ACTORS ⬅⬅⬅
