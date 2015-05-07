@@ -99,9 +99,9 @@ private[akka] class RemoteWatcher(
   // actors that this node is watching, map of watchee -> Set(watchers)
   val watching = new mutable.HashMap[InternalActorRef, mutable.Set[InternalActorRef]]() with mutable.MultiMap[InternalActorRef, InternalActorRef]
 
-  // nodes that this node is watching, i.e. expecting hearteats from these nodes
-  val watchByNodes = new mutable.HashMap[Address, mutable.Set[InternalActorRef]]() with mutable.MultiMap[Address, InternalActorRef]
-  def watchingNodes = watchByNodes.keySet
+  // nodes that this node is watching, i.e. expecting heartbeats from these nodes. Map of address -> Set(watchee) on this address
+  val watcheeByNodes = new mutable.HashMap[Address, mutable.Set[InternalActorRef]]() with mutable.MultiMap[Address, InternalActorRef]
+  def watchingNodes = watcheeByNodes.keySet
 
   var unreachable: Set[Address] = Set.empty
   var addressUids: Map[Address, Int] = Map.empty
@@ -122,8 +122,8 @@ private[akka] class RemoteWatcher(
     case HeartbeatRsp(uid)                         ⇒ receiveHeartbeatRsp(uid)
     case ReapUnreachableTick                       ⇒ reapUnreachable()
     case ExpectedFirstHeartbeat(from)              ⇒ triggerFirstHeartbeat(from)
-    case WatchRemote(watchee, watcher)             ⇒ watchRemote(watchee, watcher)
-    case UnwatchRemote(watchee, watcher)           ⇒ unwatchRemote(watchee, watcher)
+    case WatchRemote(watchee, watcher)             ⇒ addWatch(watchee, watcher)
+    case UnwatchRemote(watchee, watcher)           ⇒ removeWatch(watchee, watcher)
     case t @ Terminated(watchee: InternalActorRef) ⇒ terminated(watchee, t.existenceConfirmed, t.addressTerminated)
 
     // test purpose
@@ -144,7 +144,7 @@ private[akka] class RemoteWatcher(
     else
       log.debug("Received first heartbeat rsp from [{}]", from)
 
-    if (watchByNodes.contains(from) && !unreachable(from)) {
+    if (watcheeByNodes.contains(from) && !unreachable(from)) {
       if (!addressUids.contains(from) || addressUids(from) != uid)
         reWatch(from)
       addressUids += (from → uid)
@@ -168,7 +168,7 @@ private[akka] class RemoteWatcher(
   def quarantine(address: Address, uid: Option[Int]): Unit =
     remoteProvider.quarantine(address, uid)
 
-  def watchRemote(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
+  def addWatch(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
     assert(watcher != self)
     log.debug("Watching: [{} -> {}]", watcher.path, watchee.path)
     watching.addBinding(watchee, watcher)
@@ -180,15 +180,15 @@ private[akka] class RemoteWatcher(
 
   def watchNode(watchee: InternalActorRef): Unit = {
     val watcheeAddress = watchee.path.address
-    if (!watchByNodes.contains(watcheeAddress) && unreachable(watcheeAddress)) {
+    if (!watcheeByNodes.contains(watcheeAddress) && unreachable(watcheeAddress)) {
       // first watch to that node after a previous unreachable
       unreachable -= watcheeAddress
       failureDetector.remove(watcheeAddress)
     }
-    watchByNodes.addBinding(watcheeAddress, watchee)
+    watcheeByNodes.addBinding(watcheeAddress, watchee)
   }
 
-  def unwatchRemote(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
+  def removeWatch(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
     assert(watcher != self)
     log.debug("Unwatching: [{} -> {}]", watcher.path, watchee.path)
 
@@ -196,18 +196,36 @@ private[akka] class RemoteWatcher(
     watching.get(watchee) match {
       case Some(watchers) ⇒
         watchers -= watcher
-        if (watchers.isEmpty)
-          clearAllWatches(watchee)
+        if (watchers.isEmpty) {
+          // clean up self watch when no more watchers of this watchee
+          log.debug("Cleanup self watch of [{}]", watchee.path)
+          context unwatch watchee
+          removeWatchee(watchee)
+        }
       case None ⇒
     }
   }
 
-  def clearAllWatches(watchee: InternalActorRef): Unit = {
-    // clean up self watch when no more watchers of this watchee
-    log.debug("Cleanup self watch of [{}]", watchee.path)
-    context unwatch watchee
+  def removeWatchee(watchee: InternalActorRef): Unit = {
+    val watcheeAddress = watchee.path.address
     watching -= watchee
-    checkLastUnwatchOfNode(watchee)
+    // Could have used removeBinding, but it does not tell if this was the last entry. This saves a contains call.
+    watcheeByNodes.get(watcheeAddress) match {
+      case Some(watchees) ⇒
+        watchees -= watchee
+        if (watchees.isEmpty) {
+          // unwatched last watchee on that node
+          log.debug("Unwatched last watchee of node: [{}]", watcheeAddress)
+          unwatchNode(watcheeAddress)
+        }
+      case None ⇒
+    }
+  }
+
+  def unwatchNode(watcheeAddress: Address): Unit = {
+    watcheeByNodes -= watcheeAddress
+    addressUids -= watcheeAddress
+    failureDetector.remove(watcheeAddress)
   }
 
   def terminated(watchee: InternalActorRef, existenceConfirmed: Boolean, addressTerminated: Boolean): Unit = {
@@ -222,30 +240,7 @@ private[akka] class RemoteWatcher(
         watcher ← watchers
       } watcher.sendSystemMessage(DeathWatchNotification(watchee, existenceConfirmed, addressTerminated))
 
-    watching -= watchee
-    checkLastUnwatchOfNode(watchee)
-  }
-
-  def checkLastUnwatchOfNode(watchee: InternalActorRef): Unit = {
-    val watcheeAddress = watchee.path.address
-
-    // Could have used removeBinding, but it does not tell if this was the last entry. This saves a contains call.
-    watchByNodes.get(watcheeAddress) match {
-      case Some(watchees) ⇒
-        watchees -= watchee
-        if (watchees.isEmpty) {
-          // unwatched last watchee on that node
-          log.debug("Unwatched last watchee of node: [{}]", watcheeAddress)
-          unwatchNode(watcheeAddress)
-        }
-      case None ⇒
-    }
-  }
-
-  def unwatchNode(watcheeAddress: Address): Unit = {
-    watchByNodes -= watcheeAddress
-    addressUids -= watcheeAddress
-    failureDetector.remove(watcheeAddress)
+    removeWatchee(watchee)
   }
 
   def sendHeartbeat(): Unit =
@@ -264,7 +259,7 @@ private[akka] class RemoteWatcher(
     }
 
   def triggerFirstHeartbeat(address: Address): Unit =
-    if (watchByNodes.contains(address) && !failureDetector.isMonitoring(address)) {
+    if (watcheeByNodes.contains(address) && !failureDetector.isMonitoring(address)) {
       log.debug("Trigger extra expected heartbeat from [{}]", address)
       failureDetector.heartbeat(address)
     }
@@ -278,7 +273,7 @@ private[akka] class RemoteWatcher(
    */
   def reWatch(address: Address): Unit =
     for {
-      watchees ← watchByNodes.get(address)
+      watchees ← watcheeByNodes.get(address)
       watchee ← watchees
     } {
       val watcher = self.asInstanceOf[InternalActorRef]
