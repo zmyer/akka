@@ -170,10 +170,6 @@ private[akka] class RemoteWatcher(
 
   def watchRemote(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
     assert(watcher != self)
-
-    if (watchee.path.uid == akka.actor.ActorCell.undefinedUid)
-      logActorForDeprecationWarning(watchee)
-
     log.debug("Watching: [{} -> {}]", watcher.path, watchee.path)
     watching.addBinding(watchee, watcher)
     watchNode(watchee)
@@ -193,8 +189,7 @@ private[akka] class RemoteWatcher(
   }
 
   def unwatchRemote(watchee: InternalActorRef, watcher: InternalActorRef): Unit = {
-    if (watchee.path.uid == akka.actor.ActorCell.undefinedUid)
-      logActorForDeprecationWarning(watchee)
+    assert(watcher != self)
     log.debug("Unwatching: [{} -> {}]", watcher.path, watchee.path)
 
     // Could have used removeBinding, but it does not tell if this was the last entry. This saves a contains call.
@@ -213,10 +208,6 @@ private[akka] class RemoteWatcher(
     context unwatch watchee
     watching -= watchee
     checkLastUnwatchOfNode(watchee)
-  }
-
-  def logActorForDeprecationWarning(watchee: InternalActorRef): Unit = {
-    log.debug("actorFor is deprecated, and watching a remote ActorRef acquired with actorFor is not reliable: [{}]", watchee.path)
   }
 
   def terminated(watchee: InternalActorRef, existenceConfirmed: Boolean, addressTerminated: Boolean): Unit = {

@@ -461,12 +461,25 @@ private[akka] class RemoteActorRef private[akka] (
       remote.system.eventStream.publish(Error(e, path.toString, getClass, "swallowing exception during message send"))
   }
 
+  /**
+   * Determine if a watch/unwatch message must be handled by the remoteWatcher actor, or sent to this remote ref
+   */
+  def isWatchIntercepted(watchee: InternalActorRef, watcher: InternalActorRef) =
+    if (watchee.path.uid == akka.actor.ActorCell.undefinedUid) {
+      provider.log.debug("actorFor is deprecated, and watching a remote ActorRef acquired with actorFor is not reliable: [{}]", watchee.path)
+      false // Not managed by the remote watcher, so not reliable to communication failure or remote system crash
+    } else {
+      // If watchee != this then watcher should == this. This is a reverse watch, and it is not intercepted
+      // If watchee == this, only the watches from remoteWatcher are sent on the wire, on behalf of other watchers
+      watcher != provider.remoteWatcher && watchee == this
+    }
+
   def sendSystemMessage(message: SystemMessage): Unit =
     try {
       message match {
-        case Watch(watchee, watcher) if watcher != provider.remoteWatcher ⇒
+        case Watch(watchee, watcher) if isWatchIntercepted(watchee, watcher) ⇒
           provider.remoteWatcher ! RemoteWatcher.WatchRemote(watchee, watcher)
-        case Unwatch(watchee: InternalActorRef, watcher: InternalActorRef) if watcher != provider.remoteWatcher ⇒
+        case Unwatch(watchee: InternalActorRef, watcher: InternalActorRef) if isWatchIntercepted(watchee, watcher) ⇒
           provider.remoteWatcher ! RemoteWatcher.UnwatchRemote(watchee, watcher)
         case _ ⇒ remote.send(message, None, this)
       }
