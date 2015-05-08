@@ -12,7 +12,7 @@ val project = Project(
     scalaVersion := "2.11.5",
     scalacOptions in Compile ++= Seq("-encoding", "UTF-8", "-target:jvm-1.8", "-deprecation", "-feature", "-unchecked", "-Xlog-reflective-calls", "-Xlint"),
     javacOptions in Compile ++= Seq("-source", "1.8", "-target", "1.8", "-Xlint:unchecked", "-Xlint:deprecation"),
-    javacOptions in doc in Compile := Seq("-source", "1.8"), // javadoc does not support -target and -Xlint flags
+    javacOptions in doc in Compile := Seq("-source", "1.8", "-Xdoclint:none"),
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-actor" % akkaVersion,
       "com.typesafe.akka" %% "akka-remote" % akkaVersion,
