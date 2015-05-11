@@ -101,11 +101,11 @@ abstract class RemoteReDeploymentMultiJvmSpec extends MultiNodeSpec(RemoteReDepl
 
       runOn(second) {
         system.actorOf(Props[Parent], "parent") ! ((Props[Hello], "hello"))
-        expectMsg("HelloParent")
+        expectMsg(15.seconds, "HelloParent")
       }
 
       runOn(first) {
-        expectMsg("PreStart")
+        expectMsg(15.seconds, "PreStart")
       }
 
       enterBarrier("first-deployed")
@@ -136,14 +136,16 @@ abstract class RemoteReDeploymentMultiJvmSpec extends MultiNodeSpec(RemoteReDepl
         val p = TestProbe()(sys)
         sys.actorOf(echoProps(p.ref), "echo")
         p.send(sys.actorOf(Props[Parent], "parent"), (Props[Hello], "hello"))
-        p.expectMsg("HelloParent")
+        p.expectMsg(15.seconds, "HelloParent")
       }
 
       enterBarrier("re-deployed")
 
       runOn(first) {
-        if (expectQuarantine) expectMsg("PreStart")
-        else expectMsgAllOf("PostStop", "PreStart")
+        within(15.seconds) {
+          if (expectQuarantine) expectMsg("PreStart")
+          else expectMsgAllOf("PostStop", "PreStart")
+        }
       }
 
       enterBarrier("the-end")
