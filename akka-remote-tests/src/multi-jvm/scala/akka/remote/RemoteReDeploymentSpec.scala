@@ -20,7 +20,7 @@ object RemoteReDeploymentMultiJvmSpec extends MultiNodeConfig {
   val first = role("first")
   val second = role("second")
 
-  commonConfig(debugConfig(on = false).withFallback(ConfigFactory.parseString(
+  commonConfig(debugConfig(on = true).withFallback(ConfigFactory.parseString(
     """akka.remote.transport-failure-detector {
          threshold=0.1
          heartbeat-interval=0.1s
