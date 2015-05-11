@@ -97,7 +97,7 @@ abstract class RemoteReDeploymentMultiJvmSpec extends MultiNodeSpec(RemoteReDepl
     "terminate the child when its parent system is replaced by a new one" in {
 
       val echo = system.actorOf(echoProps(testActor), "echo")
-      val address = node(second).address
+      enterBarrier("echo-started")
 
       runOn(second) {
         system.actorOf(Props[Parent], "parent") ! ((Props[Hello], "hello"))
