@@ -1,5 +1,5 @@
-Contents
-========
+Akka Documentation
+==================
 
 .. toctree::
    :maxdepth: 1
