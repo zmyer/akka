@@ -324,7 +324,6 @@ private[remote] class ArteryTransport(_system: ExtendedActorSystem, _provider: R
 
   private def runInboundControlStream(): Unit = {
     val (c, completed) = Source.fromGraph(new AeronSource(inboundChannel, controlStreamId, aeron, taskRunner, envelopePool))
-      .async // FIXME measure
       .viaMat(inboundControlFlow)(Keep.right)
       .toMat(Sink.ignore)(Keep.both)
       .run()(materializer)
@@ -362,7 +361,6 @@ private[remote] class ArteryTransport(_system: ExtendedActorSystem, _provider: R
 
   private def runInboundOrdinaryMessagesStream(): Unit = {
     val completed = Source.fromGraph(new AeronSource(inboundChannel, ordinaryStreamId, aeron, taskRunner, envelopePool))
-      .async // FIXME measure
       .via(inboundFlow)
       .runWith(Sink.ignore)(materializer)
 
