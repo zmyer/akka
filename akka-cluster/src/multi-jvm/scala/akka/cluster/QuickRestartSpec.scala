@@ -93,6 +93,13 @@ abstract class QuickRestartSpec
         }
         enterBarrier("members-up-" + n)
 
+        // gating occurred after a while
+        Thread.sleep(15000)
+        Cluster(system).state.members.size should ===(totalNumberOfNodes)
+        Cluster(system).state.members.map(_.status == MemberStatus.Up)
+        Cluster(system).state.unreachable should ===(Set())
+
+        enterBarrier("before-terminate-" + n)
         runOn(second) {
           restartingSystem.terminate().await
         }
