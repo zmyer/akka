@@ -21,6 +21,7 @@ import akka.remote.artery.compress.CompressionTable
 import akka.Done
 import akka.stream.stage.GraphStageWithMaterializedValue
 import scala.concurrent.Promise
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * INTERNAL API
@@ -34,6 +35,8 @@ private[remote] object Encoder {
 
   private[remote] class ChangeOutboundCompressionFailed extends RuntimeException(
     "Change of outbound compression table failed (will be retried), because materialization did not complete yet")
+
+  val curr = new AtomicInteger
 }
 
 /**
@@ -81,7 +84,15 @@ private[remote] class Encoder(
 
       override protected def logSource = classOf[Encoder]
 
+      // FIXME remove debug
+      var maxCur = 0
+      var n = 0
+
       override def onPush(): Unit = {
+        n += 1
+        if (Encoder.curr.incrementAndGet() >= 2)
+          maxCur += 1
+
         val outboundEnvelope = grab(in)
         val envelope = bufferPool.acquire()
 
@@ -129,6 +140,7 @@ private[remote] class Encoder(
             case r: ReusableOutboundEnvelope ⇒ outboundEnvelopePool.release(r)
             case _                           ⇒
           }
+          Encoder.curr.decrementAndGet()
         }
 
       }
@@ -173,6 +185,10 @@ private[remote] class Encoder(
         done.future
       }
 
+      override def postStop(): Unit = {
+        println(s"# max concurrent serial $maxCur, n=$n") // FIXME
+      }
+
       setHandlers(in, out, this)
     }
 
@@ -212,7 +228,6 @@ private[remote] class Decoder(
       import Decoder.RetryResolveRemoteDeployedRecipient
       private val localAddress = inboundContext.localAddress.address
       private val headerBuilder = HeaderBuilder.in(compression)
-      private val serialization = SerializationExtension(system)
 
       private val retryResolveRemoteDeployedRecipientInterval = 50.millis
       private val retryResolveRemoteDeployedRecipientAttempts = 20
@@ -284,35 +299,24 @@ private[remote] class Decoder(
           // --- end of hit refs and manifests for heavy-hitter counting
         }
 
-        try {
-          val deserializedMessage = MessageSerializer.deserializeForArtery(
-            system, originUid, serialization, headerBuilder.serializer, classManifest, envelope)
+        val decoded = inEnvelopePool.acquire().init(
+          recipient,
+          localAddress, // FIXME: Is this needed anymore? What should we do here?
+          sender,
+          originUid,
+          headerBuilder.serializer,
+          classManifest,
+          envelope,
+          association)
 
-          val decoded = inEnvelopePool.acquire().init(
-            recipient,
-            localAddress, // FIXME: Is this needed anymore? What should we do here?
-            deserializedMessage,
-            sender, // FIXME: No need for an option, decode simply to deadLetters instead
-            originUid,
-            association)
-
-          if (recipient.isEmpty && !headerBuilder.isNoRecipient) {
-            // the remote deployed actor might not be created yet when resolving the
-            // recipient for the first message that is sent to it, best effort retry
-            scheduleOnce(RetryResolveRemoteDeployedRecipient(
-              retryResolveRemoteDeployedRecipientAttempts,
-              headerBuilder.recipientActorRefPath.get, decoded), retryResolveRemoteDeployedRecipientInterval) // FIXME IS THIS SAFE?
-          } else
-            push(out, decoded)
-        } catch {
-          case NonFatal(e) ⇒
-            log.warning(
-              "Failed to deserialize message with serializer id [{}] and manifest [{}]. {}",
-              headerBuilder.serializer, classManifest, e.getMessage)
-            pull(in)
-        } finally {
-          bufferPool.release(envelope)
-        }
+        if (recipient.isEmpty && !headerBuilder.isNoRecipient) {
+          // the remote deployed actor might not be created yet when resolving the
+          // recipient for the first message that is sent to it, best effort retry
+          scheduleOnce(RetryResolveRemoteDeployedRecipient(
+            retryResolveRemoteDeployedRecipientAttempts,
+            headerBuilder.recipientActorRefPath.get, decoded), retryResolveRemoteDeployedRecipientInterval) // FIXME IS THIS SAFE?
+        } else
+          push(out, decoded)
       }
 
       private def resolveRecipient(path: String): OptionVal[InternalActorRef] = {
@@ -363,6 +367,68 @@ private[remote] class Decoder(
                 push(out, inboundEnvelope.withRecipient(recipient))
             }
         }
+      }
+
+      setHandlers(in, out, this)
+    }
+}
+
+object Deserializer {
+  val cur = new AtomicInteger
+}
+
+/**
+ * INTERNAL API
+ */
+private[remote] class Deserializer(
+  inboundContext: InboundContext,
+  system:         ExtendedActorSystem,
+  bufferPool:     EnvelopeBufferPool) extends GraphStage[FlowShape[InboundEnvelope, InboundEnvelope]] {
+
+  val in: Inlet[InboundEnvelope] = Inlet("Artery.Deserializer.in")
+  val out: Outlet[InboundEnvelope] = Outlet("Artery.Deserializer.out")
+  val shape: FlowShape[InboundEnvelope, InboundEnvelope] = FlowShape(in, out)
+
+  override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+    new GraphStageLogic(shape) with InHandler with OutHandler with StageLogging {
+      private val serialization = SerializationExtension(system)
+
+      override protected def logSource = classOf[Deserializer]
+
+      // FIXME remove debug
+      var maxCurr = 0
+      var n = 0
+
+      override def onPush(): Unit = {
+        n += 1
+        if (Deserializer.cur.incrementAndGet() >= 2)
+          maxCurr += 1
+
+        val envelope = grab(in)
+
+        try {
+          val deserializedMessage = MessageSerializer.deserializeForArtery(
+            system, envelope.originUid, serialization, envelope.serializer, envelope.classManifest, envelope.envelopeBuffer)
+
+          push(out, envelope.withMessage(deserializedMessage))
+        } catch {
+          case NonFatal(e) ⇒
+            log.warning(
+              "Failed to deserialize message with serializer id [{}] and manifest [{}]. {}",
+              envelope.serializer, envelope.classManifest, e.getMessage)
+            pull(in)
+        } finally {
+          val buf = envelope.envelopeBuffer
+          envelope.releaseEnvelopeBuffer()
+          bufferPool.release(buf)
+          Deserializer.cur.decrementAndGet()
+        }
+      }
+
+      override def onPull(): Unit = pull(in)
+
+      override def postStop(): Unit = {
+        println(s"# max concurrent deserial $maxCurr, n=$n") // FIXME
       }
 
       setHandlers(in, out, this)
