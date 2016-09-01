@@ -326,8 +326,8 @@ private[remote] class ArteryTransport(_system: ExtendedActorSystem, _provider: R
 
   private val restartCounter = new RestartCounter(settings.Advanced.InboundMaxRestarts, settings.Advanced.InboundRestartTimeout)
 
-  private val envelopeBufferPool = new EnvelopeBufferPool(ArteryTransport.MaximumFrameSize, ArteryTransport.MaximumPooledBuffers)
-  private val largeEnvelopeBufferPool = new EnvelopeBufferPool(ArteryTransport.MaximumLargeFrameSize, ArteryTransport.MaximumPooledBuffers)
+  private val envelopeBufferPool = new EnvelopeBufferPool(settings.Advanced.MaximumFrameSize, settings.Advanced.MaximumPooledBuffers)
+  private val largeEnvelopeBufferPool = new EnvelopeBufferPool(settings.Advanced.MaximumLargeFrameSize, settings.Advanced.MaximumPooledBuffers)
 
   private val inboundEnvelopePool = ReusableInboundEnvelope.createObjectPool(capacity = 16)
   // FIXME capacity of outboundEnvelopePool should probably be derived from the sendQueue capacity
@@ -609,7 +609,7 @@ private[remote] class ArteryTransport(_system: ExtendedActorSystem, _provider: R
           .via(inboundFlow(compression))
           .map(env ⇒ (env.recipient, env))
 
-        val broadcastHub = source.runWith(BroadcastHub.sink)(materializer)
+        val broadcastHub = source.runWith(BroadcastHub.sink(bufferSize = settings.Advanced.InboundBroadcastHubBufferSize))(materializer)
 
         val lane = inboundSink(envelopeBufferPool)
 
@@ -924,9 +924,6 @@ private[remote] object ArteryTransport {
   val ProtocolName = "artery"
 
   val Version = 0
-  val MaximumFrameSize = 1024 * 1024
-  val MaximumPooledBuffers = 256
-  val MaximumLargeFrameSize = MaximumFrameSize * 5
 
   /**
    * Internal API
