@@ -68,8 +68,9 @@ private object PoolSlot {
         if (isConnected) {
           isConnected = false
 
-          val (inflightRetry, inflightFail) = if (ex.isEmpty) (inflightRequests.asScala, Nil)
-          else inflightRequests.iterator().asScala.partition(_.retriesLeft > 0)
+          val (inflightRetry, inflightFail) =
+            if (ex.isEmpty) (inflightRequests.asScala, Nil)
+            else inflightRequests.iterator().asScala.partition(_.retriesLeft > 0)
 
           val retries = inflightRetry.map(rc ⇒ SlotEvent.RetryRequest(if (rc.retriesLeft > 0) rc.copy(retriesLeft = rc.retriesLeft - 1) else rc)).toList
           val failures = inflightFail.map(rc ⇒ ResponseContext(rc, Failure(ex.getOrElse(new UnexpectedDisconnectException("Unexpected (early) disconnect"))))).toList
