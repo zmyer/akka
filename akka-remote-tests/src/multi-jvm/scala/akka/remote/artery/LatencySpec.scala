@@ -46,7 +46,7 @@ object LatencySpec extends MultiNodeConfig {
            advanced.idle-cpu-level=7
 
            advanced.compression {
-             actor-refs.advertisement-interval = 2 second
+             actor-refs.advertisement-interval = 60 second
              manifests.advertisement-interval = 2 second
            }
          }

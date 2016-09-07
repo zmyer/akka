@@ -62,7 +62,7 @@ object MaxThroughputSpec extends MultiNodeConfig {
            #advanced.aeron-dir = "target/aeron"
 
            advanced.compression {
-             actor-refs.advertisement-interval = 2 second
+             actor-refs.advertisement-interval = 60 second
              manifests.advertisement-interval = 2 second
            }
          }
@@ -120,9 +120,12 @@ object MaxThroughputSpec extends MultiNodeConfig {
 
     context.system.eventStream.subscribe(self, classOf[ReceivedActorRefCompressionTable])
 
-    val compressionEnabled =
-      RARP(context.system).provider.transport.isInstanceOf[ArteryTransport] &&
-        RARP(context.system).provider.remoteSettings.Artery.Enabled
+    val compressionEnabled = {
+      val provider = RARP(context.system).provider
+      provider.transport.isInstanceOf[ArteryTransport] &&
+        provider.remoteSettings.Artery.Enabled &&
+        (provider.remoteSettings.Artery.Advanced.Compression.ActorRefs.AdvertisementInterval < 10.seconds)
+    }
 
     def receive = {
       case Run ⇒
