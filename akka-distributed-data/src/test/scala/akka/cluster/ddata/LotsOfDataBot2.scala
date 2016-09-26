@@ -50,6 +50,7 @@ object LotsOfDataBot2 {
               enabled = on
               canonical.hostname = 127.0.0.1
               canonical.port = 0
+              advanced.use-control-stream-dispatcher = control-dispatcher
             }
 
             akka.cluster {
@@ -71,6 +72,15 @@ object LotsOfDataBot2 {
               sliding-window-size = 16
               heartbeat-interval = 1 s
               acceptable-heartbeat-pause = 10 s
+            }
+
+            control-dispatcher {
+              type = Dispatcher
+              executor = "thread-pool-executor"
+              thread-pool-executor {
+                fixed-pool-size = 2
+              }
+              throughput = 1
             }
             """)))
 
