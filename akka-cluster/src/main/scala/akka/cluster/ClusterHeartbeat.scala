@@ -140,12 +140,20 @@ private[cluster] final class ClusterHeartbeatSender extends Actor with ActorLogg
   def reachableMember(m: Member): Unit =
     state = state.reachableMember(m.uniqueAddress)
 
+  var replied = false
   var timestamp1 = System.nanoTime()
   var timestamp2 = System.nanoTime()
 
   def heartbeat(): Unit = {
-    timestamp1 = timestamp2
-    timestamp2 = System.nanoTime()
+    if (replied) {
+      timestamp1 = timestamp2
+      timestamp2 = System.nanoTime()
+      replied = false
+    } else {
+      import scala.concurrent.duration._
+      log.info("Cluster Node [{}] - NO Heartbeat response, interval [{} ms] ", selfAddress,
+        (System.nanoTime() - timestamp1).nanos.toMillis)
+    }
     state.activeReceivers foreach { to ⇒
       if (cluster.failureDetector.isMonitoring(to.address)) {
         if (verboseHeartbeat) log.debug("Cluster Node [{}] - Heartbeat to [{}]", selfAddress, to.address)
@@ -162,6 +170,7 @@ private[cluster] final class ClusterHeartbeatSender extends Actor with ActorLogg
 
   def heartbeatRsp(from: UniqueAddress): Unit = {
     import scala.concurrent.duration._
+    replied = true
     if (verboseHeartbeat) log.debug("Cluster Node [{}] - Heartbeat response from [{}]", selfAddress, from.address)
     else log.info("Cluster Node [{}] - Heartbeat response from [{}], latency [{} ms], interval [{} ms] ", selfAddress, from.address,
       (System.nanoTime() - timestamp2).nanos.toMillis, (System.nanoTime() - timestamp1).nanos.toMillis)
@@ -182,9 +191,9 @@ private[cluster] final class ClusterHeartbeatSender extends Actor with ActorLogg
  * It is immutable, but it updates the failureDetector.
  */
 private[cluster] final case class ClusterHeartbeatSenderState(
-  ring: HeartbeatNodeRing,
+  ring:                       HeartbeatNodeRing,
   oldReceiversNowUnreachable: Set[UniqueAddress],
-  failureDetector: FailureDetectorRegistry[Address]) {
+  failureDetector:            FailureDetectorRegistry[Address]) {
 
   val activeReceivers: Set[UniqueAddress] = ring.myReceivers union oldReceiversNowUnreachable
 
@@ -250,9 +259,9 @@ private[cluster] final case class ClusterHeartbeatSenderState(
  * It is immutable, i.e. the methods return new instances.
  */
 private[cluster] final case class HeartbeatNodeRing(
-  selfAddress: UniqueAddress,
-  nodes: Set[UniqueAddress],
-  unreachable: Set[UniqueAddress],
+  selfAddress:            UniqueAddress,
+  nodes:                  Set[UniqueAddress],
+  unreachable:            Set[UniqueAddress],
   monitoredByNrOfMembers: Int) {
 
   require(nodes contains selfAddress, s"nodes [${nodes.mkString(", ")}] must contain selfAddress [${selfAddress}]")

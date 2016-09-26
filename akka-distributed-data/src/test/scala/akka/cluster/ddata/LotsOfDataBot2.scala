@@ -41,6 +41,11 @@ object LotsOfDataBot2 {
             max-entries = 200000
             akka.actor.provider = cluster
 
+            akka.actor.default-mailbox {
+              mailbox-type = akka.remote.artery.LoggingMailboxType
+              size-limit = 20
+            }
+
             akka.remote.artery {
               enabled = on
               canonical.hostname = 127.0.0.1
@@ -53,10 +58,20 @@ object LotsOfDataBot2 {
                 "akka://ClusterSystem@127.0.0.1:2552"]
 
               auto-down-unreachable-after = 60s
+
+              failure-detector = ${collecting-failure-detector}
+              failure-detector.tag = cluster
             }
             akka.remote.artery.advanced.maximum-frame-size = 1 MiB
             akka.cluster.distributed-data.max-delta-elements = 500
             akka.cluster.distributed-data.gossip-interval = 1s
+
+            collecting-failure-detector = {
+              implementation-class = "akka.remote.artery.CollectorFailureDetector"
+              sliding-window-size = 16
+              heartbeat-interval = 1 s
+              acceptable-heartbeat-pause = 10 s
+            }
             """)))
 
       // Create an Akka system
