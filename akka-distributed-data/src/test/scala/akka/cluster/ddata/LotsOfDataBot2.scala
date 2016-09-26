@@ -51,7 +51,7 @@ object LotsOfDataBot2 {
               canonical.hostname = 127.0.0.1
               canonical.port = 0
               #advanced.use-control-stream-dispatcher = control-dispatcher
-              advanced.use-control-stream-dispatcher = akka.remote.default-remote-dispatcher
+              #advanced.use-control-stream-dispatcher = akka.remote.default-remote-dispatcher
             }
 
             akka.cluster {
@@ -65,7 +65,7 @@ object LotsOfDataBot2 {
               failure-detector.tag = cluster
             }
             akka.remote.artery.advanced.maximum-frame-size = 1 MiB
-            akka.cluster.distributed-data.max-delta-elements = 500
+            akka.cluster.distributed-data.max-delta-elements = 200
             akka.cluster.distributed-data.gossip-interval = 1s
 
             collecting-failure-detector = {
