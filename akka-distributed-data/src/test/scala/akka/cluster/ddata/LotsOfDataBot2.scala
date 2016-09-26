@@ -50,7 +50,8 @@ object LotsOfDataBot2 {
               enabled = on
               canonical.hostname = 127.0.0.1
               canonical.port = 0
-              advanced.use-control-stream-dispatcher = control-dispatcher
+              #advanced.use-control-stream-dispatcher = control-dispatcher
+              advanced.use-control-stream-dispatcher = akka.remote.default-remote-dispatcher
             }
 
             akka.cluster {
