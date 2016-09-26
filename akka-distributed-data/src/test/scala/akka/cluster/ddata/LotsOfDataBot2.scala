@@ -38,7 +38,7 @@ object LotsOfDataBot2 {
         withFallback(ConfigFactory.load(
           ConfigFactory.parseString("""
             passive = off
-            max-entries = 200000
+            max-entries = 100000
             akka.actor.provider = cluster
 
             akka.actor.default-mailbox {
@@ -66,7 +66,7 @@ object LotsOfDataBot2 {
             }
             akka.remote.artery.advanced.maximum-frame-size = 1 MiB
             akka.cluster.distributed-data.max-delta-elements = 200
-            akka.cluster.distributed-data.gossip-interval = 1s
+            akka.cluster.distributed-data.gossip-interval = 2s
 
             collecting-failure-detector = {
               implementation-class = "akka.remote.artery.CollectorFailureDetector"
@@ -109,12 +109,12 @@ class LotsOfDataBot2 extends Actor with ActorLogging {
     if (isPassive)
       context.system.scheduler.schedule(1.seconds, 1.seconds, self, Tick)
     else
-      context.system.scheduler.schedule(20.millis, 20.millis, self, Tick)
+      context.system.scheduler.schedule(50.millis, 50.millis, self, Tick)
 
   val startTime = System.nanoTime()
   var count = 1L
   val maxEntries = context.system.settings.config.getInt("max-entries")
-  val maxTopEntries = 50000
+  val maxTopEntries = 20000
 
   def receive = if (isPassive) passive else active
 
