@@ -52,6 +52,15 @@ object LotsOfDataBot2 {
               canonical.port = 0
               #advanced.use-control-stream-dispatcher = control-dispatcher
               #advanced.use-control-stream-dispatcher = akka.remote.default-remote-dispatcher
+
+              advanced {
+                aeron-dir = "target/aeron-LotsOfDataBot2"
+                delete-aeron-dir = no
+                flight-recorder {
+                  enabled = on
+                  destination = "target/LotsOfDataBot2.afr"
+                }
+              }
             }
 
             akka.cluster {
