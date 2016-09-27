@@ -831,7 +831,7 @@ final class Replicator(settings: ReplicatorSettings) extends Actor with ActorLog
 
   def receiveGet(key: KeyR, consistency: ReadConsistency, req: Option[Any]): Unit = {
     val localValue = getData(key.id)
-    log.debug("Received Get for key [{}], local data [{}]", key, localValue)
+    //log.debug("Received Get for key [{}], local data [{}]", key, localValue)
     if (isLocalGet(consistency)) {
       val reply = localValue match {
         case Some(DataEnvelope(DeletedData, _)) ⇒ DataDeleted(key)
@@ -869,7 +869,7 @@ final class Replicator(settings: ReplicatorSettings) extends Actor with ActorLog
       }
     } match {
       case Success(newData) ⇒
-        log.debug("Received Update for key [{}], old data [{}], new data [{}]", key, localValue, newData)
+        //log.debug("Received Update for key [{}], old data [{}], new data [{}]", key, localValue, newData)
         val envelope = DataEnvelope(pruningCleanupTombstoned(newData))
         setData(key.id, envelope)
         if (isLocalUpdate(writeConsistency))
@@ -878,10 +878,10 @@ final class Replicator(settings: ReplicatorSettings) extends Actor with ActorLog
           context.actorOf(WriteAggregator.props(key, envelope, writeConsistency, req, nodes, sender())
             .withDispatcher(context.props.dispatcher))
       case Failure(e: DataDeleted[_]) ⇒
-        log.debug("Received Update for deleted key [{}]", key)
+        //log.debug("Received Update for deleted key [{}]", key)
         sender() ! e
       case Failure(e) ⇒
-        log.debug("Received Update for key [{}], failed: {}", key, e.getMessage)
+        //log.debug("Received Update for key [{}], failed: {}", key, e.getMessage)
         sender() ! ModifyFailure(key, "Update failed: " + e.getMessage, e, req)
     }
   }
@@ -1036,9 +1036,9 @@ final class Replicator(settings: ReplicatorSettings) extends Actor with ActorLog
     context.actorSelection(self.path.toStringWithAddress(address))
 
   def receiveStatus(otherDigests: Map[String, Digest], chunk: Int, totChunks: Int): Unit = {
-    if (log.isDebugEnabled)
-      log.debug("Received gossip status from [{}], chunk [{}] of [{}] containing [{}]", sender().path.address,
-        (chunk + 1), totChunks, otherDigests.keys.mkString(", "))
+//    if (log.isDebugEnabled)
+      //log.debug("Received gossip status from [{}], chunk [{}] of [{}] containing [{}]", sender().path.address,
+//        (chunk + 1), totChunks, otherDigests.keys.mkString(", "))
 
     def isOtherDifferent(key: String, otherDigest: Digest): Boolean = {
       val d = getDigest(key)
@@ -1054,23 +1054,23 @@ final class Replicator(settings: ReplicatorSettings) extends Actor with ActorLog
     val otherMissingKeys = myKeys diff otherKeys
     val keys = (otherDifferentKeys ++ otherMissingKeys).take(maxDeltaElements)
     if (keys.nonEmpty) {
-      if (log.isDebugEnabled)
-        log.debug("Sending gossip to [{}], containing [{}]", sender().path.address, keys.mkString(", "))
+//      if (log.isDebugEnabled)
+//        log.debug("Sending gossip to [{}], containing [{}]", sender().path.address, keys.mkString(", "))
       val g = Gossip(keys.map(k ⇒ k → getData(k).get)(collection.breakOut), sendBack = otherDifferentKeys.nonEmpty)
       sender() ! g
     }
     val myMissingKeys = otherKeys diff myKeys
     if (myMissingKeys.nonEmpty) {
-      if (log.isDebugEnabled)
-        log.debug("Sending gossip status to [{}], requesting missing [{}]", sender().path.address, myMissingKeys.mkString(", "))
+//      if (log.isDebugEnabled)
+//        log.debug("Sending gossip status to [{}], requesting missing [{}]", sender().path.address, myMissingKeys.mkString(", "))
       val status = Status(myMissingKeys.map(k ⇒ k → NotFoundDigest)(collection.breakOut), chunk, totChunks)
       sender() ! status
     }
   }
 
   def receiveGossip(updatedData: Map[String, DataEnvelope], sendBack: Boolean): Unit = {
-    if (log.isDebugEnabled)
-      log.debug("Received gossip from [{}], containing [{}]", sender().path.address, updatedData.keys.mkString(", "))
+//    if (log.isDebugEnabled)
+//      log.debug("Received gossip from [{}], containing [{}]", sender().path.address, updatedData.keys.mkString(", "))
     var replyData = Map.empty[String, DataEnvelope]
     updatedData.foreach {
       case (key, envelope) ⇒
