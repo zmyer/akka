@@ -24,18 +24,27 @@ import org.agrona.hints.ThreadHints
 
 object AeronSource {
 
-  private def pollTask(sub: Subscription, handler: MessageHandler, onMessage: AsyncCallback[EnvelopeBuffer]): () ⇒ Boolean = {
+  private def pollTask(streamId: Int, sub: Subscription, handler: MessageHandler, onMessage: AsyncCallback[EnvelopeBuffer]): () ⇒ Boolean = {
+    var count = 0
     () ⇒
+
       {
         handler.reset
         val fragmentsRead = sub.poll(handler.fragmentsHandler, 1)
         val msg = handler.messageReceived
         handler.reset() // for GC
         if (msg ne null) {
+          count = 0
           onMessage.invoke(msg)
           true
-        } else
+        } else {
+          if (streamId == 1) {
+            count += 1
+            if (count % 10000 == 0)
+              println(s"# AeronSource control stream is spinning $count") // FIXME
+          }
           false
+        }
       }
   }
 
@@ -61,11 +70,11 @@ object AeronSource {
  * @param channel eg. "aeron:udp?endpoint=localhost:40123"
  */
 class AeronSource(
-  channel:        String,
-  streamId:       Int,
-  aeron:          Aeron,
-  taskRunner:     TaskRunner,
-  pool:           EnvelopeBufferPool,
+  channel: String,
+  streamId: Int,
+  aeron: Aeron,
+  taskRunner: TaskRunner,
+  pool: EnvelopeBufferPool,
   flightRecorder: EventSink)
   extends GraphStage[SourceShape[EnvelopeBuffer]] {
   import AeronSource._
@@ -87,7 +96,7 @@ class AeronSource(
 
       // the fragmentHandler is called from `poll` in same thread, i.e. no async callback is needed
       private val messageHandler = new MessageHandler(pool)
-      private val addPollTask: Add = Add(pollTask(sub, messageHandler, getAsyncCallback(taskOnMessage)))
+      private val addPollTask: Add = Add(pollTask(streamId, sub, messageHandler, getAsyncCallback(taskOnMessage)))
 
       private val channelMetadata = channel.getBytes("US-ASCII")
 
