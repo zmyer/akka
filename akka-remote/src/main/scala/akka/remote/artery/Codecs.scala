@@ -24,6 +24,7 @@ import akka.stream.stage.GraphStageWithMaterializedValue
 
 import scala.concurrent.Promise
 import akka.event.Logging
+import akka.remote.artery.compress.NoInboundCompressions
 
 /**
  * INTERNAL API
@@ -311,6 +312,8 @@ private[remote] class Decoder(
         val envelope = grab(in)
         headerBuilder.resetMessageFields()
         envelope.parseHeader(headerBuilder)
+        if (compression.isInstanceOf[NoInboundCompressions.type])
+          log.debug("Decoder got message [{}]", headerBuilder)
 
         val originUid = headerBuilder.uid
         val association = inboundContext.association(originUid)

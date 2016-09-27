@@ -268,7 +268,7 @@ private[akka] class SystemMessageAcker(inboundContext: InboundContext) extends G
   override val shape: FlowShape[InboundEnvelope, InboundEnvelope] = FlowShape(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) with InHandler with OutHandler {
+    new GraphStageLogic(shape) with InHandler with OutHandler with StageLogging {
 
       // TODO we might need have to prune old unused entries
       var sequenceNumbers = Map.empty[UniqueAddress, Long]
@@ -280,6 +280,7 @@ private[akka] class SystemMessageAcker(inboundContext: InboundContext) extends G
         val env = grab(in)
         env.message match {
           case sysEnv @ SystemMessageEnvelope(_, n, ackReplyTo) ⇒
+            log.debug("SystemMessageAcker got system message [{}]", env.message)
             val expectedSeqNo = sequenceNumbers.get(ackReplyTo) match {
               case None        ⇒ 1L
               case Some(seqNo) ⇒ seqNo
@@ -298,6 +299,7 @@ private[akka] class SystemMessageAcker(inboundContext: InboundContext) extends G
             }
           case _ ⇒
             // messages that don't need acking
+            log.debug("SystemMessageAcker got message [{}]", env.message)
             push(out, env)
         }
       }

@@ -16,6 +16,8 @@ import akka.util.OptionVal
 import akka.event.Logging
 import akka.remote.HeartbeatMessage
 import akka.actor.ActorSelectionMessage
+import akka.remote.PriorityMessage
+import akka.dispatch.sysmsg.SystemMessage
 
 /**
  * INTERNAL API
@@ -33,6 +35,13 @@ private[akka] class InboundQuarantineCheck(inboundContext: InboundContext) exten
       // InHandler
       override def onPush(): Unit = {
         val env = grab(in)
+        env.message match {
+          case ActorSelectionMessage(_: PriorityMessage, _, _) | _: ControlMessage | _: SystemMessage =>
+            log.debug("InboundQuarantineCheck got message [{}]", env.message)
+          case m if m.getClass.getName.contains("Heartbeat") =>
+            log.debug("InboundQuarantineCheck got message [{}]", env.message)
+          case _ =>
+        }
         env.association match {
           case OptionVal.None ⇒
             // unknown, handshake not completed

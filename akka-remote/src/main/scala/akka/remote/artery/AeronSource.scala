@@ -76,7 +76,7 @@ class AeronSource(
   override val shape: SourceShape[EnvelopeBuffer] = SourceShape(out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) with OutHandler {
+    new GraphStageLogic(shape) with OutHandler with StageLogging {
 
       private val sub = aeron.addSubscription(channel, streamId)
       // spin between 100 to 10000 depending on idleCpuLevel
@@ -139,6 +139,8 @@ class AeronSource(
       }
 
       private def onMessage(data: EnvelopeBuffer): Unit = {
+        if (streamId == 1)
+          log.debug("AeronSource got message of size [{}]", data.byteBuffer.limit)
         flightRecorder.hiFreq(AeronSource_Received, data.byteBuffer.limit)
         push(out, data)
       }
