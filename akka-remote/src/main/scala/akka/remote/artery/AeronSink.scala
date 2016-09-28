@@ -37,7 +37,7 @@ object AeronSink {
   private val TimerCheckMask = TimerCheckPeriod - 1
 
   private final class OfferTask(pub: Publication, var buffer: UnsafeBuffer, var msgSize: Int, onOfferSuccess: AsyncCallback[Unit],
-                                giveUpAfter: Duration, onGiveUp: AsyncCallback[Unit], onPublicationClosed: AsyncCallback[Unit])
+    giveUpAfter: Duration, onGiveUp: AsyncCallback[Unit], onPublicationClosed: AsyncCallback[Unit])
     extends (() ⇒ Boolean) {
     val giveUpAfterNanos = giveUpAfter match {
       case f: FiniteDuration ⇒ f.toNanos
@@ -76,12 +76,12 @@ object AeronSink {
  * @param channel eg. "aeron:udp?endpoint=localhost:40123"
  */
 class AeronSink(
-  channel:        String,
-  streamId:       Int,
-  aeron:          Aeron,
-  taskRunner:     TaskRunner,
-  pool:           EnvelopeBufferPool,
-  giveUpAfter:    Duration,
+  channel: String,
+  streamId: Int,
+  aeron: Aeron,
+  taskRunner: TaskRunner,
+  pool: EnvelopeBufferPool,
+  giveUpAfter: Duration,
   flightRecorder: EventSink)
   extends GraphStageWithMaterializedValue[SinkShape[EnvelopeBuffer], Future[Done]] {
   import AeronSink._
@@ -93,7 +93,7 @@ class AeronSink(
 
   override def createLogicAndMaterializedValue(inheritedAttributes: Attributes): (GraphStageLogic, Future[Done]) = {
     val completed = Promise[Done]()
-    val logic = new GraphStageLogic(shape) with InHandler {
+    val logic = new GraphStageLogic(shape) with InHandler with StageLogging {
 
       private var envelopeInFlight: EnvelopeBuffer = null
       private val pub = aeron.addPublication(channel, streamId)
@@ -141,6 +141,10 @@ class AeronSink(
 
       @tailrec private def publish(): Unit = {
         val result = pub.offer(envelopeInFlight.aeronBuffer, 0, lastMsgSize)
+
+        if (streamId == 1)
+          log.debug("# AeronSink offer result [{}] connected [{}] closed [{}]", result, pub.isConnected, pub.isClosed)
+
         if (result < 0) {
           if (result == Publication.CLOSED)
             onPublicationClosed()
