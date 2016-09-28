@@ -306,11 +306,17 @@ object AkkaBuild extends Build {
     base = file("akka-parsing")
   )
 
+  lazy val akkaSslConfig = Project(
+    id = "akka-ssl-config",
+    base = file("akka-ssl-config"),
+    dependencies = Seq(actor)
+  )
+
   lazy val stream = Project(
     id = "akka-stream",
     base = file("akka-stream"),
     dependencies = Seq(actor)
-  )
+  ).dependsOn(akkaSslConfig)
 
   lazy val streamTestkit = Project(
     id = "akka-stream-testkit",
