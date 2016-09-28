@@ -42,7 +42,8 @@ object AeronSource {
             if (streamId == 1) {
               count += 1
               if (count % 10000 == 0)
-                println(s"# AeronSource control stream is spinning $count") // FIXME
+                if (streamId == 1)
+                  println(s"# AeronSource control stream is spinning $count, closed [${sub.isClosed()}]") // FIXME
             }
             false
           }
@@ -140,7 +141,7 @@ class AeronSource(
           } else {
             // delegate backoff to shared TaskRunner
             if (streamId == 1)
-              println(s"# AeronSource_DelegateToTaskRunner count $countBeforeDelegate") // FIXME
+              println(s"# AeronSource_DelegateToTaskRunner count $countBeforeDelegate, closed [${sub.isClosed()}") // FIXME
             flightRecorder.hiFreq(AeronSource_DelegateToTaskRunner, countBeforeDelegate)
             delegateTaskStartTime = System.nanoTime()
             taskRunner.command(addPollTask)
