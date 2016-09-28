@@ -509,7 +509,6 @@ private[remote] class ArteryTransport(_system: ExtendedActorSystem, _provider: R
     val ctx = new Aeron.Context
 
     ctx.driverTimeoutMs(settings.Advanced.DriverTimeout.toMillis)
-    ctx.publicationConnectionTimeout(3000000000L) // 3 seconds
 
     ctx.availableImageHandler(new AvailableImageHandler {
       override def onAvailableImage(img: Image): Unit = {
