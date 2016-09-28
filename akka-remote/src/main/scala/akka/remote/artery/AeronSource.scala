@@ -134,6 +134,8 @@ class AeronSource(
             subscriberLoop() // recursive
           } else {
             // delegate backoff to shared TaskRunner
+            if (streamId == 1)
+              println(s"# AeronSource_DelegateToTaskRunner count $countBeforeDelegate") // FIXME
             flightRecorder.hiFreq(AeronSource_DelegateToTaskRunner, countBeforeDelegate)
             delegateTaskStartTime = System.nanoTime()
             taskRunner.command(addPollTask)
@@ -143,13 +145,17 @@ class AeronSource(
 
       private def taskOnMessage(data: EnvelopeBuffer): Unit = {
         countBeforeDelegate = 0
+        if (streamId == 1)
+          println(s"# AeronSource_ReturnFromTaskRunner ${(System.nanoTime() - delegateTaskStartTime) / 1000 / 1000} ms") // FIXME
         flightRecorder.hiFreq(AeronSource_ReturnFromTaskRunner, System.nanoTime() - delegateTaskStartTime)
         onMessage(data)
       }
 
       private def onMessage(data: EnvelopeBuffer): Unit = {
-        if (streamId == 1)
+        if (streamId == 1) {
+          println(s"AeronSource got message of size [${data.byteBuffer.limit}]")
           log.debug("AeronSource got message of size [{}]", data.byteBuffer.limit)
+        }
         flightRecorder.hiFreq(AeronSource_Received, data.byteBuffer.limit)
         push(out, data)
       }
