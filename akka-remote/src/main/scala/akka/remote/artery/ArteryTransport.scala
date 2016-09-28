@@ -958,7 +958,7 @@ private[remote] class ArteryTransport(_system: ExtendedActorSystem, _provider: R
 
   def aeronSource(streamId: Int, pool: EnvelopeBufferPool): Source[EnvelopeBuffer, NotUsed] =
     Source.fromGraph(new AeronSource(inboundChannel, streamId, aeron, taskRunner, pool,
-      createFlightRecorderEventSink()))
+      if (streamId == 1) createFlightRecorderEventSink() else IgnoreEventSink))
 
   val messageDispatcherSink: Sink[InboundEnvelope, Future[Done]] = Sink.foreach[InboundEnvelope] { m ⇒
     messageDispatcher.dispatch(m.recipient.get, m.recipientAddress, m.message, m.sender)
