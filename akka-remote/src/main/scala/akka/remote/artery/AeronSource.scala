@@ -29,21 +29,23 @@ object AeronSource {
     () ⇒
 
       {
-        handler.reset
-        val fragmentsRead = sub.poll(handler.fragmentsHandler, 1)
-        val msg = handler.messageReceived
-        handler.reset() // for GC
-        if (msg ne null) {
-          count = 0
-          onMessage.invoke(msg)
-          true
-        } else {
-          if (streamId == 1) {
-            count += 1
-            if (count % 10000 == 0)
-              println(s"# AeronSource control stream is spinning $count") // FIXME
+        sub.synchronized {
+          handler.reset
+          val fragmentsRead = sub.poll(handler.fragmentsHandler, 1)
+          val msg = handler.messageReceived
+          handler.reset() // for GC
+          if (msg ne null) {
+            count = 0
+            onMessage.invoke(msg)
+            true
+          } else {
+            if (streamId == 1) {
+              count += 1
+              if (count % 10000 == 0)
+                println(s"# AeronSource control stream is spinning $count") // FIXME
+            }
+            false
           }
-          false
         }
       }
   }
@@ -118,7 +120,10 @@ class AeronSource(
 
       @tailrec private def subscriberLoop(): Unit = {
         messageHandler.reset()
-        val fragmentsRead = sub.poll(messageHandler.fragmentsHandler, 1)
+
+        val fragmentsRead = sub.synchronized {
+          sub.poll(messageHandler.fragmentsHandler, 1)
+        }
         val msg = messageHandler.messageReceived
         messageHandler.reset() // for GC
         if (fragmentsRead > 0) {
