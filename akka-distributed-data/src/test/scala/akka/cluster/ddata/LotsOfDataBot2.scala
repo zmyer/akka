@@ -68,7 +68,7 @@ object LotsOfDataBot2 {
                 "akka://ClusterSystem@127.0.0.1:2551",
                 "akka://ClusterSystem@127.0.0.1:2552"]
 
-              auto-down-unreachable-after = 60s
+              #auto-down-unreachable-after = 60s
 
               failure-detector = ${collecting-failure-detector}
               failure-detector.tag = cluster
