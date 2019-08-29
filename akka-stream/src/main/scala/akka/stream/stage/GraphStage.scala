@@ -1,43 +1,107 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.stage
 
-import java.util.concurrent.atomic.{ AtomicReference }
-import akka.NotUsed
-import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.atomic.AtomicReference
+
+import scala.deprecated
 import akka.actor._
+import akka.annotation.InternalApi
 import akka.japi.function.{ Effect, Procedure }
+import akka.pattern.ask
 import akka.stream._
-import akka.stream.impl.StreamLayout.Module
-import akka.stream.impl.fusing.{ GraphInterpreter, GraphStageModule, SubSource, SubSink }
-import akka.stream.impl.ReactiveStreamsCompliance
-import scala.collection.mutable.ArrayBuffer
+import akka.stream.actor.ActorSubscriberMessage
+import akka.stream.impl.fusing.{ GraphInterpreter, GraphStageModule, SubSink, SubSource }
+import akka.stream.impl.{ ReactiveStreamsCompliance, TraversalBuilder }
+import akka.stream.scaladsl.GenericGraphWithChangedAttributes
+import akka.util.OptionVal
+import akka.util.unused
+import akka.{ Done, NotUsed }
+
+import scala.annotation.tailrec
 import scala.collection.{ immutable, mutable }
 import scala.concurrent.duration.FiniteDuration
-import akka.stream.actor.ActorSubscriberMessage
+import scala.concurrent.{ Await, Future, Promise }
+import akka.stream.impl.StreamSupervisor
+import com.github.ghik.silencer.silent
 
+/**
+ * Scala API: A GraphStage represents a reusable graph stream processing operator.
+ *
+ * Extend this `GraphStageWithMaterializedValue` if you want to provide a materialized value,
+ * represented by the type parameter `M`. If your GraphStage does not need to provide a materialized
+ * value you can instead extende [[GraphStage]] which materializes a [[NotUsed]] value.
+ *
+ * A GraphStage consists of a [[Shape]] which describes its input and output ports and a factory function that
+ * creates a [[GraphStageLogic]] which implements the processing logic that ties the ports together.
+ *
+ * See also [[AbstractGraphStageWithMaterializedValue]] for Java DSL for this operator.
+ */
 abstract class GraphStageWithMaterializedValue[+S <: Shape, +M] extends Graph[S, M] {
+
+  /**
+   * Grants access to the materializer before preStart of the graph stage logic is invoked.
+   *
+   * INTERNAL API
+   */
+  @InternalApi
+  private[akka] def createLogicAndMaterializedValue(
+      inheritedAttributes: Attributes,
+      @unused materializer: Materializer): (GraphStageLogic, M) = createLogicAndMaterializedValue(inheritedAttributes)
 
   @throws(classOf[Exception])
   def createLogicAndMaterializedValue(inheritedAttributes: Attributes): (GraphStageLogic, M)
 
   protected def initialAttributes: Attributes = Attributes.none
 
-  final override lazy val module: Module = GraphStageModule(shape, initialAttributes, this)
+  private var _traversalBuilder: TraversalBuilder = null
 
-  final override def withAttributes(attr: Attributes): Graph[S, M] = new Graph[S, M] {
-    override def shape = GraphStageWithMaterializedValue.this.shape
-    override def module = GraphStageWithMaterializedValue.this.module.withAttributes(attr)
-
-    override def withAttributes(attr: Attributes) = GraphStageWithMaterializedValue.this.withAttributes(attr)
+  /**
+   * INTERNAL API
+   */
+  @InternalApi private[akka] final override def traversalBuilder: TraversalBuilder = {
+    // _traversalBuilder instance is cached to avoid allocations, no need for volatile or synchronization
+    if (_traversalBuilder eq null) {
+      val attr = initialAttributes
+      _traversalBuilder = TraversalBuilder.atomic(GraphStageModule(shape, attr, this), attr)
+    }
+    _traversalBuilder
   }
+
+  final override def withAttributes(attr: Attributes): Graph[S, M] =
+    new GenericGraphWithChangedAttributes(shape, GraphStageWithMaterializedValue.this.traversalBuilder, attr)
 }
 
 /**
- * A GraphStage represents a reusable graph stream processing stage. A GraphStage consists of a [[Shape]] which describes
- * its input and output ports and a factory function that creates a [[GraphStageLogic]] which implements the processing
- * logic that ties the ports together.
+ * Java API: A GraphStage represents a reusable graph stream processing operator.
+ *
+ * Extend this `AbstractGraphStageWithMaterializedValue` if you want to provide a materialized value,
+ * represented by the type parameter `M`. If your GraphStage does not need to provide a materialized
+ * value you can instead extend [[GraphStage]] which materializes a [[NotUsed]] value.
+ *
+ * A GraphStage consists of a [[Shape]] which describes its input and output ports and a factory function that
+ * creates a [[GraphStageLogic]] which implements the processing logic that ties the ports together.
+ *
+ * See also [[GraphStageWithMaterializedValue]] for Scala DSL for this operator.
+ */
+abstract class AbstractGraphStageWithMaterializedValue[+S <: Shape, M] extends GraphStageWithMaterializedValue[S, M] {
+  @throws(classOf[Exception])
+  final def createLogicAndMaterializedValue(inheritedAttributes: Attributes): (GraphStageLogic, M) = {
+    val pair = createLogicAndMaterializedValuePair(inheritedAttributes)
+    pair.first -> pair.second
+  }
+
+  @throws(classOf[Exception])
+  def createLogicAndMaterializedValuePair(inheritedAttributes: Attributes): akka.japi.Pair[GraphStageLogic, M]
+}
+
+/**
+ * A GraphStage represents a reusable graph stream processing operator.
+ *
+ * A GraphStage consists of a [[Shape]] which describes its input and output ports and a factory function that
+ * creates a [[GraphStageLogic]] which implements the processing logic that ties the ports together.
  */
 abstract class GraphStage[S <: Shape] extends GraphStageWithMaterializedValue[S, NotUsed] {
   final override def createLogicAndMaterializedValue(inheritedAttributes: Attributes): (GraphStageLogic, NotUsed) =
@@ -54,37 +118,39 @@ private object TimerMessages {
 
 object GraphStageLogic {
   final case class StageActorRefNotInitializedException()
-    extends RuntimeException("You must first call getStageActorRef, to initialize the Actors behaviour")
+      extends RuntimeException("You must first call getStageActor, to initialize the Actors behavior")
 
   /**
-   * Input handler that terminates the stage upon receiving completion.
-   * The stage fails upon receiving a failure.
+   * Input handler that terminates the operator upon receiving completion.
+   * The operator fails upon receiving a failure.
    */
   object EagerTerminateInput extends InHandler {
     override def onPush(): Unit = ()
+    override def toString = "EagerTerminateInput"
   }
 
   /**
-   * Input handler that does not terminate the stage upon receiving completion.
-   * The stage fails upon receiving a failure.
+   * Input handler that does not terminate the operator upon receiving completion.
+   * The operator fails upon receiving a failure.
    */
   object IgnoreTerminateInput extends InHandler {
     override def onPush(): Unit = ()
     override def onUpstreamFinish(): Unit = ()
+    override def toString = "IgnoreTerminateInput"
   }
 
   /**
    * Input handler that terminates the state upon receiving completion if the
-   * given condition holds at that time. The stage fails upon receiving a failure.
+   * given condition holds at that time. The operator fails upon receiving a failure.
    */
-  class ConditionalTerminateInput(predicate: () ⇒ Boolean) extends InHandler {
+  class ConditionalTerminateInput(predicate: () => Boolean) extends InHandler {
     override def onPush(): Unit = ()
     override def onUpstreamFinish(): Unit =
       if (predicate()) GraphInterpreter.currentInterpreter.activeStage.completeStage()
   }
 
   /**
-   * Input handler that does not terminate the stage upon receiving completion
+   * Input handler that does not terminate the operator upon receiving completion
    * nor failure.
    */
   object TotallyIgnorantInput extends InHandler {
@@ -94,56 +160,94 @@ object GraphStageLogic {
   }
 
   /**
-   * Output handler that terminates the stage upon cancellation.
+   * Output handler that terminates the operator upon cancellation.
    */
   object EagerTerminateOutput extends OutHandler {
     override def onPull(): Unit = ()
+    override def toString = "EagerTerminateOutput"
   }
 
   /**
-   * Output handler that does not terminate the stage upon cancellation.
+   * Output handler that does not terminate the operator upon cancellation.
    */
   object IgnoreTerminateOutput extends OutHandler {
     override def onPull(): Unit = ()
-    override def onDownstreamFinish(): Unit = ()
+    override def onDownstreamFinish(cause: Throwable): Unit = ()
+    override def toString = "IgnoreTerminateOutput"
   }
 
   /**
    * Output handler that terminates the state upon receiving completion if the
-   * given condition holds at that time. The stage fails upon receiving a failure.
+   * given condition holds at that time. The operator fails upon receiving a failure.
    */
-  class ConditionalTerminateOutput(predicate: () ⇒ Boolean) extends OutHandler {
+  class ConditionalTerminateOutput(predicate: () => Boolean) extends OutHandler {
     override def onPull(): Unit = ()
-    override def onDownstreamFinish(): Unit =
-      if (predicate()) GraphInterpreter.currentInterpreter.activeStage.completeStage()
+    override def onDownstreamFinish(cause: Throwable): Unit =
+      if (predicate()) GraphInterpreter.currentInterpreter.activeStage.cancelStage(cause)
   }
 
-  private object DoNothing extends (() ⇒ Unit) {
+  private object DoNothing extends (() => Unit) {
     def apply(): Unit = ()
   }
 
   /**
    * Minimal actor to work with other actors and watch them in a synchronous ways
+   *
+   * @param name leave empty to use plain auto generated names
    */
   final class StageActor(
-    materializer:     ActorMaterializer,
-    getAsyncCallback: StageActorRef.Receive ⇒ AsyncCallback[(ActorRef, Any)],
-    initialReceive:   StageActorRef.Receive) {
+      materializer: ActorMaterializer,
+      getAsyncCallback: StageActorRef.Receive => AsyncCallback[(ActorRef, Any)],
+      initialReceive: StageActorRef.Receive,
+      name: String,
+      poisonPillFallback: Boolean) { // internal fallback to support deprecated SourceActorRef implementation replacement
 
-    private val callback = getAsyncCallback(internalReceive)
-    private def cell = materializer.supervisor match {
-      case ref: LocalActorRef                        ⇒ ref.underlying
-      case ref: RepointableActorRef if ref.isStarted ⇒ ref.underlying.asInstanceOf[ActorCell]
-      case unknown ⇒
-        throw new IllegalStateException(s"Stream supervisor must be a local actor, was [${unknown.getClass.getName}]")
+    def this(
+        materializer: akka.stream.ActorMaterializer,
+        getAsyncCallback: StageActorRef.Receive => AsyncCallback[(ActorRef, Any)],
+        initialReceive: StageActorRef.Receive,
+        name: String) {
+      this(materializer, getAsyncCallback, initialReceive, name, false)
     }
 
+    // not really needed, but let's keep MiMa happy
+    def this(
+        materializer: akka.stream.ActorMaterializer,
+        getAsyncCallback: StageActorRef.Receive => AsyncCallback[(ActorRef, Any)],
+        initialReceive: StageActorRef.Receive) {
+      this(materializer, getAsyncCallback, initialReceive, "", false)
+    }
+
+    private val callback = getAsyncCallback(internalReceive)
+
     private val functionRef: FunctionRef = {
-      cell.addFunctionRef {
-        case (_, m @ (PoisonPill | Kill)) ⇒
-          materializer.logger.warning("{} message sent to StageActor({}) will be ignored, since it is not a real Actor." +
-            "Use a custom message type to communicate with it instead.", m, functionRef.path)
-        case pair ⇒ callback.invoke(pair)
+      val f: (ActorRef, Any) => Unit = {
+        case (r, PoisonPill) if poisonPillFallback =>
+          callback.invoke((r, PoisonPill))
+        case (_, m @ (PoisonPill | Kill)) =>
+          materializer.logger.warning(
+            "{} message sent to StageActor({}) will be ignored, since it is not a real Actor." +
+            "Use a custom message type to communicate with it instead.",
+            m,
+            functionRef.path)
+        case pair => callback.invoke(pair)
+      }
+
+      materializer.supervisor match {
+        case ref: LocalActorRef =>
+          ref.underlying.addFunctionRef(f, name)
+        case ref: RepointableActorRef =>
+          if (ref.isStarted)
+            ref.underlying.asInstanceOf[ActorCell].addFunctionRef(f, name)
+          else {
+            // this may happen if materialized immediately before Materializer has been fully initialized,
+            // should be rare
+            implicit val timeout = ref.system.settings.CreationTimeout
+            val reply = (materializer.supervisor ? StreamSupervisor.AddFunctionRef(f, name)).mapTo[FunctionRef]
+            Await.result(reply, timeout.duration)
+          }
+        case unknown =>
+          throw new IllegalStateException(s"Stream supervisor must be a local actor, was [${unknown.getClass.getName}]")
       }
     }
 
@@ -155,37 +259,47 @@ object GraphStageLogic {
     def ref: ActorRef = functionRef
 
     @volatile
-    private[this] var behaviour = initialReceive
+    private[this] var behavior = initialReceive
 
     /** INTERNAL API */
     private[akka] def internalReceive(pack: (ActorRef, Any)): Unit = {
       pack._2 match {
-        case Terminated(ref) ⇒
+        case Terminated(ref) =>
           if (functionRef.isWatching(ref)) {
             functionRef.unwatch(ref)
-            behaviour(pack)
+            behavior(pack)
           }
-        case _ ⇒ behaviour(pack)
+        case _ => behavior(pack)
       }
     }
 
     /**
-     * Special `become` allowing to swap the behaviour of this StageActorRef.
+     * Special `become` allowing to swap the behavior of this StageActorRef.
      * Unbecome is not available.
      */
     def become(receive: StageActorRef.Receive): Unit = {
-      behaviour = receive
+      behavior = receive
     }
 
-    def stop(): Unit = cell.removeFunctionRef(functionRef)
+    def stop(): Unit = {
+      materializer.supervisor ! StreamSupervisor.RemoveFunctionRef(functionRef)
+    }
 
     def watch(actorRef: ActorRef): Unit = functionRef.watch(actorRef)
 
     def unwatch(actorRef: ActorRef): Unit = functionRef.unwatch(actorRef)
   }
   object StageActorRef {
-    type Receive = ((ActorRef, Any)) ⇒ Unit
+    type Receive = ((ActorRef, Any)) => Unit
   }
+
+  /**
+   * Internal API
+   *
+   * Marker value to pass to onAsyncInput if no promise was supplied.
+   */
+  @InternalApi
+  private[stream] val NoPromise: Promise[Done] = Promise.successful(Done)
 }
 
 /**
@@ -198,15 +312,21 @@ object GraphStageLogic {
  *  * The lifecycle hooks [[preStart()]] and [[postStop()]]
  *  * Methods for performing stream processing actions, like pulling or pushing elements
  *
- *  The stage logic is always once all its input and output ports have been closed, i.e. it is not possible to
- *  keep the stage alive for further processing once it does not have any open ports. This can be changed by
- *  overriding `keepGoingAfterAllPortsClosed` to return true.
+ * The operator logic is completed once all its input and output ports have been closed. This can be changed by
+ * setting `setKeepGoing` to true.
+ *
+ * The `postStop` lifecycle hook on the logic itself is called once all ports are closed. This is the only tear down
+ * callback that is guaranteed to happen, if the actor system or the materializer is terminated the handlers may never
+ * see any callbacks to `onUpstreamFailure`, `onUpstreamFinish` or `onDownstreamFinish`. Therefore operator resource
+ * cleanup should always be done in `postStop`.
  */
 abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: Int) {
+
   import GraphInterpreter._
   import GraphStageLogic._
 
   def this(shape: Shape) = this(shape.inlets.size, shape.outlets.size)
+
   /**
    * INTERNAL API
    */
@@ -214,15 +334,47 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
   /**
    * INTERNAL API
+   *
+   * Input handlers followed by output handlers, use `inHandler(id)` and `outHandler(id)` to access the respective
+   * handlers.
    */
-  // Using common array to reduce overhead for small port counts
-  private[stream] val handlers = Array.ofDim[Any](inCount + outCount)
+  private[stream] var attributes: Attributes = Attributes.none
+
+  /**
+   * INTERNAL API
+   *
+   * If possible a link back to the operator that the logic was created with, used for debugging.
+   */
+  private[stream] var originalStage: OptionVal[GraphStageWithMaterializedValue[_ <: Shape, _]] = OptionVal.None
 
   /**
    * INTERNAL API
    */
   // Using common array to reduce overhead for small port counts
-  private[stream] val portToConn = Array.ofDim[Connection](handlers.length)
+  private[stream] val handlers = new Array[Any](inCount + outCount)
+
+  /**
+   * INTERNAL API
+   */
+  private[stream] def inHandler(id: Int): InHandler = {
+    if (id > inCount) throw new IllegalArgumentException(s"$id not in inHandler range $inCount in $this")
+    if (inCount < 1)
+      throw new IllegalArgumentException(s"Tried to access inHandler $id but there are no in ports in $this")
+    handlers(id).asInstanceOf[InHandler]
+  }
+
+  private[stream] def outHandler(id: Int): OutHandler = {
+    if (id > outCount) throw new IllegalArgumentException(s"$id not in outHandler range $outCount in $this")
+    if (outCount < 1)
+      throw new IllegalArgumentException(s"Tried to access outHandler $id but there are no out ports $this")
+    handlers(inCount + id).asInstanceOf[OutHandler]
+  }
+
+  /**
+   * INTERNAL API
+   */
+  // Using common array to reduce overhead for small port counts
+  private[stream] val portToConn = new Array[Connection](handlers.length)
 
   /**
    * INTERNAL API
@@ -239,11 +391,16 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    */
   private[akka] def interpreter: GraphInterpreter =
     if (_interpreter == null)
-      throw new IllegalStateException("not yet initialized: only setHandler is allowed in GraphStageLogic constructor")
+      throw new IllegalStateException(
+        "not yet initialized: only setHandler is allowed in GraphStageLogic constructor. To access materializer use Source/Flow/Sink.setup factory")
     else _interpreter
 
   /**
    * The [[akka.stream.Materializer]] that has set this GraphStage in motion.
+   *
+   * Can not be used from a `GraphStage` constructor. Access to materializer is provided by the
+   * [[akka.stream.scaladsl.Source.setup]], [[akka.stream.scaladsl.Flow.setup]] and [[akka.stream.scaladsl.Sink.setup]]
+   * and their corresponding Java API factories.
    */
   protected def materializer: Materializer = interpreter.materializer
 
@@ -256,38 +413,46 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
   protected def subFusingMaterializer: Materializer = interpreter.subFusingMaterializer
 
   /**
-   * Input handler that terminates the stage upon receiving completion.
-   * The stage fails upon receiving a failure.
+   * Input handler that terminates the operator upon receiving completion.
+   * The operator fails upon receiving a failure.
    */
   final protected def eagerTerminateInput: InHandler = EagerTerminateInput
+
   /**
-   * Input handler that does not terminate the stage upon receiving completion.
-   * The stage fails upon receiving a failure.
+   * Input handler that does not terminate the operator upon receiving completion.
+   * The operator fails upon receiving a failure.
    */
   final protected def ignoreTerminateInput: InHandler = IgnoreTerminateInput
+
   /**
    * Input handler that terminates the state upon receiving completion if the
-   * given condition holds at that time. The stage fails upon receiving a failure.
+   * given condition holds at that time. The operator fails upon receiving a failure.
    */
-  final protected def conditionalTerminateInput(predicate: () ⇒ Boolean): InHandler = new ConditionalTerminateInput(predicate)
+  final protected def conditionalTerminateInput(predicate: () => Boolean): InHandler =
+    new ConditionalTerminateInput(predicate)
+
   /**
-   * Input handler that does not terminate the stage upon receiving completion
+   * Input handler that does not terminate the operator upon receiving completion
    * nor failure.
    */
   final protected def totallyIgnorantInput: InHandler = TotallyIgnorantInput
+
   /**
-   * Output handler that terminates the stage upon cancellation.
+   * Output handler that terminates the operator upon cancellation.
    */
   final protected def eagerTerminateOutput: OutHandler = EagerTerminateOutput
+
   /**
-   * Output handler that does not terminate the stage upon cancellation.
+   * Output handler that does not terminate the operator upon cancellation.
    */
   final protected def ignoreTerminateOutput: OutHandler = IgnoreTerminateOutput
+
   /**
    * Output handler that terminates the state upon receiving completion if the
-   * given condition holds at that time. The stage fails upon receiving a failure.
+   * given condition holds at that time. The operator fails upon receiving a failure.
    */
-  final protected def conditionalTerminateOutput(predicate: () ⇒ Boolean): OutHandler = new ConditionalTerminateOutput(predicate)
+  final protected def conditionalTerminateOutput(predicate: () => Boolean): OutHandler =
+    new ConditionalTerminateOutput(predicate)
 
   /**
    * Assigns callbacks for the events for an [[Inlet]]
@@ -298,7 +463,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
   }
 
   /**
-   * Assign callbacks for linear stage for both [[Inlet]] and [[Outlet]]
+   * Assign callbacks for linear operator for both [[Inlet]] and [[Outlet]]
    */
   final protected def setHandlers(in: Inlet[_], out: Outlet[_], handler: InHandler with OutHandler): Unit = {
     setHandler(in, handler)
@@ -332,8 +497,8 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
   private def getNonEmittingHandler(out: Outlet[_]): OutHandler =
     getHandler(out) match {
-      case e: Emitting[_] ⇒ e.previous
-      case other          ⇒ other
+      case e: Emitting[_] => e.previous
+      case other          => other
     }
 
   /**
@@ -351,8 +516,8 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
       it.chasePull(connection)
     } else {
       // Detailed error information should not add overhead to the hot path
-      require(!isClosed(in), s"Cannot pull closed port ($in)")
-      require(!hasBeenPulled(in), s"Cannot pull port ($in) twice")
+      if (isClosed(in)) throw new IllegalArgumentException(s"Cannot pull closed port ($in)")
+      if (hasBeenPulled(in)) throw new IllegalArgumentException(s"Cannot pull port ($in) twice")
 
       // There were no errors, the pull was simply ignored as the target stage already closed its port. We
       // still need to track proper state though.
@@ -370,8 +535,16 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
   /**
    * Requests to stop receiving events from a given input port. Cancelling clears any ungrabbed elements from the port.
+   *
+   * If cancellation is due to an error, use `cancel(in, cause)` instead to propagate that cause upstream. This overload
+   * is a shortcut for `cancel(in, SubscriptionWithCancelException.NoMoreElementsNeeded)`
    */
-  final protected def cancel[T](in: Inlet[T]): Unit = interpreter.cancel(conn(in))
+  final protected def cancel[T](in: Inlet[T]): Unit = cancel(in, SubscriptionWithCancelException.NoMoreElementsNeeded)
+
+  /**
+   * Requests to stop receiving events from a given input port. Cancelling clears any ungrabbed elements from the port.
+   */
+  final protected def cancel[T](in: Inlet[T], cause: Throwable): Unit = interpreter.cancel(conn(in), cause)
 
   /**
    * Once the callback [[InHandler.onPush()]] for an input port has been invoked, the element that has been pushed
@@ -382,20 +555,29 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    */
   final protected def grab[T](in: Inlet[T]): T = {
     val connection = conn(in)
-    val it = interpreter
     val elem = connection.slot
 
-    // Fast path
-    if ((connection.portState & (InReady | InFailed)) == InReady && (elem.asInstanceOf[AnyRef] ne Empty)) {
+    // Fast path for active connections
+    if ((connection.portState & (InReady | InFailed | InClosed)) == InReady && (elem.asInstanceOf[AnyRef] ne Empty)) {
       connection.slot = Empty
       elem.asInstanceOf[T]
     } else {
-      // Slow path
-      require(isAvailable(in), s"Cannot get element from already empty input port ($in)")
-      val failed = connection.slot.asInstanceOf[Failed]
-      val elem = failed.previousElem.asInstanceOf[T]
-      connection.slot = Failed(failed.ex, Empty)
-      elem
+      // Slow path for grabbing element from already failed or completed connections
+      if (!isAvailable(in))
+        throw new IllegalArgumentException(s"Cannot get element from already empty input port ($in)")
+
+      if ((connection.portState & (InReady | InFailed)) == (InReady | InFailed)) {
+        // failed
+        val failed = connection.slot.asInstanceOf[Failed]
+        val elem = failed.previousElem.asInstanceOf[T]
+        connection.slot = Failed(failed.ex, Empty)
+        elem
+      } else {
+        // completed
+        val elem = connection.slot.asInstanceOf[T]
+        connection.slot = Empty
+        elem
+      }
     }
   }
 
@@ -414,18 +596,21 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
   final protected def isAvailable[T](in: Inlet[T]): Boolean = {
     val connection = conn(in)
 
-    val normalArrived = (conn(in).portState & (InReady | InFailed)) == InReady
+    val normalArrived = (conn(in).portState & (InReady | InFailed | InClosed)) == InReady
 
-    // Fast path
+    // Fast path for active connection
     if (normalArrived) connection.slot.asInstanceOf[AnyRef] ne Empty
     else {
-      // Slow path on failure
-      if ((connection.portState & (InReady | InFailed)) == (InReady | InFailed)) {
+      // slow path on failure, closure, and cancellation
+      if ((connection.portState & (InReady | InClosed | InFailed)) == (InReady | InClosed))
         connection.slot match {
-          case Failed(_, elem) ⇒ elem.asInstanceOf[AnyRef] ne Empty
-          case _               ⇒ false // This can only be Empty actually (if a cancel was concurrent with a failure)
-        }
-      } else false
+          case Empty | _ @(_: Cancelled) => false // cancelled (element is discarded when cancelled)
+          case _                         => true // completed but element still there to grab
+        } else if ((connection.portState & (InReady | InFailed)) == (InReady | InFailed))
+        connection.slot match {
+          case Failed(_, elem) => elem.asInstanceOf[AnyRef] ne Empty // failed but element still there to grab
+          case _               => false
+        } else false
     }
   }
 
@@ -455,8 +640,9 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
       // Detailed error information should not add overhead to the hot path
       ReactiveStreamsCompliance.requireNonNullElement(elem)
-      require(!isClosed(out), s"Cannot pull closed port ($out)")
-      require(isAvailable(out), s"Cannot push port ($out) twice")
+      if (isClosed(out)) throw new IllegalArgumentException(s"Cannot push closed port ($out)")
+      if (!isAvailable(out))
+        throw new IllegalArgumentException(s"Cannot push port ($out) twice, or before it being pulled")
 
       // No error, just InClosed caused the actual pull to be ignored, but the status flag still needs to be flipped
       connection.portState = portState ^ PushStartFlip
@@ -464,11 +650,11 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
   }
 
   /**
-   * Controls whether this stage shall shut down when all its ports are closed, which
+   * Controls whether this operator shall shut down when all its ports are closed, which
    * is the default. In order to have it keep going past that point this method needs
    * to be called with a `true` argument before all ports are closed, and afterwards
    * it will not be closed until this method is called with a `false` argument or the
-   * stage is terminated via `completeStage()` or `failStage()`.
+   * operator is terminated via `completeStage()` or `failStage()`.
    */
   final protected def setKeepGoing(enabled: Boolean): Unit =
     interpreter.setKeepGoing(this, enabled)
@@ -478,8 +664,8 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    */
   final protected def complete[T](out: Outlet[T]): Unit =
     getHandler(out) match {
-      case e: Emitting[_] ⇒ e.addFollowUp(new EmittingCompletion(e.out, e.previous))
-      case _              ⇒ interpreter.complete(conn(out))
+      case e: Emitting[_] => e.addFollowUp(new EmittingCompletion(e.out, e.previous))
+      case _              => interpreter.complete(conn(out))
     }
 
   /**
@@ -489,17 +675,35 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
   /**
    * Automatically invokes [[cancel()]] or [[complete()]] on all the input or output ports that have been called,
-   * then stops the stage, then [[postStop()]] is called.
+   * then marks the operator as stopped.
    */
-  final def completeStage(): Unit = {
+  final def completeStage(): Unit = cancelStage(SubscriptionWithCancelException.StageWasCompleted)
+
+  // Variable used from `OutHandler.onDownstreamFinish` to carry over cancellation cause in cases where
+  // `OutHandler` implementations call `super.onDownstreamFinished()`.
+  /**
+   * INTERNAL API
+   */
+  @InternalApi private[stream] var lastCancellationCause: Throwable = _
+
+  /**
+   * Automatically invokes [[cancel()]] or [[complete()]] on all the input or output ports that have been called,
+   * then marks the stage as stopped.
+   */
+  final def cancelStage(cause: Throwable): Unit = {
+    // TODO: It's debatable if completing the stage if one output is cancelled is the right way to do things.
+    //       At least optionally it might be more reasonable to fail the stage with the given cause. That
+    //       would mean that all other *outputs* are failed, i.e. it would only concern stages with more that one
+    //       output anyway.
     var i = 0
     while (i < portToConn.length) {
       if (i < inCount)
-        interpreter.cancel(portToConn(i))
-      else handlers(i) match {
-        case e: Emitting[_] ⇒ e.addFollowUp(new EmittingCompletion(e.out, e.previous))
-        case _              ⇒ interpreter.complete(portToConn(i))
-      }
+        interpreter.cancel(portToConn(i), cause)
+      else
+        handlers(i) match {
+          case e: Emitting[_] => e.addFollowUp(new EmittingCompletion(e.out, e.previous))
+          case _              => interpreter.complete(portToConn(i))
+        }
       i += 1
     }
     setKeepGoing(false)
@@ -507,13 +711,13 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
   /**
    * Automatically invokes [[cancel()]] or [[fail()]] on all the input or output ports that have been called,
-   * then stops the stage, then [[postStop()]] is called.
+   * then marks the operator as stopped.
    */
   final def failStage(ex: Throwable): Unit = {
     var i = 0
     while (i < portToConn.length) {
       if (i < inCount)
-        interpreter.cancel(portToConn(i))
+        interpreter.cancel(portToConn(i), ex)
       else
         interpreter.fail(portToConn(i), ex)
       i += 1
@@ -541,7 +745,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * If upstream closes before N elements have been read,
    * the `onClose` function is invoked with the elements which were read.
    */
-  final protected def readN[T](in: Inlet[T], n: Int)(andThen: Seq[T] ⇒ Unit, onClose: Seq[T] ⇒ Unit): Unit =
+  final protected def readN[T](in: Inlet[T], n: Int)(andThen: Seq[T] => Unit, onClose: Seq[T] => Unit): Unit =
     //FIXME `onClose` is a poor name for `onComplete` rename this at the earliest possible opportunity
     if (n < 0) throw new IllegalArgumentException("cannot read negative number of elements")
     else if (n == 0) andThen(Nil)
@@ -557,15 +761,12 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
       if (n != pos) { // If we aren't already done
         requireNotReading(in)
         if (!hasBeenPulled(in)) pull(in)
-        setHandler(in, new Reading(in, n - pos, getHandler(in))(
-          (elem: T) ⇒ {
-            result(pos) = elem
-            pos += 1
-            if (pos == n) andThen(result)
-          },
-          () ⇒ onClose(result.take(pos)))
-        )
-      } else andThen(result)
+        setHandler(in, new Reading(in, n - pos, getHandler(in))((elem: T) => {
+          result(pos) = elem
+          pos += 1
+          if (pos == n) andThen(result.toSeq)
+        }, () => onClose(result.take(pos).toSeq)))
+      } else andThen(result.toSeq)
     }
 
   /**
@@ -574,10 +775,14 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * for the given inlet if suspension is needed and reinstalls the current
    * handler upon receiving the last `onPush()` signal (before invoking the `andThen` function).
    */
-  final protected def readN[T](in: Inlet[T], n: Int, andThen: Procedure[java.util.List[T]], onClose: Procedure[java.util.List[T]]): Unit = {
+  final protected def readN[T](
+      in: Inlet[T],
+      n: Int,
+      andThen: Procedure[java.util.List[T]],
+      onClose: Procedure[java.util.List[T]]): Unit = {
     //FIXME `onClose` is a poor name for `onComplete` rename this at the earliest possible opportunity
-    import collection.JavaConverters._
-    readN(in, n)(seq ⇒ andThen(seq.asJava), seq ⇒ onClose(seq.asJava))
+    import akka.util.ccompat.JavaConverters._
+    readN(in, n)(seq => andThen(seq.asJava), seq => onClose(seq.asJava))
   }
 
   /**
@@ -586,7 +791,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * for the given inlet if suspension is needed and reinstalls the current
    * handler upon receiving the `onPush()` signal (before invoking the `andThen` function).
    */
-  final protected def read[T](in: Inlet[T])(andThen: T ⇒ Unit, onClose: () ⇒ Unit): Unit = {
+  final protected def read[T](in: Inlet[T])(andThen: T => Unit, onClose: () => Unit): Unit = {
     if (isAvailable(in)) {
       val elem = grab(in)
       andThen(elem)
@@ -606,7 +811,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * handler upon receiving the `onPush()` signal (before invoking the `andThen` function).
    */
   final protected def read[T](in: Inlet[T], andThen: Procedure[T], onClose: Effect): Unit = {
-    read(in)(andThen.apply, onClose.apply)
+    read(in)(andThen.apply, onClose.apply _)
   }
 
   /**
@@ -616,9 +821,9 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    */
   final protected def abortReading(in: Inlet[_]): Unit =
     getHandler(in) match {
-      case r: Reading[_] ⇒
+      case r: Reading[_] =>
         setHandler(in, r.previous)
-      case _ ⇒
+      case _ =>
     }
 
   private def requireNotReading(in: Inlet[_]): Unit =
@@ -629,7 +834,11 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * Caution: for n == 1 andThen is called after resetting the handler, for
    * other values it is called without resetting the handler. n MUST be positive.
    */
-  private final class Reading[T](in: Inlet[T], private var n: Int, val previous: InHandler)(andThen: T ⇒ Unit, onComplete: () ⇒ Unit) extends InHandler {
+  // can't be final because of SI-4440
+  private class Reading[T](in: Inlet[T], private var n: Int, val previous: InHandler)(
+      andThen: T => Unit,
+      onComplete: () => Unit)
+      extends InHandler {
     require(n > 0, "number of elements to read must be positive!")
 
     override def onPush(): Unit = {
@@ -647,6 +856,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
       onComplete()
       previous.onUpstreamFinish()
     }
+
     override def onUpstreamFailure(ex: Throwable): Unit = {
       setHandler(in, previous)
       previous.onUpstreamFailure(ex)
@@ -660,7 +870,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * is needed and reinstalls the current handler upon receiving an `onPull()`
    * signal (before invoking the `andThen` function).
    */
-  final protected def emitMultiple[T](out: Outlet[T], elems: immutable.Iterable[T], andThen: () ⇒ Unit): Unit =
+  final protected def emitMultiple[T](out: Outlet[T], elems: immutable.Iterable[T], andThen: () => Unit): Unit =
     emitMultiple(out, elems.iterator, andThen)
 
   /**
@@ -669,7 +879,8 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * is needed and reinstalls the current handler upon receiving an `onPull()`
    * signal.
    */
-  final protected def emitMultiple[T](out: Outlet[T], elems: immutable.Iterable[T]): Unit = emitMultiple(out, elems, DoNothing)
+  final protected def emitMultiple[T](out: Outlet[T], elems: immutable.Iterable[T]): Unit =
+    emitMultiple(out, elems, DoNothing)
 
   /**
    * Java API
@@ -680,7 +891,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * signal.
    */
   final protected def emitMultiple[T](out: Outlet[T], elems: java.util.Iterator[T]): Unit = {
-    import collection.JavaConverters._
+    import akka.util.ccompat.JavaConverters._
     emitMultiple(out, elems.asScala, DoNothing)
   }
 
@@ -693,7 +904,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * signal.
    */
   final protected def emitMultiple[T](out: Outlet[T], elems: java.util.Iterator[T], andThen: Effect): Unit = {
-    import collection.JavaConverters._
+    import akka.util.ccompat.JavaConverters._
     emitMultiple(out, elems.asScala, andThen.apply _)
   }
 
@@ -704,7 +915,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * is needed and reinstalls the current handler upon receiving an `onPull()`
    * signal (before invoking the `andThen` function).
    */
-  final protected def emitMultiple[T](out: Outlet[T], elems: Iterator[T], andThen: () ⇒ Unit): Unit =
+  final protected def emitMultiple[T](out: Outlet[T], elems: Iterator[T], andThen: () => Unit): Unit =
     if (elems.hasNext) {
       if (isAvailable(out)) {
         push(out, elems.next())
@@ -731,7 +942,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * is needed and reinstalls the current handler upon receiving an `onPull()`
    * signal (before invoking the `andThen` function).
    */
-  final protected def emit[T](out: Outlet[T], elem: T, andThen: () ⇒ Unit): Unit =
+  final protected def emit[T](out: Outlet[T], elem: T, andThen: () => Unit): Unit =
     if (isAvailable(out)) {
       push(out, elem)
       andThen()
@@ -758,31 +969,48 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    */
   final protected def abortEmitting(out: Outlet[_]): Unit =
     getHandler(out) match {
-      case e: Emitting[_] ⇒ setHandler(out, e.previous)
-      case _              ⇒
+      case e: Emitting[_] => setHandler(out, e.previous)
+      case _              =>
     }
 
   private def setOrAddEmitting[T](out: Outlet[T], next: Emitting[T]): Unit =
     getHandler(out) match {
-      case e: Emitting[_] ⇒ e.asInstanceOf[Emitting[T]].addFollowUp(next)
-      case _              ⇒ setHandler(out, next)
+      case e: Emitting[_] => e.asInstanceOf[Emitting[T]].addFollowUp(next)
+      case _              => setHandler(out, next)
     }
 
-  private abstract class Emitting[T](val out: Outlet[T], val previous: OutHandler, andThen: () ⇒ Unit) extends OutHandler {
+  private abstract class Emitting[T](val out: Outlet[T], val previous: OutHandler, andThen: () => Unit)
+      extends OutHandler {
     private var followUps: Emitting[T] = _
     private var followUpsTail: Emitting[T] = _
-    private def as[U] = this.asInstanceOf[Emitting[U]]
 
     protected def followUp(): Unit = {
       setHandler(out, previous)
       andThen()
       if (followUps != null) {
-        getHandler(out) match {
-          case e: Emitting[_] ⇒ e.as[T].addFollowUps(this)
-          case _ ⇒
-            val next = dequeue()
-            if (next.isInstanceOf[EmittingCompletion[_]]) complete(out)
-            else setHandler(out, next)
+
+        /*
+         * If (while executing andThen() callback) handler was changed to new emitting,
+         * we should add it to the end of emission queue
+         */
+        val currentHandler = getHandler(out)
+        if (currentHandler.isInstanceOf[Emitting[_]])
+          addFollowUp(currentHandler.asInstanceOf[Emitting[T]])
+
+        val next = dequeue()
+        if (next.isInstanceOf[EmittingCompletion[_]]) {
+
+          /*
+           * If next element is emitting completion and there are some elements after it,
+           * we to need pass them before completion
+           */
+          if (next.followUps != null) {
+            setHandler(out, dequeueHeadAndAddToTail(next))
+          } else {
+            complete(out)
+          }
+        } else {
+          setHandler(out, next)
         }
       }
     }
@@ -796,14 +1024,13 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
         followUpsTail = e
       }
 
-    private def addFollowUps(e: Emitting[T]): Unit =
-      if (followUps == null) {
-        followUps = e.followUps
-        followUpsTail = e.followUpsTail
-      } else {
-        followUpsTail.followUps = e.followUps
-        followUpsTail = e.followUpsTail
-      }
+    private def dequeueHeadAndAddToTail(head: Emitting[T]): Emitting[T] = {
+      val next = head.dequeue()
+      next.addFollowUp(head)
+      head.followUps = null
+      head.followUpsTail = null
+      next
+    }
 
     /**
      * Dequeue `this` from the head of the queue, meaning that this object will
@@ -816,11 +1043,11 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
       ret
     }
 
-    override def onDownstreamFinish(): Unit = previous.onDownstreamFinish()
+    override def onDownstreamFinish(cause: Throwable): Unit = previous.onDownstreamFinish(cause)
   }
 
-  private class EmittingSingle[T](_out: Outlet[T], elem: T, _previous: OutHandler, _andThen: () ⇒ Unit)
-    extends Emitting(_out, _previous, _andThen) {
+  private class EmittingSingle[T](_out: Outlet[T], elem: T, _previous: OutHandler, _andThen: () => Unit)
+      extends Emitting(_out, _previous, _andThen) {
 
     override def onPull(): Unit = {
       push(out, elem)
@@ -828,8 +1055,8 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
     }
   }
 
-  private class EmittingIterator[T](_out: Outlet[T], elems: Iterator[T], _previous: OutHandler, _andThen: () ⇒ Unit)
-    extends Emitting(_out, _previous, _andThen) {
+  private class EmittingIterator[T](_out: Outlet[T], elems: Iterator[T], _previous: OutHandler, _andThen: () => Unit)
+      extends Emitting(_out, _previous, _andThen) {
 
     override def onPull(): Unit = {
       push(out, elems.next())
@@ -839,26 +1066,33 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
     }
   }
 
-  private class EmittingCompletion[T](_out: Outlet[T], _previous: OutHandler) extends Emitting(_out, _previous, DoNothing) {
+  private class EmittingCompletion[T](_out: Outlet[T], _previous: OutHandler)
+      extends Emitting(_out, _previous, DoNothing) {
     override def onPull(): Unit = complete(out)
   }
 
   /**
    * Install a handler on the given inlet that emits received elements on the
    * given outlet before pulling for more data. `doFinish` and `doFail` control whether
-   * completion or failure of the given inlet shall lead to stage termination or not.
+   * completion or failure of the given inlet shall lead to operator termination or not.
    * `doPull` instructs to perform one initial pull on the `from` port.
    */
-  final protected def passAlong[Out, In <: Out](from: Inlet[In], to: Outlet[Out],
-                                                doFinish: Boolean = true, doFail: Boolean = true,
-                                                doPull: Boolean = false): Unit = {
-    class PassAlongHandler extends InHandler with (() ⇒ Unit) {
+  final protected def passAlong[Out, In <: Out](
+      from: Inlet[In],
+      to: Outlet[Out],
+      doFinish: Boolean = true,
+      doFail: Boolean = true,
+      doPull: Boolean = false): Unit = {
+    class PassAlongHandler extends InHandler with (() => Unit) {
       override def apply(): Unit = tryPull(from)
+
       override def onPush(): Unit = {
         val elem = grab(from)
         emit(to, elem, this)
       }
+
       override def onUpstreamFinish(): Unit = if (doFinish) completeStage()
+
       override def onUpstreamFailure(ex: Throwable): Unit = if (doFail) failStage(ex)
     }
     val ph = new PassAlongHandler
@@ -873,70 +1107,205 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
   /**
    * Obtain a callback object that can be used asynchronously to re-enter the
    * current [[GraphStage]] with an asynchronous notification. The [[invoke()]] method of the returned
-   * [[AsyncCallback]] is safe to be called from other threads and it will in the background thread-safely
-   * delegate to the passed callback function. I.e. [[invoke()]] will be called by the external world and
+   * [[AsyncCallback]] is safe to be called from other threads. It will in the background thread-safely
+   * delegate to the passed callback function. I.e. [[invoke()]] will be called by other thread and
    * the passed handler will be invoked eventually in a thread-safe way by the execution environment.
+   *
+   * In case stream is not yet materialized [[AsyncCallback]] will buffer events until stream is available.
+   *
+   * [[AsyncCallback.invokeWithFeedback()]] has an internal promise that will be failed if event cannot be processed
+   * due to stream completion.
+   *
+   * To be thread safe this method must only be called from either the constructor of the graph operator during
+   * materialization or one of the methods invoked by the graph operator machinery, such as `onPush` and `onPull`.
    *
    * This object can be cached and reused within the same [[GraphStageLogic]].
    */
-  final def getAsyncCallback[T](handler: T ⇒ Unit): AsyncCallback[T] = {
-    new AsyncCallback[T] {
-      override def invoke(event: T): Unit =
-        interpreter.onAsyncInput(GraphStageLogic.this, event, handler.asInstanceOf[Any ⇒ Unit])
+  final def getAsyncCallback[T](handler: T => Unit): AsyncCallback[T] = {
+    val callback = new ConcurrentAsyncCallback[T](handler)
+    if (_interpreter != null) callback.onStart()
+    else callbacksWaitingForInterpreter = callback :: callbacksWaitingForInterpreter
+    callback
+  }
+
+  /**
+   * ConcurrentAsyncCallback allows to call [[invoke()]] and [[invokeWithPromise()]] with event attribute.
+   * This event will be sent to the stream and the corresponding handler will be called with this attribute in thread-safe manner.
+   *
+   * State of this object can be changed both "internally" by the owning GraphStage or by the "external world" (e.g. other threads).
+   * Specifically, calls to this class can be made:
+   * * From the owning [[GraphStage]], to [[onStart]] - when materialization is finished and to [[onStop()]] -
+   * because the operator is about to stop or fail.
+   * * "Real world" calls [[invoke()]] and [[invokeWithFeedback()]]. These methods have synchronization
+   *   with class state that reflects the stream state
+   *
+   * onStart sends all events that were buffered while stream was materializing.
+   * In case "Real world" added more events while initializing, onStart checks for more events in buffer when exiting and
+   * resend new events
+   *
+   * Once class is in `Initialized` state - all "Real world" calls of [[invoke()]] and [[invokeWithFeedback()]] are running
+   * as is - without blocking each other.
+   *
+   * [[GraphStage]] is called [[onStop()]] when stream is wrapping down. onStop fails all futures for events that have not yet processed
+   * [[onStop()]] puts class in `Completed` state
+   * "Real world" calls of [[invokeWithFeedback()]] always return failed promises for `Completed` state
+   */
+  private final class ConcurrentAsyncCallback[T](handler: T => Unit) extends AsyncCallback[T] {
+
+    sealed trait State
+    // waiting for materialization completion or during dispatching of initially queued events
+    // - can't be final because of SI-4440
+    private case class Pending(pendingEvents: List[Event]) extends State
+    // stream is initialized and so no threads can just send events without any synchronization overhead
+    private case object Initialized extends State
+    // Event with feedback promise - can't be final because of SI-4440
+    private case class Event(e: T, handlingPromise: Promise[Done])
+
+    private[this] val NoPendingEvents = Pending(Nil)
+    private[this] val currentState = new AtomicReference[State](NoPendingEvents)
+
+    // is called from the owning [[GraphStage]]
+    @tailrec
+    private[stage] def onStart(): Unit = {
+      // dispatch callbacks that have been queued before the interpreter was started
+      (currentState.getAndSet(NoPendingEvents): @unchecked) match {
+        case Pending(l) => if (l.nonEmpty) l.reverse.foreach(evt => onAsyncInput(evt.e, evt.handlingPromise))
+        case s          => throw new IllegalStateException(s"Unexpected callback state [$s]")
+      }
+
+      // in the meantime more callbacks might have been queued (we keep queueing them to ensure order)
+      if (!currentState.compareAndSet(NoPendingEvents, Initialized))
+        // state guaranteed to be still Pending
+        onStart()
     }
+
+    // external call
+    override def invokeWithFeedback(event: T): Future[Done] = {
+      val promise: Promise[Done] = Promise[Done]()
+
+      /*
+       * Add this promise to the owning logic, so it can be completed afterPostStop if it was never handled otherwise.
+       * Returns whether the logic is still running.
+       */
+      @tailrec
+      def addToWaiting(): Boolean = {
+        val previous = asyncCallbacksInProgress.get()
+        if (previous != null) { // not stopped
+          val updated = promise :: previous
+          if (!asyncCallbacksInProgress.compareAndSet(previous, updated)) addToWaiting()
+          else true
+        } else // logic was already stopped
+          false
+      }
+
+      if (addToWaiting()) {
+        invokeWithPromise(event, promise)
+        promise.future
+      } else
+        Future.failed(streamDetatchedException)
+    }
+
+    //external call
+    override def invoke(event: T): Unit = invokeWithPromise(event, NoPromise)
+
+    @tailrec
+    private def invokeWithPromise(event: T, promise: Promise[Done]): Unit =
+      currentState.get() match {
+        case Initialized =>
+          // started - can just dispatch async message to interpreter
+          onAsyncInput(event, promise)
+
+        case list @ Pending(l) =>
+          // not started yet
+          if (!currentState.compareAndSet(list, Pending(Event(event, promise) :: l)))
+            invokeWithPromise(event, promise)
+      }
+
+    private def onAsyncInput(event: T, promise: Promise[Done]): Unit =
+      interpreter.onAsyncInput(GraphStageLogic.this, event, promise, handler.asInstanceOf[Any => Unit])
   }
 
   /**
    * Java API: Obtain a callback object that can be used asynchronously to re-enter the
    * current [[GraphStage]] with an asynchronous notification. The [[invoke()]] method of the returned
-   * [[AsyncCallback]] is safe to be called from other threads and it will in the background thread-safely
-   * delegate to the passed callback function. I.e. [[invoke()]] will be called by the external world and
+   * [[AsyncCallback]] is safe to be called from other threads. It will in the background thread-safely
+   * delegate to the passed callback function. I.e. [[invoke()]] will be called by other thread and
    * the passed handler will be invoked eventually in a thread-safe way by the execution environment.
+   *
+   * [[AsyncCallback.invokeWithFeedback()]] has an internal promise that will be failed if event cannot be processed due to stream completion.
    *
    * This object can be cached and reused within the same [[GraphStageLogic]].
    */
   final protected def createAsyncCallback[T](handler: Procedure[T]): AsyncCallback[T] =
     getAsyncCallback(handler.apply)
 
+  private var callbacksWaitingForInterpreter: List[ConcurrentAsyncCallback[_]] = Nil
+  // is used for two purposes: keep track of running callbacks and signal that the
+  // stage has stopped to fail incoming async callback invocations by being set to null
+  private val asyncCallbacksInProgress = new AtomicReference[List[Promise[Done]]](Nil)
+
   private var _stageActor: StageActor = _
   final def stageActor: StageActor = _stageActor match {
-    case null ⇒ throw StageActorRefNotInitializedException()
-    case ref  ⇒ ref
+    case null => throw StageActorRefNotInitializedException()
+    case ref  => ref
   }
 
   /**
    * Initialize a [[StageActorRef]] which can be used to interact with from the outside world "as-if" an [[Actor]].
    * The messages are looped through the [[getAsyncCallback]] mechanism of [[GraphStage]] so they are safe to modify
-   * internal state of this stage.
+   * internal state of this operator.
    *
    * This method must (the earliest) be called after the [[GraphStageLogic]] constructor has finished running,
-   * for example from the [[preStart]] callback the graph stage logic provides.
+   * for example from the [[preStart]] callback the graph operator logic provides.
    *
    * Created [[StageActorRef]] to get messages and watch other actors in synchronous way.
    *
-   * The [[StageActorRef]]'s lifecycle is bound to the Stage, in other words when the Stage is finished,
+   * The [[StageActorRef]]'s lifecycle is bound to the operator, in other words when the operator is finished,
    * the Actor will be terminated as well. The entity backing the [[StageActorRef]] is not a real Actor,
    * but the [[GraphStageLogic]] itself, therefore it does not react to [[PoisonPill]].
    *
    * @param receive callback that will be called upon receiving of a message by this special Actor
    * @return minimal actor with watch method
    */
-  // FIXME: I don't like the Pair allocation :(
-  final protected def getStageActor(receive: ((ActorRef, Any)) ⇒ Unit): StageActor = {
+  final protected def getStageActor(receive: ((ActorRef, Any)) => Unit): StageActor =
+    getEagerStageActor(interpreter.materializer, poisonPillCompatibility = false)(receive)
+
+  /**
+   * INTERNAL API
+   */
+  @InternalApi
+  protected[akka] def getEagerStageActor(
+      eagerMaterializer: Materializer,
+      poisonPillCompatibility: Boolean)( // fallback required for source actor backwards compatibility
+      receive: ((ActorRef, Any)) => Unit): StageActor =
     _stageActor match {
-      case null ⇒
-        val actorMaterializer = ActorMaterializerHelper.downcast(interpreter.materializer)
-        _stageActor = new StageActor(actorMaterializer, getAsyncCallback, receive)
+      case null =>
+        val actorMaterializer = ActorMaterializerHelper.downcast(eagerMaterializer)
+        _stageActor =
+          new StageActor(actorMaterializer, getAsyncCallback, receive, stageActorName, poisonPillCompatibility)
         _stageActor
-      case existing ⇒
+      case existing =>
         existing.become(receive)
         existing
     }
-  }
+
+  /**
+   * Override and return a name to be given to the StageActor of this operator.
+   *
+   * This method will be only invoked and used once, during the first [[getStageActor]]
+   * invocation whichc reates the actor, since subsequent `getStageActors` calls function
+   * like `become`, rather than creating new actors.
+   *
+   * Returns an empty string by default, which means that the name will a unique generated String (e.g. "$$a").
+   */
+  protected def stageActorName: String = ""
 
   // Internal hooks to avoid reliance on user calling super in preStart
   /** INTERNAL API */
-  protected[stream] def beforePreStart(): Unit = ()
+  protected[stream] def beforePreStart(): Unit = {
+    callbacksWaitingForInterpreter.foreach(_.onStart())
+    callbacksWaitingForInterpreter = Nil
+  }
 
   // Internal hooks to avoid reliance on user calling super in postStop
   /** INTERNAL API */
@@ -945,16 +1314,50 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
       _stageActor.stop()
       _stageActor = null
     }
+    // make sure any invokeWithFeedback after this fails fast
+    // and fail current outstanding invokeWithFeedback promises
+    val inProgress = asyncCallbacksInProgress.getAndSet(null)
+    if (inProgress.nonEmpty) {
+      val exception = streamDetatchedException
+      inProgress.foreach(_.tryFailure(exception))
+    }
   }
 
+  private[this] var asyncCleanupCounter = 0L
+
+  /** Called from interpreter thread by GraphInterpreter.runAsyncInput */
+  private[stream] def onFeedbackDispatched(): Unit = {
+    asyncCleanupCounter += 1
+
+    // 256 seemed to be a sweet spot in SendQueueBenchmark.queue benchmarks
+    // It means that at most 255 completed promises are retained per logic that
+    // uses invokeWithFeedback callbacks.
+    //
+    // TODO: add periodical cleanup to get rid of those 255 promises as well
+    if (asyncCleanupCounter % 256 == 0) {
+      @tailrec def cleanup(): Unit = {
+        val previous = asyncCallbacksInProgress.get()
+        if (previous != null) {
+          val updated = previous.filterNot(_.isCompleted)
+          if (!asyncCallbacksInProgress.compareAndSet(previous, updated)) cleanup()
+        }
+      }
+
+      cleanup()
+    }
+  }
+
+  private def streamDetatchedException =
+    new StreamDetachedException(s"Stage with GraphStageLogic ${this} stopped before async invocation was processed")
+
   /**
-   * Invoked before any external events are processed, at the startup of the stage.
+   * Invoked before any external events are processed, at the startup of the operator.
    */
   @throws(classOf[Exception])
   def preStart(): Unit = ()
 
   /**
-   * Invoked after processing of external events stopped because the stage is about to stop or fail.
+   * Invoked after processing of external events stopped because the operator is about to stop or fail.
    */
   @throws(classOf[Exception])
   def postStop(): Unit = ()
@@ -965,7 +1368,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * This allows the dynamic creation of an Inlet for a GraphStage which is
    * connected to a Sink that is available for materialization (e.g. using
    * the `subFusingMaterializer`). Care needs to be taken to cancel this Inlet
-   * when the stage shuts down lest the corresponding Sink be left hanging.
+   * when the operator shuts down lest the corresponding Sink be left hanging.
    */
   class SubSinkInlet[T](name: String) {
     import ActorSubscriberMessage._
@@ -975,16 +1378,16 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
     private var closed = false
     private var pulled = false
 
-    private val _sink = new SubSink[T](name, getAsyncCallback[ActorSubscriberMessage] { msg ⇒
+    private val _sink = new SubSink[T](name, getAsyncCallback[ActorSubscriberMessage] { msg =>
       if (!closed) msg match {
-        case OnNext(e) ⇒
+        case OnNext(e) =>
           elem = e.asInstanceOf[T]
           pulled = false
           handler.onPush()
-        case OnComplete ⇒
+        case OnComplete =>
           closed = true
           handler.onUpstreamFinish()
-        case OnError(ex) ⇒
+        case OnError(ex) =>
           closed = true
           handler.onUpstreamFailure(ex)
       }
@@ -1001,22 +1404,24 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
     def hasBeenPulled: Boolean = pulled && !isClosed
 
     def grab(): T = {
-      require(elem != null, s"cannot grab element from port ($this) when data have not yet arrived")
+      if (elem == null)
+        throw new IllegalArgumentException(s"cannot grab element from port ($this) when data have not yet arrived")
       val ret = elem
       elem = null.asInstanceOf[T]
       ret
     }
 
     def pull(): Unit = {
-      require(!pulled, s"cannot pull port ($this) twice")
-      require(!closed, s"cannot pull closed port ($this) ")
+      if (pulled) throw new IllegalArgumentException(s"cannot pull port ($this) twice")
+      if (closed) throw new IllegalArgumentException(s"cannot pull closed port ($this)")
       pulled = true
       _sink.pullSubstream()
     }
 
-    def cancel(): Unit = {
+    def cancel(): Unit = cancel(SubscriptionWithCancelException.NoMoreElementsNeeded)
+    def cancel(cause: Throwable): Unit = {
       closed = true
-      _sink.cancelSubstream()
+      _sink.cancelSubstream(cause)
     }
 
     override def toString = s"SubSinkInlet($name)"
@@ -1028,7 +1433,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
    * This allows the dynamic creation of an Outlet for a GraphStage which is
    * connected to a Source that is available for materialization (e.g. using
    * the `subFusingMaterializer`). Care needs to be taken to complete this
-   * Outlet when the stage shuts down lest the corresponding Sink be left
+   * Outlet when the operator shuts down lest the corresponding Sink be left
    * hanging. It is good practice to use the `timeout` method to cancel this
    * Outlet in case the corresponding Source is not materialized within a
    * given time limit, see e.g. ActorMaterializerSettings.
@@ -1040,16 +1445,16 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
     private var closed = false
 
     private val callback = getAsyncCallback[SubSink.Command] {
-      case SubSink.RequestOne ⇒
+      case SubSink.RequestOne =>
         if (!closed) {
           available = true
           handler.onPull()
         }
-      case SubSink.Cancel ⇒
+      case SubSink.Cancel(cause) =>
         if (!closed) {
           available = false
           closed = true
-          handler.onDownstreamFinish()
+          handler.onDownstreamFinish(cause)
         }
     }
 
@@ -1089,6 +1494,7 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
      * Push to this output port.
      */
     def push(elem: T): Unit = {
+      if (!isAvailable) throw new IllegalArgumentException(s"Cannot push port ($this) twice, or before it being pulled")
       available = false
       _source.pushSubstream(elem)
     }
@@ -1118,22 +1524,46 @@ abstract class GraphStageLogic private[stream] (val inCount: Int, val outCount: 
 
 /**
  * An asynchronous callback holder that is attached to a [[GraphStageLogic]].
- * Invoking [[AsyncCallback#invoke]] will eventually lead to the registered handler
+ * Initializing [[AsyncCallback#invoke]] will eventually lead to the registered handler
  * being called.
+ *
+ * This holder has the same lifecycle as a stream and cannot be used before
+ * materialization is done.
+ *
+ * Typical use cases are exchanging messages between stream and substreams or invoking from external world sending
+ * event to a stream
  */
 trait AsyncCallback[T] {
+
   /**
    * Dispatch an asynchronous notification. This method is thread-safe and
    * may be invoked from external execution contexts.
+   *
+   * For cases where it is important to know if the notification was ever processed or not
+   * see [AsyncCallback#invokeWithFeedback]]
    */
   def invoke(t: T): Unit
+
+  /**
+   * Dispatch an asynchronous notification. This method is thread-safe and
+   * may be invoked from external execution contexts.
+   *
+   * The method returns directly and the returned future is then completed once the event
+   * has been handled by the operator, if the event triggers an exception from the handler the future
+   * is failed with that exception and finally if the operator was stopped before the event has been
+   * handled the future is failed with `StreamDetachedException`.
+   *
+   * The handling of the returned future incurs a slight overhead, so for cases where it does not matter
+   * to the invoking logic see [[AsyncCallback#invoke]]
+   */
+  def invokeWithFeedback(t: T): Future[Done]
 }
 
 abstract class TimerGraphStageLogic(_shape: Shape) extends GraphStageLogic(_shape) {
   import TimerMessages._
 
   private val keyToTimers = mutable.Map[Any, Timer]()
-  private val timerIdGen = Iterator from 1
+  private val timerIdGen = Iterator.from(1)
 
   private var _timerAsyncCallback: AsyncCallback[Scheduled] = _
   private def getTimerAsyncCallback: AsyncCallback[Scheduled] = {
@@ -1147,10 +1577,10 @@ abstract class TimerGraphStageLogic(_shape: Shape) extends GraphStageLogic(_shap
     val Id = scheduled.timerId
     val timerKey = scheduled.timerKey
     keyToTimers.get(timerKey) match {
-      case Some(Timer(Id, _)) ⇒
+      case Some(Timer(Id, _)) =>
         if (!scheduled.repeating) keyToTimers -= timerKey
         onTimer(timerKey)
-      case _ ⇒
+      case _ =>
     }
   }
 
@@ -1160,33 +1590,15 @@ abstract class TimerGraphStageLogic(_shape: Shape) extends GraphStageLogic(_shap
    * @param timerKey key of the scheduled timer
    */
   @throws(classOf[Exception])
-  protected def onTimer(timerKey: Any): Unit = ()
+  protected def onTimer(@unused timerKey: Any): Unit = ()
 
   // Internal hooks to avoid reliance on user calling super in postStop
   protected[stream] override def afterPostStop(): Unit = {
     super.afterPostStop()
     if (keyToTimers ne null) {
-      keyToTimers.foreach { case (_, Timer(_, task)) ⇒ task.cancel() }
+      keyToTimers.foreach { case (_, Timer(_, task)) => task.cancel() }
       keyToTimers.clear()
     }
-  }
-
-  /**
-   * Schedule timer to call [[#onTimer]] periodically with the given interval after the specified
-   * initial delay.
-   * Any existing timer with the same key will automatically be canceled before
-   * adding the new timer.
-   */
-  final protected def schedulePeriodicallyWithInitialDelay(
-    timerKey:     Any,
-    initialDelay: FiniteDuration,
-    interval:     FiniteDuration): Unit = {
-    cancelTimer(timerKey)
-    val id = timerIdGen.next()
-    val task = interpreter.materializer.schedulePeriodically(initialDelay, interval, new Runnable {
-      def run() = getTimerAsyncCallback.invoke(Scheduled(timerKey, id, repeating = true))
-    })
-    keyToTimers(timerKey) = Timer(id, task)
   }
 
   /**
@@ -1204,12 +1616,146 @@ abstract class TimerGraphStageLogic(_shape: Shape) extends GraphStageLogic(_shap
   }
 
   /**
+   * Schedule timer to call [[#onTimer]] after given delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  final protected def scheduleOnce(timerKey: Any, delay: java.time.Duration): Unit = {
+    import akka.util.JavaDurationConverters._
+    scheduleOnce(timerKey, delay.asScala)
+  }
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given `delay` after the specified
+   * initial delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  final protected def scheduleWithFixedDelay(
+      timerKey: Any,
+      initialDelay: FiniteDuration,
+      delay: FiniteDuration): Unit = {
+    cancelTimer(timerKey)
+    val id = timerIdGen.next()
+    val task = interpreter.materializer.scheduleWithFixedDelay(initialDelay, delay, new Runnable {
+      def run() = getTimerAsyncCallback.invoke(Scheduled(timerKey, id, repeating = true))
+    })
+    keyToTimers(timerKey) = Timer(id, task)
+  }
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given `delay` after the specified
+   * initial delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  final protected def scheduleWithFixedDelay(
+      timerKey: Any,
+      initialDelay: java.time.Duration,
+      interval: java.time.Duration): Unit = {
+    import akka.util.JavaDurationConverters._
+    scheduleWithFixedDelay(timerKey, initialDelay.asScala, interval.asScala)
+  }
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given `interval` after the specified
+   * initial delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  final protected def scheduleAtFixedRate(
+      timerKey: Any,
+      initialDelay: FiniteDuration,
+      interval: FiniteDuration): Unit = {
+    cancelTimer(timerKey)
+    val id = timerIdGen.next()
+    val task = interpreter.materializer.scheduleAtFixedRate(initialDelay, interval, new Runnable {
+      def run() = getTimerAsyncCallback.invoke(Scheduled(timerKey, id, repeating = true))
+    })
+    keyToTimers(timerKey) = Timer(id, task)
+  }
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given `interval` after the specified
+   * initial delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  final protected def scheduleAtFixedRate(
+      timerKey: Any,
+      initialDelay: java.time.Duration,
+      interval: java.time.Duration): Unit = {
+    import akka.util.JavaDurationConverters._
+    scheduleAtFixedRate(timerKey, initialDelay.asScala, interval.asScala)
+  }
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given interval after the specified
+   * initial delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  @deprecated(
+    "Use scheduleWithFixedDelay or scheduleAtFixedRate instead. This has the same semantics as " +
+    "scheduleAtFixedRate, but scheduleWithFixedDelay is often preferred.",
+    since = "2.6.0")
+  final protected def schedulePeriodicallyWithInitialDelay(
+      timerKey: Any,
+      initialDelay: FiniteDuration,
+      interval: FiniteDuration): Unit =
+    scheduleAtFixedRate(timerKey, initialDelay, interval)
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given interval after the specified
+   * initial delay.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  @deprecated(
+    "Use scheduleWithFixedDelay or scheduleAtFixedRate instead. This has the same semantics as " +
+    "scheduleAtFixedRate, but scheduleWithFixedDelay is often preferred.",
+    since = "2.6.0")
+  final protected def schedulePeriodicallyWithInitialDelay(
+      timerKey: Any,
+      initialDelay: java.time.Duration,
+      interval: java.time.Duration): Unit = {
+    import akka.util.JavaDurationConverters._
+    schedulePeriodicallyWithInitialDelay(timerKey, initialDelay.asScala, interval.asScala)
+  }
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given interval.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  @deprecated(
+    "Use scheduleWithFixedDelay or scheduleAtFixedRate instead. This has the same semantics as " +
+    "scheduleAtFixedRate, but scheduleWithFixedDelay is often preferred.",
+    since = "2.6.0")
+  final protected def schedulePeriodically(timerKey: Any, interval: FiniteDuration): Unit =
+    schedulePeriodicallyWithInitialDelay(timerKey, interval, interval)
+
+  /**
+   * Schedule timer to call [[#onTimer]] periodically with the given interval.
+   * Any existing timer with the same key will automatically be canceled before
+   * adding the new timer.
+   */
+  @deprecated(
+    "Use scheduleWithFixedDelay or scheduleAtFixedRate instead. This has the same semantics as " +
+    "scheduleAtFixedRate, but scheduleWithFixedDelay is often preferred.",
+    since = "2.6.0")
+  final protected def schedulePeriodically(timerKey: Any, interval: java.time.Duration): Unit = {
+    import akka.util.JavaDurationConverters._
+    schedulePeriodically(timerKey, interval.asScala)
+  }
+
+  /**
    * Cancel timer, ensuring that the [[#onTimer]] is not subsequently called.
    *
    * @param timerKey key of the timer to cancel
    */
   final protected def cancelTimer(timerKey: Any): Unit =
-    keyToTimers.get(timerKey).foreach { t ⇒
+    keyToTimers.get(timerKey).foreach { t =>
       t.task.cancel()
       keyToTimers -= timerKey
     }
@@ -1221,20 +1767,19 @@ abstract class TimerGraphStageLogic(_shape: Shape) extends GraphStageLogic(_shap
    */
   final protected def isTimerActive(timerKey: Any): Boolean = keyToTimers contains timerKey
 
-  /**
-   * Schedule timer to call [[#onTimer]] periodically with the given interval.
-   * Any existing timer with the same key will automatically be canceled before
-   * adding the new timer.
-   */
-  final protected def schedulePeriodically(timerKey: Any, interval: FiniteDuration): Unit =
-    schedulePeriodicallyWithInitialDelay(timerKey, interval, interval)
-
 }
+
+/** Java API: [[GraphStageLogic]] with [[StageLogging]]. */
+abstract class GraphStageLogicWithLogging(_shape: Shape) extends GraphStageLogic(_shape) with StageLogging
+
+/** Java API: [[TimerGraphStageLogic]] with [[StageLogging]]. */
+abstract class TimerGraphStageLogicWithLogging(_shape: Shape) extends TimerGraphStageLogic(_shape) with StageLogging
 
 /**
  * Collection of callbacks for an input port of a [[GraphStage]]
  */
 trait InHandler {
+
   /**
    * Called when the input port has a new element available. The actual element can be retrieved via the
    * [[GraphStageLogic.grab()]] method.
@@ -1259,6 +1804,7 @@ trait InHandler {
  * Collection of callbacks for an output port of a [[GraphStage]]
  */
 trait OutHandler {
+
   /**
    * Called when the output port has received a pull, and therefore ready to emit an element, i.e. [[GraphStageLogic.push()]]
    * is now allowed to be called on this port.
@@ -1271,11 +1817,30 @@ trait OutHandler {
    * be called for this port.
    */
   @throws(classOf[Exception])
+  // FIXME: add this after fixing our own usages, https://github.com/akka/akka/issues/27472
+  // @deprecatedOverriding("Override `def onDownstreamFinish(cause: Throwable)`, instead.", since = "2.6.0") // warns when overriding
+  @deprecated("Call onDownstreamFinish with a cancellation cause.", since = "2.6.0") // warns when calling
   def onDownstreamFinish(): Unit = {
-    GraphInterpreter
-      .currentInterpreter
-      .activeStage
-      .completeStage()
+    val thisStage = GraphInterpreter.currentInterpreter.activeStage
+    require(
+      thisStage.lastCancellationCause ne null,
+      "onDownstreamFinish() must not be called without a cancellation cause")
+    thisStage.cancelStage(thisStage.lastCancellationCause)
+  }
+
+  /**
+   * Called when the output port will no longer accept any new elements. After this callback no other callbacks will
+   * be called for this port.
+   */
+  @throws(classOf[Exception])
+  def onDownstreamFinish(cause: Throwable): Unit = {
+    val thisStage = GraphInterpreter.currentInterpreter.activeStage
+    try {
+      require(cause ne null, "Cancellation cause must not be null")
+      require(thisStage.lastCancellationCause eq null, "onDownstreamFinish(cause) must not be called recursively")
+      thisStage.lastCancellationCause = cause
+      (onDownstreamFinish(): @silent("deprecated")) // if not overridden, call old deprecated variant
+    } finally thisStage.lastCancellationCause = null
   }
 }
 
@@ -1296,53 +1861,3 @@ abstract class AbstractOutHandler extends OutHandler
  * (completing when upstream completes, failing when upstream fails, completing when downstream cancels).
  */
 abstract class AbstractInOutHandler extends InHandler with OutHandler
-
-/**
- * INTERNAL API
- * This trait wraps callback for `GraphStage` stage instances and handle gracefully cases when stage is
- * not yet initialized or already finished.
- *
- * While `GraphStage` has not initialized it adds all requests to list.
- * As soon as `GraphStage` is started it stops collecting requests (pointing to real callback
- * function) and run all the callbacks from the list
- *
- * Supposed to be used by GraphStages that share call back to outer world
- */
-private[akka] trait CallbackWrapper[T] extends AsyncCallback[T] {
-  private trait CallbackState
-  private case class NotInitialized(list: List[T]) extends CallbackState
-  private case class Initialized(f: T ⇒ Unit) extends CallbackState
-  private case class Stopped(f: T ⇒ Unit) extends CallbackState
-
-  /*
-   * To preserve message order when switching between not initialized / initialized states
-   * lock is used. Case is similar to RepointableActorRef
-   */
-  private[this] final val lock = new ReentrantLock
-
-  private[this] val callbackState = new AtomicReference[CallbackState](NotInitialized(Nil))
-
-  def stopCallback(f: T ⇒ Unit): Unit = locked {
-    callbackState.set(Stopped(f))
-  }
-
-  def initCallback(f: T ⇒ Unit): Unit = locked {
-    val list = (callbackState.getAndSet(Initialized(f)): @unchecked) match {
-      case NotInitialized(l) ⇒ l
-    }
-    list.reverse.foreach(f)
-  }
-
-  override def invoke(arg: T): Unit = locked {
-    callbackState.get() match {
-      case Initialized(cb)          ⇒ cb(arg)
-      case list @ NotInitialized(l) ⇒ callbackState.compareAndSet(list, NotInitialized(arg :: l))
-      case Stopped(cb)              ⇒ cb(arg)
-    }
-  }
-
-  private[this] def locked(body: ⇒ Unit): Unit = {
-    lock.lock()
-    try body finally lock.unlock()
-  }
-}

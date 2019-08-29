@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.util
 
 import java.util.concurrent.TimeUnit
@@ -28,7 +29,7 @@ class ByteString_indexOf_Benchmark {
   ByteString_indexOf_Benchmark.bss_indexOf_from_far_index_case  thrpt   20   14282036.963 ±  529652.214  ops/s
   ByteString_indexOf_Benchmark.bss_indexOf_from_worst_case      thrpt   20    7815676.051 ±  323031.073  ops/s
 
-  */
+   */
 
   @Benchmark
   def bss_indexOf_from_worst_case: Int = bss.indexOf('z', 1)

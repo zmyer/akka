@@ -1,17 +1,24 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.actor
 
 import java.util.concurrent.ConcurrentHashMap
+
 import akka.actor._
 import akka.stream.impl.{ ReactiveStreamsCompliance, StreamSubscriptionTimeoutSupport }
 import org.reactivestreams.{ Publisher, Subscriber, Subscription }
+
 import concurrent.duration.Duration
 import concurrent.duration.FiniteDuration
 import akka.stream.impl.CancelledSubscription
 import akka.stream.impl.ReactiveStreamsCompliance._
+import com.github.ghik.silencer.silent
 
+@deprecated(
+  "Use `akka.stream.stage.GraphStage` instead, it allows for all operations an Actor would and is more type-safe as well as guaranteed to be ReactiveStreams compliant.",
+  since = "2.5.0")
 object ActorPublisher {
 
   /**
@@ -25,7 +32,9 @@ object ActorPublisher {
    * INTERNAL API
    */
   private[akka] object Internal {
-    final case class Subscribe(subscriber: Subscriber[Any]) extends DeadLetterSuppression with NoSerializationVerificationNeeded
+    final case class Subscribe(subscriber: Subscriber[Any])
+        extends DeadLetterSuppression
+        with NoSerializationVerificationNeeded
 
     sealed trait LifecycleState
     case object PreSubscriber extends LifecycleState
@@ -40,6 +49,7 @@ object ActorPublisher {
 sealed abstract class ActorPublisherMessage extends DeadLetterSuppression
 
 object ActorPublisherMessage {
+
   /**
    * This message is delivered to the [[ActorPublisher]] actor when the stream subscriber requests
    * more elements.
@@ -47,6 +57,7 @@ object ActorPublisherMessage {
    */
   final case class Request(n: Long) extends ActorPublisherMessage with NoSerializationVerificationNeeded {
     private var processed = false
+
     /**
      * INTERNAL API: needed for stash support
      */
@@ -64,6 +75,7 @@ object ActorPublisherMessage {
    */
   final case object Cancel extends Cancel with NoSerializationVerificationNeeded
   sealed abstract class Cancel extends ActorPublisherMessage
+
   /**
    * Java API: get the singleton instance of the `Cancel` message
    */
@@ -73,8 +85,11 @@ object ActorPublisherMessage {
    * This message is delivered to the [[ActorPublisher]] actor in order to signal the exceeding of an subscription timeout.
    * Once the actor receives this message, this publisher will already be in canceled state, thus the actor should clean-up and stop itself.
    */
-  final case object SubscriptionTimeoutExceeded extends SubscriptionTimeoutExceeded with NoSerializationVerificationNeeded
+  final case object SubscriptionTimeoutExceeded
+      extends SubscriptionTimeoutExceeded
+      with NoSerializationVerificationNeeded
   sealed abstract class SubscriptionTimeoutExceeded extends ActorPublisherMessage
+
   /**
    * Java API: get the singleton instance of the `SubscriptionTimeoutExceeded` message
    */
@@ -120,7 +135,12 @@ object ActorPublisherMessage {
  *
  * If the actor is stopped the stream will be completed, unless it was not already terminated with
  * failure, completed or canceled.
+ *
+ * @deprecated Use `akka.stream.stage.GraphStage` instead, it allows for all operations an Actor would and is more type-safe as well as guaranteed to be ReactiveStreams compliant.
  */
+@deprecated(
+  "Use `akka.stream.stage.GraphStage` instead, it allows for all operations an Actor would and is more type-safe as well as guaranteed to be ReactiveStreams compliant.",
+  since = "2.5.0")
 trait ActorPublisher[T] extends Actor {
   import ActorPublisher.Internal._
   import ActorPublisherMessage._
@@ -183,18 +203,18 @@ trait ActorPublisher[T] extends Actor {
    * otherwise `onNext` will throw `IllegalStateException`.
    */
   def onNext(element: T): Unit = lifecycleState match {
-    case Active | PreSubscriber ⇒
+    case Active | PreSubscriber =>
       if (demand > 0) {
         demand -= 1
         tryOnNext(subscriber, element)
       } else
         throw new IllegalStateException(
           "onNext is not allowed when the stream has not requested elements, totalDemand was 0")
-    case _: ErrorEmitted ⇒
+    case _: ErrorEmitted =>
       throw new IllegalStateException("onNext must not be called after onError")
-    case Completed | CompleteThenStop ⇒
+    case Completed | CompleteThenStop =>
       throw new IllegalStateException("onNext must not be called after onComplete")
-    case Canceled ⇒ // drop
+    case Canceled => // drop
   }
 
   /**
@@ -202,15 +222,16 @@ trait ActorPublisher[T] extends Actor {
    * call [[#onNext]], [[#onError]] and [[#onComplete]].
    */
   def onComplete(): Unit = lifecycleState match {
-    case Active | PreSubscriber ⇒
+    case Active | PreSubscriber =>
       lifecycleState = Completed
       if (subscriber ne null) // otherwise onComplete will be called when the subscription arrives
-        try tryOnComplete(subscriber) finally subscriber = null
-    case Completed | CompleteThenStop ⇒
+        try tryOnComplete(subscriber)
+        finally subscriber = null
+    case Completed | CompleteThenStop =>
       throw new IllegalStateException("onComplete must only be called once")
-    case _: ErrorEmitted ⇒
+    case _: ErrorEmitted =>
       throw new IllegalStateException("onComplete must not be called after onError")
-    case Canceled ⇒ // drop
+    case Canceled => // drop
   }
 
   /**
@@ -223,11 +244,12 @@ trait ActorPublisher[T] extends Actor {
    * will be delayed until such [[Subscriber]] arrives.
    */
   def onCompleteThenStop(): Unit = lifecycleState match {
-    case Active | PreSubscriber ⇒
+    case Active | PreSubscriber =>
       lifecycleState = CompleteThenStop
       if (subscriber ne null) // otherwise onComplete will be called when the subscription arrives
-        try tryOnComplete(subscriber) finally context.stop(self)
-    case _ ⇒ onComplete()
+        try tryOnComplete(subscriber)
+        finally context.stop(self)
+    case _ => onComplete()
   }
 
   /**
@@ -235,16 +257,18 @@ trait ActorPublisher[T] extends Actor {
    * call [[#onNext]], [[#onError]] and [[#onComplete]].
    */
   def onError(cause: Throwable): Unit = lifecycleState match {
-    case Active | PreSubscriber ⇒
+    case Active | PreSubscriber =>
       lifecycleState = ErrorEmitted(cause, stop = false)
       if (subscriber ne null) // otherwise onError will be called when the subscription arrives
-        try tryOnError(subscriber, cause) finally subscriber = null
-    case _: ErrorEmitted ⇒
+        try tryOnError(subscriber, cause)
+        finally subscriber = null
+    case _: ErrorEmitted =>
       throw new IllegalStateException("onError must only be called once")
-    case Completed | CompleteThenStop ⇒
+    case Completed | CompleteThenStop =>
       throw new IllegalStateException("onError must not be called after onComplete")
-    case Canceled ⇒ // drop
+    case Canceled => // drop
   }
+
   /**
    * Terminate the stream with failure. After that you are not allowed to
    * call [[#onNext]], [[#onError]] and [[#onComplete]].
@@ -255,18 +279,19 @@ trait ActorPublisher[T] extends Actor {
    * will be delayed until such [[Subscriber]] arrives.
    */
   def onErrorThenStop(cause: Throwable): Unit = lifecycleState match {
-    case Active | PreSubscriber ⇒
+    case Active | PreSubscriber =>
       lifecycleState = ErrorEmitted(cause, stop = true)
       if (subscriber ne null) // otherwise onError will be called when the subscription arrives
-        try tryOnError(subscriber, cause) finally context.stop(self)
-    case _ ⇒ onError(cause)
+        try tryOnError(subscriber, cause)
+        finally context.stop(self)
+    case _ => onError(cause)
   }
 
   /**
    * INTERNAL API
    */
   protected[akka] override def aroundReceive(receive: Receive, msg: Any): Unit = msg match {
-    case req @ Request(n) ⇒
+    case req @ Request(n) =>
       if (req.isProcessed()) {
         // it's an unstashed Request, demand is already handled
         super.aroundReceive(receive, req)
@@ -283,49 +308,49 @@ trait ActorPublisher[T] extends Actor {
         }
       }
 
-    case Subscribe(sub: Subscriber[_]) ⇒
+    case Subscribe(sub: Subscriber[_]) =>
       lifecycleState match {
-        case PreSubscriber ⇒
+        case PreSubscriber =>
           scheduledSubscriptionTimeout.cancel()
           subscriber = sub
           lifecycleState = Active
           tryOnSubscribe(sub, new ActorPublisherSubscription(self))
-        case ErrorEmitted(cause, stop) ⇒
+        case ErrorEmitted(cause, stop) =>
           if (stop) context.stop(self)
           tryOnSubscribe(sub, CancelledSubscription)
           tryOnError(sub, cause)
-        case Completed ⇒
+        case Completed =>
           tryOnSubscribe(sub, CancelledSubscription)
           tryOnComplete(sub)
-        case CompleteThenStop ⇒
+        case CompleteThenStop =>
           context.stop(self)
           tryOnSubscribe(sub, CancelledSubscription)
           tryOnComplete(sub)
-        case Active | Canceled ⇒
+        case Active | Canceled =>
           if (subscriber eq sub)
             rejectDuplicateSubscriber(sub)
           else
             rejectAdditionalSubscriber(sub, "ActorPublisher")
       }
 
-    case Cancel ⇒
+    case Cancel =>
       if (lifecycleState != Canceled) {
         // possible to receive again in case of stash
         cancelSelf()
         super.aroundReceive(receive, msg)
       }
 
-    case SubscriptionTimeoutExceeded ⇒
+    case SubscriptionTimeoutExceeded =>
       if (!scheduledSubscriptionTimeout.isCancelled) {
         cancelSelf()
         super.aroundReceive(receive, msg)
       }
 
-    case _ ⇒
+    case _ =>
       super.aroundReceive(receive, msg)
   }
 
-  private def cancelSelf() {
+  private def cancelSelf(): Unit = {
     lifecycleState = Canceled
     demand = 0
     subscriber = null
@@ -339,9 +364,9 @@ trait ActorPublisher[T] extends Actor {
     import context.dispatcher
 
     subscriptionTimeout match {
-      case timeout: FiniteDuration ⇒
+      case timeout: FiniteDuration =>
         scheduledSubscriptionTimeout = context.system.scheduler.scheduleOnce(timeout, self, SubscriptionTimeoutExceeded)
-      case _ ⇒
+      case _ =>
       // ignore...
     }
   }
@@ -359,7 +384,7 @@ trait ActorPublisher[T] extends Actor {
    * INTERNAL API
    */
   protected[akka] override def aroundPostRestart(reason: Throwable): Unit = {
-    state.get(self) foreach { s ⇒
+    state.get(self).foreach { s =>
       // restore previous state
       subscriber = s.subscriber.orNull
       demand = s.demand
@@ -383,6 +408,7 @@ trait ActorPublisher[T] extends Actor {
 /**
  * INTERNAL API
  */
+@silent("deprecated")
 private[akka] final case class ActorPublisherImpl[T](ref: ActorRef) extends Publisher[T] {
   import ActorPublisher.Internal._
 
@@ -433,60 +459,3 @@ private[akka] class ActorPublisherState extends Extension {
 
   def remove(ref: ActorRef): Unit = state.remove(ref)
 }
-
-/**
- * Java API
- */
-object UntypedActorPublisher {
-  /**
-   * Java API: Create a [[org.reactivestreams.Publisher]] backed by a [[UntypedActorPublisher]] actor. It can be
-   * attached to a [[org.reactivestreams.Subscriber]] or be used as an input source for a
-   * [[akka.stream.javadsl.Flow]].
-   */
-  def create[T](ref: ActorRef): Publisher[T] = ActorPublisher.apply(ref)
-}
-
-/**
- * Java API
- * @see [[akka.stream.actor.ActorPublisher]]
- */
-abstract class UntypedActorPublisher[T] extends UntypedActor with ActorPublisher[T]
-
-/**
- * Java API compatible with lambda expressions
- */
-object AbstractActorPublisher {
-  /**
-   * Java API compatible with lambda expressions: Create a [[org.reactivestreams.Publisher]]
-   * backed by a [[AbstractActorPublisher]] actor. It can be attached to a [[org.reactivestreams.Subscriber]]
-   * or be used as an input source for a [[akka.stream.javadsl.Flow]].
-   */
-  def create[T](ref: ActorRef): Publisher[T] = ActorPublisher.apply(ref)
-}
-
-/**
- * Java API compatible with lambda expressions
- * @see [[akka.stream.actor.ActorPublisher]]
- */
-abstract class AbstractActorPublisher[T] extends AbstractActor with ActorPublisher[T]
-
-/**
- * Java API compatible with lambda expressions.
- * This class adds a Stash to {@link AbstractActorPublisher}.
- * @see [[akka.stream.actor.ActorPublisher]] and [[akka.stream.actor.AbstractActorWithStash]]
- */
-abstract class AbstractActorPublisherWithStash[T] extends AbstractActor with ActorPublisher[T] with Stash
-
-/**
- * Java API compatible with lambda expressions.
- * This class adds an unbounded Stash to {@link AbstractActorPublisher}.
- * @see [[akka.stream.actor.ActorPublisher]] and [[akka.stream.actor.AbstractActorWithUnboundedStash]]
- */
-abstract class AbstractActorPublisherWithUnboundedStash[T] extends AbstractActor with ActorPublisher[T] with UnboundedStash
-
-/**
- * Java API compatible with lambda expressions.
- * This class adds an unrestricted Stash to {@link AbstractActorPublisher}.
- * @see [[akka.stream.actor.ActorPublisher]] and [[akka.stream.actor.AbstractActorWithUnrestrictedStash]]
- */
-abstract class AbstractActorPublisherWithUnrestrictedStash[T] extends AbstractActor with ActorPublisher[T] with UnrestrictedStash

@@ -1,12 +1,15 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.metrics
 
 import akka.actor.Address
 import scala.util.Success
 import scala.util.Failure
 import scala.util.Try
+
+import com.github.ghik.silencer.silent
 
 /**
  * Metrics key/value.
@@ -21,7 +24,7 @@ import scala.util.Try
  */
 @SerialVersionUID(1L)
 final case class Metric private[metrics] (name: String, value: Number, average: Option[EWMA])
-  extends MetricNumericConverter {
+    extends MetricNumericConverter {
 
   require(defined(value), s"Invalid Metric [$name] value [$value]")
 
@@ -30,19 +33,18 @@ final case class Metric private[metrics] (name: String, value: Number, average: 
    * Returns the updated metric.
    */
   def :+(latest: Metric): Metric =
-    if (this sameAs latest) average match {
-      case Some(avg)                        ⇒ copy(value = latest.value, average = Some(avg :+ latest.value.doubleValue))
-      case None if latest.average.isDefined ⇒ copy(value = latest.value, average = latest.average)
-      case _                                ⇒ copy(value = latest.value)
-    }
-    else this
+    if (this.sameAs(latest)) average match {
+      case Some(avg)                        => copy(value = latest.value, average = Some(avg :+ latest.value.doubleValue))
+      case None if latest.average.isDefined => copy(value = latest.value, average = latest.average)
+      case _                                => copy(value = latest.value)
+    } else this
 
   /**
    * The numerical value of the average, if defined, otherwise the latest value
    */
   def smoothValue: Double = average match {
-    case Some(avg) ⇒ avg.value
-    case None      ⇒ value.doubleValue
+    case Some(avg) => avg.value
+    case None      => value.doubleValue
   }
 
   /**
@@ -57,8 +59,8 @@ final case class Metric private[metrics] (name: String, value: Number, average: 
 
   override def hashCode = name.##
   override def equals(obj: Any) = obj match {
-    case other: Metric ⇒ sameAs(other)
-    case _             ⇒ false
+    case other: Metric => sameAs(other)
+    case _             => false
   }
 
 }
@@ -81,13 +83,13 @@ object Metric extends MetricNumericConverter {
    * otherwise None is returned. Invalid numeric values are negative and NaN/Infinite.
    */
   def create(name: String, value: Try[Number], decayFactor: Option[Double]): Option[Metric] = value match {
-    case Success(v) ⇒ create(name, v, decayFactor)
-    case Failure(_) ⇒ None
+    case Success(v) => create(name, v, decayFactor)
+    case Failure(_) => None
   }
 
   def createEWMA(value: Double, decayFactor: Option[Double]): Option[EWMA] = decayFactor match {
-    case Some(alpha) ⇒ Some(EWMA(value, alpha))
-    case None        ⇒ None
+    case Some(alpha) => Some(EWMA(value, alpha))
+    case None        => None
   }
 
 }
@@ -111,8 +113,10 @@ object StandardMetrics {
   // In latest Linux kernels: CpuCombined + CpuStolen + CpuIdle = 1.0  or 100%.
   /** Sum of User + Sys + Nice + Wait. See `org.hyperic.sigar.CpuPerc` */
   final val CpuCombined = "cpu-combined"
+
   /** The amount of CPU 'stolen' from this virtual machine by the hypervisor for other tasks (such as running another virtual machine). */
   final val CpuStolen = "cpu-stolen"
+
   /** Amount of CPU time left after combined and stolen are removed. */
   final val CpuIdle = "cpu-idle"
 
@@ -125,10 +129,13 @@ object StandardMetrics {
      */
     def unapply(nodeMetrics: NodeMetrics): Option[(Address, Long, Long, Long, Option[Long])] = {
       for {
-        used ← nodeMetrics.metric(HeapMemoryUsed)
-        committed ← nodeMetrics.metric(HeapMemoryCommitted)
-      } yield (nodeMetrics.address, nodeMetrics.timestamp,
-        used.smoothValue.longValue, committed.smoothValue.longValue,
+        used <- nodeMetrics.metric(HeapMemoryUsed)
+        committed <- nodeMetrics.metric(HeapMemoryCommitted)
+      } yield (
+        nodeMetrics.address,
+        nodeMetrics.timestamp,
+        used.smoothValue.longValue,
+        committed.smoothValue.longValue,
         nodeMetrics.metric(HeapMemoryMax).map(_.smoothValue.longValue))
     }
 
@@ -139,10 +146,10 @@ object StandardMetrics {
    * contains necessary heap metrics, otherwise it returns null.
    */
   def extractHeapMemory(nodeMetrics: NodeMetrics): HeapMemory = nodeMetrics match {
-    case HeapMemory(address, timestamp, used, committed, max) ⇒
+    case HeapMemory(address, timestamp, used, committed, max) =>
       // note that above extractor returns tuple
       HeapMemory(address, timestamp, used, committed, max)
-    case _ ⇒ null
+    case _ => null
   }
 
   /**
@@ -171,10 +178,13 @@ object StandardMetrics {
      * necessary cpu metrics.
      * @return if possible a tuple matching the Cpu constructor parameters
      */
-    def unapply(nodeMetrics: NodeMetrics): Option[(Address, Long, Option[Double], Option[Double], Option[Double], Int)] = {
+    def unapply(
+        nodeMetrics: NodeMetrics): Option[(Address, Long, Option[Double], Option[Double], Option[Double], Int)] = {
       for {
-        processors ← nodeMetrics.metric(Processors)
-      } yield (nodeMetrics.address, nodeMetrics.timestamp,
+        processors <- nodeMetrics.metric(Processors)
+      } yield (
+        nodeMetrics.address,
+        nodeMetrics.timestamp,
         nodeMetrics.metric(SystemLoadAverage).map(_.smoothValue),
         nodeMetrics.metric(CpuCombined).map(_.smoothValue),
         nodeMetrics.metric(CpuStolen).map(_.smoothValue),
@@ -188,10 +198,10 @@ object StandardMetrics {
    * contains necessary cpu metrics, otherwise it returns null.
    */
   def extractCpu(nodeMetrics: NodeMetrics): Cpu = nodeMetrics match {
-    case Cpu(address, timestamp, systemLoadAverage, cpuCombined, cpuStolen, processors) ⇒
+    case Cpu(address, timestamp, systemLoadAverage, cpuCombined, cpuStolen, processors) =>
       // note that above extractor returns tuple
       Cpu(address, timestamp, systemLoadAverage, cpuCombined, cpuStolen, processors)
-    case _ ⇒ null
+    case _ => null
   }
 
   /**
@@ -207,21 +217,21 @@ object StandardMetrics {
    */
   @SerialVersionUID(1L)
   final case class Cpu(
-    address:           Address,
-    timestamp:         Long,
-    systemLoadAverage: Option[Double],
-    cpuCombined:       Option[Double],
-    cpuStolen:         Option[Double],
-    processors:        Int) {
+      address: Address,
+      timestamp: Long,
+      systemLoadAverage: Option[Double],
+      cpuCombined: Option[Double],
+      cpuStolen: Option[Double],
+      processors: Int) {
 
     cpuCombined match {
-      case Some(x) ⇒ require(0.0 <= x && x <= 1.0, s"cpuCombined must be between [0.0 - 1.0], was [$x]")
-      case None    ⇒
+      case Some(x) => require(0.0 <= x && x <= 1.0, s"cpuCombined must be between [0.0 - 1.0], was [$x]")
+      case None    =>
     }
 
     cpuStolen match {
-      case Some(x) ⇒ require(0.0 <= x && x <= 1.0, s"cpuStolen must be between [0.0 - 1.0], was [$x]")
-      case None    ⇒
+      case Some(x) => require(0.0 <= x && x <= 1.0, s"cpuStolen must be between [0.0 - 1.0], was [$x]")
+      case None    =>
     }
 
   }
@@ -232,7 +242,7 @@ object StandardMetrics {
  * INTERNAL API
  *
  * Encapsulates evaluation of validity of metric values, conversion of an actual metric value to
- * a [[akka.cluster.Metric]] for consumption by subscribed cluster entities.
+ * a [[akka.cluster.metrics.Metric]] for consumption by subscribed cluster entities.
  */
 private[metrics] trait MetricNumericConverter {
 
@@ -242,21 +252,21 @@ private[metrics] trait MetricNumericConverter {
    * <li>SIGAR combined CPU can occasionally return a NaN or Infinite (known bug)</li></ul>
    */
   def defined(value: Number): Boolean = convertNumber(value) match {
-    case Left(a)  ⇒ a >= 0
-    case Right(b) ⇒ !(b < 0.0 || b.isNaN || b.isInfinite)
+    case Left(a)  => a >= 0
+    case Right(b) => !(b < 0.0 || b.isNaN || b.isInfinite)
   }
 
   /**
    * May involve rounding or truncation.
    */
   def convertNumber(from: Any): Either[Long, Double] = from match {
-    case n: Int        ⇒ Left(n)
-    case n: Long       ⇒ Left(n)
-    case n: Double     ⇒ Right(n)
-    case n: Float      ⇒ Right(n)
-    case n: BigInt     ⇒ Left(n.longValue)
-    case n: BigDecimal ⇒ Right(n.doubleValue)
-    case x             ⇒ throw new IllegalArgumentException(s"Not a number [$x]")
+    case n: Int        => Left(n)
+    case n: Long       => Left(n)
+    case n: Double     => Right(n)
+    case n: Float      => Right(n)
+    case n: BigInt     => Left(n.longValue)
+    case n: BigDecimal => Right(n.doubleValue)
+    case x             => throw new IllegalArgumentException(s"Not a number [$x]")
   }
 
 }
@@ -281,8 +291,8 @@ final case class NodeMetrics(address: Address, timestamp: Long, metrics: Set[Met
     require(address == that.address, s"merge only allowed for same address, [$address] != [$that.address]")
     if (timestamp >= that.timestamp) this // that is older
     else {
-      // equality is based on the name of the Metric and Set doesn't replace existing element
-      copy(metrics = that.metrics union metrics, timestamp = that.timestamp)
+      // equality is based on the name of the Metric
+      copy(metrics = that.metrics.union(metrics.diff(that.metrics)), timestamp = that.timestamp)
     }
   }
 
@@ -295,23 +305,25 @@ final case class NodeMetrics(address: Address, timestamp: Long, metrics: Set[Met
     val (latestNode, currentNode) = if (this.timestamp >= that.timestamp) (this, that) else (that, this)
     // Average metrics present in both latest and current.
     val updated = for {
-      latest ← latestNode.metrics
-      current ← currentNode.metrics
-      if (latest sameAs current)
+      latest <- latestNode.metrics
+      current <- currentNode.metrics
+      if latest.sameAs(current)
     } yield {
       current :+ latest
     }
     // Append metrics missing from either latest or current.
-    // Equality is based on the [[Metric.name]] and [[Set]] doesn't replace existing elements.
-    val merged = updated union latestNode.metrics union currentNode.metrics
+    // Equality is based on the [[Metric.name]]
+    val merged =
+      updated.union(latestNode.metrics.diff(updated)).union(currentNode.metrics.diff(updated).diff(latestNode.metrics))
     copy(metrics = merged, timestamp = latestNode.timestamp)
   }
 
-  def metric(key: String): Option[Metric] = metrics.collectFirst { case m if m.name == key ⇒ m }
+  def metric(key: String): Option[Metric] = metrics.collectFirst { case m if m.name == key => m }
 
   /**
    * Java API
    */
+  @silent("deprecated")
   def getMetrics: java.lang.Iterable[Metric] =
     scala.collection.JavaConverters.asJavaIterableConverter(metrics).asJava
 
@@ -322,8 +334,8 @@ final case class NodeMetrics(address: Address, timestamp: Long, metrics: Set[Met
 
   override def hashCode = address.##
   override def equals(obj: Any) = obj match {
-    case other: NodeMetrics ⇒ sameAs(other)
-    case _                  ⇒ false
+    case other: NodeMetrics => sameAs(other)
+    case _                  => false
   }
 
 }
@@ -346,32 +358,36 @@ private[metrics] final case class MetricsGossip(nodes: Set[NodeMetrics]) {
   /**
    * Removes nodes if their correlating node ring members are not [[akka.cluster.MemberStatus]] `Up`.
    */
-  def remove(node: Address): MetricsGossip = copy(nodes = nodes filterNot (_.address == node))
+  def remove(node: Address): MetricsGossip = copy(nodes = nodes.filterNot(_.address == node))
 
   /**
    * Only the nodes that are in the `includeNodes` Set.
    */
   def filter(includeNodes: Set[Address]): MetricsGossip =
-    copy(nodes = nodes filter { includeNodes contains _.address })
+    copy(nodes = nodes.filter { includeNodes contains _.address })
 
   /**
    * Adds new remote [[NodeMetrics]] and merges existing from a remote gossip.
    */
   def merge(otherGossip: MetricsGossip): MetricsGossip =
-    otherGossip.nodes.foldLeft(this) { (gossip, nodeMetrics) ⇒ gossip :+ nodeMetrics }
+    otherGossip.nodes.foldLeft(this) { (gossip, nodeMetrics) =>
+      gossip :+ nodeMetrics
+    }
 
   /**
    * Adds new local [[NodeMetrics]], or merges an existing.
    */
   def :+(newNodeMetrics: NodeMetrics): MetricsGossip = nodeMetricsFor(newNodeMetrics.address) match {
-    case Some(existingNodeMetrics) ⇒
-      copy(nodes = nodes - existingNodeMetrics + (existingNodeMetrics update newNodeMetrics))
-    case None ⇒ copy(nodes = nodes + newNodeMetrics)
+    case Some(existingNodeMetrics) =>
+      copy(nodes = nodes - existingNodeMetrics + (existingNodeMetrics.update(newNodeMetrics)))
+    case None => copy(nodes = nodes + newNodeMetrics)
   }
 
   /**
    * Returns [[NodeMetrics]] for a node if exists.
    */
-  def nodeMetricsFor(address: Address): Option[NodeMetrics] = nodes find { n ⇒ n.address == address }
+  def nodeMetricsFor(address: Address): Option[NodeMetrics] = nodes.find { n =>
+    n.address == address
+  }
 
 }

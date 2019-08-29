@@ -1,20 +1,26 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import akka.event.Logging.LogLevel
 import akka.event.{ Logging, LoggingAdapter }
 import akka.actor.{ ActorSystem, Address }
+import com.github.ghik.silencer.silent
 
 import scala.runtime.AbstractFunction2
 
+@silent("@SerialVersionUID has no effect")
 @SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 sealed trait RemotingLifecycleEvent extends Serializable {
   def logLevel: Logging.LogLevel
 }
 
+@silent("@SerialVersionUID has no effect")
 @SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 sealed trait AssociationEvent extends RemotingLifecycleEvent {
   def localAddress: Address
   def remoteAddress: Address
@@ -27,11 +33,9 @@ sealed trait AssociationEvent extends RemotingLifecycleEvent {
 }
 
 @SerialVersionUID(1L)
-final case class AssociatedEvent(
-  localAddress:  Address,
-  remoteAddress: Address,
-  inbound:       Boolean)
-  extends AssociationEvent {
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
+final case class AssociatedEvent(localAddress: Address, remoteAddress: Address, inbound: Boolean)
+    extends AssociationEvent {
 
   protected override def eventName: String = "Associated"
   override def logLevel: Logging.LogLevel = Logging.DebugLevel
@@ -39,28 +43,29 @@ final case class AssociatedEvent(
 }
 
 @SerialVersionUID(1L)
-final case class DisassociatedEvent(
-  localAddress:  Address,
-  remoteAddress: Address,
-  inbound:       Boolean)
-  extends AssociationEvent {
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
+final case class DisassociatedEvent(localAddress: Address, remoteAddress: Address, inbound: Boolean)
+    extends AssociationEvent {
   protected override def eventName: String = "Disassociated"
   override def logLevel: Logging.LogLevel = Logging.DebugLevel
 }
 
 @SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 final case class AssociationErrorEvent(
-  cause:         Throwable,
-  localAddress:  Address,
-  remoteAddress: Address,
-  inbound:       Boolean,
-  logLevel:      Logging.LogLevel) extends AssociationEvent {
+    cause: Throwable,
+    localAddress: Address,
+    remoteAddress: Address,
+    inbound: Boolean,
+    logLevel: Logging.LogLevel)
+    extends AssociationEvent {
   protected override def eventName: String = "AssociationError"
   override def toString: String = s"${super.toString}: Error [${cause.getMessage}] [${Logging.stackTraceFor(cause)}]"
   def getCause: Throwable = cause
 }
 
 @SerialVersionUID(1L)
+@silent("deprecated")
 final case class RemotingListenEvent(listenAddresses: Set[Address]) extends RemotingLifecycleEvent {
   def getListenAddresses: java.util.Set[Address] =
     scala.collection.JavaConverters.setAsJavaSetConverter(listenAddresses).asJava
@@ -69,12 +74,14 @@ final case class RemotingListenEvent(listenAddresses: Set[Address]) extends Remo
 }
 
 @SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 case object RemotingShutdownEvent extends RemotingLifecycleEvent {
   override def logLevel: Logging.LogLevel = Logging.InfoLevel
   override val toString: String = "Remoting shut down"
 }
 
 @SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 final case class RemotingErrorEvent(cause: Throwable) extends RemotingLifecycleEvent {
   def getCause: Throwable = cause
   override def logLevel: Logging.LogLevel = Logging.ErrorLevel
@@ -82,35 +89,53 @@ final case class RemotingErrorEvent(cause: Throwable) extends RemotingLifecycleE
 }
 
 // For binary compatibility
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 object QuarantinedEvent extends AbstractFunction2[Address, Int, QuarantinedEvent] {
 
-  @deprecated("Use long uid apply")
+  @deprecated("Use long uid apply", "2.4.x")
   def apply(address: Address, uid: Int) = new QuarantinedEvent(address, uid)
 }
 
 @SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 final case class QuarantinedEvent(address: Address, longUid: Long) extends RemotingLifecycleEvent {
 
   override def logLevel: Logging.LogLevel = Logging.WarningLevel
   override val toString: String =
     s"Association to [$address] having UID [$longUid] is irrecoverably failed. UID is now quarantined and all " +
-      "messages to this UID will be delivered to dead letters. Remote actorsystem must be restarted to recover " +
-      "from this situation."
+    "messages to this UID will be delivered to dead letters. Remote ActorSystem must be restarted to recover " +
+    "from this situation."
 
   // For binary compatibility
 
-  @deprecated("Use long uid constructor")
+  @deprecated("Use long uid constructor", "2.4.x")
   def this(address: Address, uid: Int) = this(address, uid.toLong)
 
-  @deprecated("Use long uid")
+  @deprecated("Use long uid", "2.4.x")
   def uid: Int = longUid.toInt
 
-  @deprecated("Use long uid copy method")
-  def copy(address: Address = address, uid: Int = uid) = new QuarantinedEvent(address, uid)
+  @silent("deprecated")
+  @deprecated("Use long uid copy method", "2.4.x")
+  def copy(address: Address = address, uid: Int = uid) = new QuarantinedEvent(address, uid.toLong)
+}
+
+/**
+ * The `uniqueAddress` was quarantined but it was due to normal shutdown or cluster leaving/exiting.
+ */
+@SerialVersionUID(1L)
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
+final case class GracefulShutdownQuarantinedEvent(uniqueAddress: UniqueAddress, reason: String)
+    extends RemotingLifecycleEvent {
+  override def logLevel: Logging.LogLevel = Logging.InfoLevel
+  override val toString: String =
+    s"Association to [${uniqueAddress.address}] having UID [${uniqueAddress.uid}] has been stopped. All " +
+    s"messages to this UID will be delivered to dead letters. Reason: $reason "
 }
 
 @SerialVersionUID(1L)
-final case class ThisActorSystemQuarantinedEvent(localAddress: Address, remoteAddress: Address) extends RemotingLifecycleEvent {
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
+final case class ThisActorSystemQuarantinedEvent(localAddress: Address, remoteAddress: Address)
+    extends RemotingLifecycleEvent {
   override def logLevel: LogLevel = Logging.WarningLevel
   override val toString: String = s"The remote system ${remoteAddress} has quarantined this system ${localAddress}."
 }
@@ -118,6 +143,7 @@ final case class ThisActorSystemQuarantinedEvent(localAddress: Address, remoteAd
 /**
  * INTERNAL API
  */
+@silent("deprecated")
 private[remote] class EventPublisher(system: ActorSystem, log: LoggingAdapter, logLevel: Logging.LogLevel) {
   def notifyListeners(message: RemotingLifecycleEvent): Unit = {
     system.eventStream.publish(message)

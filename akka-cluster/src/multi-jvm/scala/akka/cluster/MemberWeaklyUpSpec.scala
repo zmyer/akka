@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster
 
 import scala.language.postfixOps
@@ -19,12 +20,10 @@ object MemberWeaklyUpSpec extends MultiNodeConfig {
   val fourth = role("fourth")
   val fifth = role("fifth")
 
-  commonConfig(debugConfig(on = false).
-    withFallback(ConfigFactory.parseString("""
+  commonConfig(debugConfig(on = false).withFallback(ConfigFactory.parseString("""
         akka.remote.retry-gate-closed-for = 3 s
         akka.cluster.allow-weakly-up-members = on
-        """)).
-    withFallback(MultiNodeClusterSpec.clusterConfig))
+        """)).withFallback(MultiNodeClusterSpec.clusterConfig))
 
   testTransport(on = true)
 }
@@ -35,9 +34,7 @@ class MemberWeaklyUpMultiJvmNode3 extends MemberWeaklyUpSpec
 class MemberWeaklyUpMultiJvmNode4 extends MemberWeaklyUpSpec
 class MemberWeaklyUpMultiJvmNode5 extends MemberWeaklyUpSpec
 
-abstract class MemberWeaklyUpSpec
-  extends MultiNodeSpec(MemberWeaklyUpSpec)
-  with MultiNodeClusterSpec {
+abstract class MemberWeaklyUpSpec extends MultiNodeSpec(MemberWeaklyUpSpec) with MultiNodeClusterSpec {
 
   import MemberWeaklyUpSpec._
 
@@ -54,10 +51,11 @@ abstract class MemberWeaklyUpSpec
       enterBarrier("after-1")
     }
 
-    "detect network partition and mark nodes on other side as unreachable" taggedAs LongRunningTest in within(20 seconds) {
+    "detect network partition and mark nodes on other side as unreachable" taggedAs LongRunningTest in within(
+      20 seconds) {
       runOn(first) {
         // split the cluster in two parts (first, second) / (third, fourth, fifth)
-        for (role1 ← side1; role2 ← side2) {
+        for (role1 <- side1; role2 <- side2) {
           testConductor.blackhole(role1, role2, Direction.Both).await
         }
       }
@@ -86,14 +84,18 @@ abstract class MemberWeaklyUpSpec
       runOn(side1: _*) {
         awaitAssert {
           clusterView.members.size should be(4)
-          clusterView.members.exists { m ⇒ m.address == address(second) && m.status == WeaklyUp } should be(true)
+          clusterView.members.exists { m =>
+            m.address == address(second) && m.status == WeaklyUp
+          } should be(true)
         }
       }
 
       runOn(side2: _*) {
         awaitAssert {
           clusterView.members.size should be(4)
-          clusterView.members.exists { m ⇒ m.address == address(fifth) && m.status == WeaklyUp } should be(true)
+          clusterView.members.exists { m =>
+            m.address == address(fifth) && m.status == WeaklyUp
+          } should be(true)
         }
       }
 
@@ -102,7 +104,7 @@ abstract class MemberWeaklyUpSpec
 
     "change status to Up after healed network partition" taggedAs LongRunningTest in within(20 seconds) {
       runOn(first) {
-        for (role1 ← side1; role2 ← side2) {
+        for (role1 <- side1; role2 <- side2) {
           testConductor.passThrough(role1, role2, Direction.Both).await
         }
       }

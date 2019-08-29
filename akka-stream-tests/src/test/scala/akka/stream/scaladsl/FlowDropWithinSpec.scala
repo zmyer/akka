@@ -1,15 +1,14 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import scala.concurrent.duration._
-import akka.stream.ActorMaterializer
 import akka.stream.testkit._
 
-class FlowDropWithinSpec extends StreamSpec {
+import scala.concurrent.duration._
 
-  implicit val materializer = ActorMaterializer()
+class FlowDropWithinSpec extends StreamSpec {
 
   "A DropWithin" must {
 
@@ -22,16 +21,24 @@ class FlowDropWithinSpec extends StreamSpec {
       val cSub = c.expectSubscription
       cSub.request(100)
       val demand1 = pSub.expectRequest
-      (1 to demand1.toInt) foreach { _ ⇒ pSub.sendNext(input.next()) }
+      (1 to demand1.toInt).foreach { _ =>
+        pSub.sendNext(input.next())
+      }
       val demand2 = pSub.expectRequest
-      (1 to demand2.toInt) foreach { _ ⇒ pSub.sendNext(input.next()) }
+      (1 to demand2.toInt).foreach { _ =>
+        pSub.sendNext(input.next())
+      }
       val demand3 = pSub.expectRequest
-      c.expectNoMsg(1500.millis)
-      (1 to demand3.toInt) foreach { _ ⇒ pSub.sendNext(input.next()) }
-      ((demand1 + demand2 + 1).toInt to (demand1 + demand2 + demand3).toInt) foreach { n ⇒ c.expectNext(n) }
+      c.expectNoMessage(1500.millis)
+      (1 to demand3.toInt).foreach { _ =>
+        pSub.sendNext(input.next())
+      }
+      ((demand1 + demand2 + 1).toInt to (demand1 + demand2 + demand3).toInt).foreach { n =>
+        c.expectNext(n)
+      }
       pSub.sendComplete()
       c.expectComplete
-      c.expectNoMsg(200.millis)
+      c.expectNoMessage(200.millis)
     }
 
     "deliver completion even before the duration" in {

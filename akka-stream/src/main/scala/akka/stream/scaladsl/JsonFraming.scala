@@ -1,25 +1,26 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import akka.NotUsed
 import akka.stream.Attributes
 import akka.stream.impl.JsonObjectParser
 import akka.stream.impl.fusing.GraphStages.SimpleLinearGraphStage
-import akka.stream.stage.{ InHandler, OutHandler, GraphStageLogic }
+import akka.stream.stage.{ GraphStageLogic, InHandler, OutHandler }
 import akka.util.ByteString
 
 import scala.util.control.NonFatal
 
-/** Provides JSON framing stages that can separate valid JSON objects from incoming [[ByteString]] objects. */
+/** Provides JSON framing operators that can separate valid JSON objects from incoming [[ByteString]] objects. */
 object JsonFraming {
 
   /**
-   * Returns a Flow that implements a "brace counting" based framing stage for emitting valid JSON chunks.
+   * Returns a Flow that implements a "brace counting" based framing operator for emitting valid JSON chunks.
    * It scans the incoming data stream for valid JSON objects and returns chunks of ByteStrings containing only those valid chunks.
    *
-   * Typical examples of data that one may want to frame using this stage include:
+   * Typical examples of data that one may want to frame using this operator include:
    *
    * **Very large arrays**:
    * {{{
@@ -44,35 +45,36 @@ object JsonFraming {
 
       override protected def initialAttributes: Attributes = Attributes.name("JsonFraming.objectScanner")
 
-      override def createLogic(inheritedAttributes: Attributes) = new GraphStageLogic(shape) with InHandler with OutHandler {
-        private val buffer = new JsonObjectParser(maximumObjectLength)
+      override def createLogic(inheritedAttributes: Attributes) =
+        new GraphStageLogic(shape) with InHandler with OutHandler {
+          private val buffer = new JsonObjectParser(maximumObjectLength)
 
-        setHandlers(in, out, this)
+          setHandlers(in, out, this)
 
-        override def onPush(): Unit = {
-          buffer.offer(grab(in))
-          tryPopBuffer()
-        }
+          override def onPush(): Unit = {
+            buffer.offer(grab(in))
+            tryPopBuffer()
+          }
 
-        override def onPull(): Unit =
-          tryPopBuffer()
+          override def onPull(): Unit =
+            tryPopBuffer()
 
-        override def onUpstreamFinish(): Unit = {
-          buffer.poll() match {
-            case Some(json) ⇒ emit(out, json)
-            case _          ⇒ completeStage()
+          override def onUpstreamFinish(): Unit = {
+            buffer.poll() match {
+              case Some(json) => emit(out, json)
+              case _          => completeStage()
+            }
+          }
+
+          def tryPopBuffer() = {
+            try buffer.poll() match {
+              case Some(json) => push(out, json)
+              case _          => if (isClosed(in)) completeStage() else pull(in)
+            } catch {
+              case NonFatal(ex) => failStage(ex)
+            }
           }
         }
-
-        def tryPopBuffer() = {
-          try buffer.poll() match {
-            case Some(json) ⇒ push(out, json)
-            case _          ⇒ if (isClosed(in)) completeStage() else pull(in)
-          } catch {
-            case NonFatal(ex) ⇒ failStage(ex)
-          }
-        }
-      }
     })
 
 }

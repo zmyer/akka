@@ -1,13 +1,14 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.testkit.metrics
 
 import com.codahale.metrics._
 import com.codahale.metrics.jvm
 
 private[akka] trait MemoryUsageSnapshotting extends MetricsPrefix {
-  this: jvm.MemoryUsageGaugeSet ⇒
+  this: jvm.MemoryUsageGaugeSet =>
 
   // accessing metrics in order to not to duplicate mxBean access too much
 
@@ -40,39 +41,39 @@ private[akka] trait MemoryUsageSnapshotting extends MetricsPrefix {
       metrics.get(key("non-heap-usage")).asInstanceOf[RatioGauge].getValue)
   }
 
-  private def key(k: String) = prefix + "." + k
+  private def key(k: String) = prefix.toString + "." + k
 
 }
 
-private[akka] case class TotalMemoryUsage(init: Long, used: Long, max: Long, comitted: Long) {
+private[akka] case class TotalMemoryUsage(init: Long, used: Long, max: Long, committed: Long) {
 
   def diff(other: TotalMemoryUsage): TotalMemoryUsage =
     TotalMemoryUsage(
       this.init - other.init,
       this.used - other.used,
       this.max - other.max,
-      this.comitted - other.comitted)
+      this.committed - other.committed)
 
 }
 
-private[akka] case class HeapMemoryUsage(init: Long, used: Long, max: Long, comitted: Long, usage: Double) {
+private[akka] case class HeapMemoryUsage(init: Long, used: Long, max: Long, committed: Long, usage: Double) {
 
   def diff(other: HeapMemoryUsage): HeapMemoryUsage =
     HeapMemoryUsage(
       this.init - other.init,
       this.used - other.used,
       this.max - other.max,
-      this.comitted - other.comitted,
+      this.committed - other.committed,
       this.usage - other.usage)
 }
 
-private[akka] case class NonHeapMemoryUsage(init: Long, used: Long, max: Long, comitted: Long, usage: Double) {
+private[akka] case class NonHeapMemoryUsage(init: Long, used: Long, max: Long, committed: Long, usage: Double) {
 
   def diff(other: NonHeapMemoryUsage): NonHeapMemoryUsage =
     NonHeapMemoryUsage(
       this.init - other.init,
       this.used - other.used,
       this.max - other.max,
-      this.comitted - other.comitted,
+      this.committed - other.committed,
       this.usage - other.usage)
 }

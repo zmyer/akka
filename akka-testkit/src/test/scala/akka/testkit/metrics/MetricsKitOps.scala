@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.testkit.metrics
 
 import com.codahale.metrics._
@@ -14,7 +15,7 @@ import com.codahale.metrics.jvm.MemoryUsageGaugeSet
  * Extracted to give easy overview of user-API detached from MetricsKit internals.
  */
 private[akka] trait MetricsKitOps extends MetricKeyDSL {
-  this: MetricsKit ⇒
+  this: MetricsKit =>
 
   type MetricKey = MetricKeyDSL#MetricKey
 
@@ -30,9 +31,10 @@ private[akka] trait MetricsKitOps extends MetricKeyDSL {
    *
    * Do not use for short running pieces of code.
    */
-  def timedWithKnownOps[T](key: MetricKey, ops: Long)(run: ⇒ T): T = {
+  def timedWithKnownOps[T](key: MetricKey, ops: Long)(run: => T): T = {
     val c = getOrRegister(key.toString, new KnownOpsInTimespanTimer(expectedOps = ops))
-    try run finally c.stop()
+    try run
+    finally c.stop()
   }
 
   /**
@@ -42,8 +44,14 @@ private[akka] trait MetricsKitOps extends MetricKeyDSL {
    *
    * @param unitString just for human readable output, during console printing
    */
-  def hdrHistogram(key: MetricKey, highestTrackableValue: Long, numberOfSignificantValueDigits: Int, unitString: String = ""): HdrHistogram =
-    getOrRegister((key / "hdr-histogram").toString, new HdrHistogram(highestTrackableValue, numberOfSignificantValueDigits, unitString))
+  def hdrHistogram(
+      key: MetricKey,
+      highestTrackableValue: Long,
+      numberOfSignificantValueDigits: Int,
+      unitString: String = ""): HdrHistogram =
+    getOrRegister(
+      (key / "hdr-histogram").toString,
+      new HdrHistogram(highestTrackableValue, numberOfSignificantValueDigits, unitString))
 
   /**
    * Use when measuring for 9x'th percentiles as well as min / max / mean values.
@@ -54,10 +62,12 @@ private[akka] trait MetricsKitOps extends MetricKeyDSL {
     registry.histogram((key / "histogram").toString)
   }
 
+  def forceGcEnabled: Boolean = true
+
   /** Yet another delegate to `System.gc()` */
-  def gc() {
-    // todo add some form of logging, to differentiate manual gc calls from "normal" ones
-    System.gc()
+  def gc(): Unit = {
+    if (forceGcEnabled)
+      System.gc()
   }
 
   /**
@@ -90,7 +100,7 @@ private[metrics] trait MetricsPrefix extends MetricSet {
 
   abstract override def getMetrics: util.Map[String, Metric] = {
     // does not have to be fast, is only called once during registering registry
-    import collection.JavaConverters._
-    (super.getMetrics.asScala.map { case (k, v) ⇒ (prefix / k).toString → v }).asJava
+    import akka.util.ccompat.JavaConverters._
+    (super.getMetrics.asScala.map { case (k, v) => (prefix / k).toString -> v }).asJava
   }
 }

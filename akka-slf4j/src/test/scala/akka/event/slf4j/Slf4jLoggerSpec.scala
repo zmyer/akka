@@ -1,17 +1,20 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.event.slf4j
 
 import language.postfixOps
-
 import akka.testkit.AkkaSpec
-import akka.actor.{ DiagnosticActorLogging, Actor, Props }
+import akka.actor.{ Actor, DiagnosticActorLogging, Props }
+
 import scala.concurrent.duration._
-import akka.event.Logging
+import akka.event.{ LogMarker, Logging }
 import ch.qos.logback.core.OutputStreamAppender
 import java.io.ByteArrayOutputStream
+
 import org.scalatest.BeforeAndAfterEach
+import org.slf4j.{ Marker, MarkerFactory }
 
 object Slf4jLoggerSpec {
 
@@ -25,19 +28,32 @@ object Slf4jLoggerSpec {
     }
     """
 
-  case class StringWithMDC(s: String, mdc: Map[String, Any])
+  final case class StringWithMDC(s: String, mdc: Map[String, Any])
+  final case class StringWithMarker(s: String, marker: LogMarker)
+  final case class StringWithSlf4jMarker(s: String, marker: Marker)
+  final case class StringWithSlf4jMarkerMDC(s: String, marker: Marker, mdc: Map[String, Any])
 
-  class LogProducer extends Actor with DiagnosticActorLogging {
+  final class LogProducer extends Actor with DiagnosticActorLogging {
+
+    val markLog = Logging.withMarker(this)
 
     def receive = {
-      case e: Exception ⇒
+      case e: Exception =>
         log.error(e, e.getMessage)
-      case (s: String, x: Int, y: Int) ⇒
+      case (s: String, x: Int, y: Int) =>
         log.info(s, x, y)
-      case StringWithMDC(s, mdc) ⇒
+      case StringWithSlf4jMarker(s, m) =>
+        markLog.info(Slf4jLogMarker(m), s)
+      case StringWithSlf4jMarkerMDC(s, mark, mdc) =>
+        markLog.mdc(mdc)
+        markLog.info(Slf4jLogMarker(mark), s)
+        markLog.clearMDC()
+      case StringWithMDC(s, mdc) =>
         log.mdc(mdc)
         log.info(s)
         log.clearMDC()
+      case StringWithMarker(s, marker) =>
+        markLog.info(marker, s)
     }
   }
 
@@ -77,7 +93,7 @@ class Slf4jLoggerSpec extends AkkaSpec(Slf4jLoggerSpec.config) with BeforeAndAft
       s should include("akkaSource=[akka://Slf4jLoggerSpec/user/logProducer]")
       s should include("level=[ERROR]")
       s should include("logger=[akka.event.slf4j.Slf4jLoggerSpec$LogProducer]")
-      s should include regex (sourceThreadRegex)
+      (s should include).regex(sourceThreadRegex)
       s should include("msg=[Simulated error]")
       s should include("java.lang.RuntimeException: Simulated error")
       s should include("at akka.event.slf4j.Slf4jLoggerSpec")
@@ -91,32 +107,76 @@ class Slf4jLoggerSpec extends AkkaSpec(Slf4jLoggerSpec.config) with BeforeAndAft
       s should include("akkaSource=[akka://Slf4jLoggerSpec/user/logProducer]")
       s should include("level=[INFO]")
       s should include("logger=[akka.event.slf4j.Slf4jLoggerSpec$LogProducer]")
-      s should include regex (sourceThreadRegex)
+      (s should include).regex(sourceThreadRegex)
       s should include("msg=[test x=3 y=17]")
     }
 
+    "log info with marker" in {
+      producer ! StringWithMarker("security-wise interesting message", LogMarker("SECURITY"))
+
+      awaitCond(outputString.contains("----"), 5 seconds)
+      val s = outputString
+      s should include("marker=[SECURITY]")
+      s should include("msg=[security-wise interesting message]")
+    }
+
+    "log info with slf4j marker" in {
+      val slf4jMarker = MarkerFactory.getMarker("SLF")
+      slf4jMarker.add(MarkerFactory.getMarker("ADDED")) // slf4j markers can have children
+      producer ! StringWithSlf4jMarker("security-wise interesting message", slf4jMarker)
+
+      awaitCond(outputString.contains("----"), 5 seconds)
+      val s = outputString
+      s should include("marker=[SLF [ ADDED ]]")
+      s should include("msg=[security-wise interesting message]")
+    }
+    "log info with slf4j marker and MDC" in {
+      val slf4jMarker = MarkerFactory.getMarker("SLF")
+      slf4jMarker.add(MarkerFactory.getMarker("ADDED")) // slf4j markers can have children
+      producer ! StringWithSlf4jMarkerMDC(
+        "security-wise interesting message",
+        slf4jMarker,
+        Map("ticketNumber" -> 3671, "ticketDesc" -> "Custom MDC Values"))
+
+      awaitCond(outputString.contains("----"), 5 seconds)
+      val s = outputString
+      s should include("marker=[SLF [ ADDED ]]")
+      s should include("mdc=[ticket-#3671: Custom MDC Values]")
+      s should include("msg=[security-wise interesting message]")
+    }
+
     "put custom MDC values when specified" in {
-      producer ! StringWithMDC("Message with custom MDC values", Map("ticketNumber" → 3671, "ticketDesc" → "Custom MDC Values"))
+      producer ! StringWithMDC(
+        "Message with custom MDC values",
+        Map("ticketNumber" -> 3671, "ticketDesc" -> "Custom MDC Values"))
 
       awaitCond(outputString.contains("----"), 5 seconds)
       val s = outputString
       s should include("akkaSource=[akka://Slf4jLoggerSpec/user/logProducer]")
       s should include("level=[INFO]")
       s should include("logger=[akka.event.slf4j.Slf4jLoggerSpec$LogProducer]")
-      s should include regex (sourceThreadRegex)
+      (s should include).regex(sourceThreadRegex)
       s should include("mdc=[ticket-#3671: Custom MDC Values]")
       s should include("msg=[Message with custom MDC values]")
     }
 
+    "support null marker" in {
+      producer ! StringWithMarker("security-wise interesting message", null)
+
+      awaitCond(outputString.contains("----"), 5 seconds)
+      val s = outputString
+      s should include("msg=[security-wise interesting message]")
+    }
+
     "Support null values in custom MDC" in {
-      producer ! StringWithMDC("Message with null custom MDC values", Map("ticketNumber" → 3671, "ticketDesc" → null))
+      producer ! StringWithMDC("Message with null custom MDC values", Map("ticketNumber" -> 3671, "ticketDesc" -> null))
 
       awaitCond(outputString.contains("----"), 5 seconds)
       val s = outputString
       s should include("akkaSource=[akka://Slf4jLoggerSpec/user/logProducer]")
       s should include("level=[INFO]")
       s should include("logger=[akka.event.slf4j.Slf4jLoggerSpec$LogProducer]")
-      s should include regex (sourceThreadRegex)
+      (s should include).regex(sourceThreadRegex)
       s should include("mdc=[ticket-#3671: null]")
       s should include("msg=[Message with null custom MDC values]")
     }

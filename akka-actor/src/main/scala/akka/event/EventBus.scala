@@ -1,10 +1,10 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.event
 
-import akka.actor.{ ActorSystem, ActorRef }
+import akka.actor.{ ActorRef, ActorSystem }
 import akka.util.Index
 import java.util.concurrent.ConcurrentSkipListSet
 import java.util.Comparator
@@ -55,21 +55,21 @@ trait EventBus {
  */
 trait ActorEventBus extends EventBus {
   type Subscriber = ActorRef
-  protected def compareSubscribers(a: ActorRef, b: ActorRef) = a compareTo b
+  protected def compareSubscribers(a: ActorRef, b: ActorRef) = a.compareTo(b)
 }
 
 /**
  * Can be mixed into an EventBus to specify that the Classifier type is ActorRef
  */
-trait ActorClassifier { this: EventBus ⇒
+trait ActorClassifier { this: EventBus =>
   type Classifier = ActorRef
 }
 
 /**
  * Can be mixed into an EventBus to specify that the Classifier type is a Function from Event to Boolean (predicate)
  */
-trait PredicateClassifier { this: EventBus ⇒
-  type Classifier = Event ⇒ Boolean
+trait PredicateClassifier { this: EventBus =>
+  type Classifier = Event => Boolean
 }
 
 /**
@@ -78,7 +78,7 @@ trait PredicateClassifier { this: EventBus ⇒
  *
  * The compareSubscribers need to provide a total ordering of the Subscribers
  */
-trait LookupClassification { this: EventBus ⇒
+trait LookupClassification { this: EventBus =>
 
   protected final val subscribers = new Index[Classifier, Subscriber](mapSize(), new Comparator[Subscriber] {
     def compare(a: Subscriber, b: Subscriber): Int = compareSubscribers(a, b)
@@ -120,7 +120,7 @@ trait LookupClassification { this: EventBus ⇒
  * Classification which respects relationships between channels: subscribing
  * to one channel automatically and idempotently subscribes to all sub-channels.
  */
-trait SubchannelClassification { this: EventBus ⇒
+trait SubchannelClassification { this: EventBus =>
 
   /**
    * The logic to form sub-class hierarchy
@@ -165,14 +165,15 @@ trait SubchannelClassification { this: EventBus ⇒
     val c = classify(event)
     val recv =
       if (cache contains c) cache(c) // c will never be removed from cache
-      else subscriptions.synchronized {
-        if (cache contains c) cache(c)
-        else {
-          addToCache(subscriptions.addKey(c))
-          cache(c)
+      else
+        subscriptions.synchronized {
+          if (cache contains c) cache(c)
+          else {
+            addToCache(subscriptions.addKey(c))
+            cache(c)
+          }
         }
-      }
-    recv foreach (publish(event, _))
+    recv.foreach(publish(event, _))
   }
 
   /**
@@ -182,16 +183,16 @@ trait SubchannelClassification { this: EventBus ⇒
   private[akka] def hasSubscriptions(subscriber: Subscriber): Boolean =
     // FIXME binary incompatible, but I think it is safe to filter out this problem,
     //       since it is only called from new functionality in EventStreamUnsubscriber
-    cache.values exists { _ contains subscriber }
+    cache.values.exists { _ contains subscriber }
 
   private def removeFromCache(changes: immutable.Seq[(Classifier, Set[Subscriber])]): Unit =
-    cache = (cache /: changes) {
-      case (m, (c, cs)) ⇒ m.updated(c, m.getOrElse(c, Set.empty[Subscriber]) diff cs)
+    cache = changes.foldLeft(cache) {
+      case (m, (c, cs)) => m.updated(c, m.getOrElse(c, Set.empty[Subscriber]).diff(cs))
     }
 
   private def addToCache(changes: immutable.Seq[(Classifier, Set[Subscriber])]): Unit =
-    cache = (cache /: changes) {
-      case (m, (c, cs)) ⇒ m.updated(c, m.getOrElse(c, Set.empty[Subscriber]) union cs)
+    cache = changes.foldLeft(cache) {
+      case (m, (c, cs)) => m.updated(c, m.getOrElse(c, Set.empty[Subscriber]).union(cs))
     }
 
 }
@@ -202,13 +203,15 @@ trait SubchannelClassification { this: EventBus ⇒
  *
  * Note: the compareClassifiers and compareSubscribers must together form an absolute ordering (think java.util.Comparator.compare)
  */
-trait ScanningClassification { self: EventBus ⇒
-  protected final val subscribers = new ConcurrentSkipListSet[(Classifier, Subscriber)](new Comparator[(Classifier, Subscriber)] {
-    def compare(a: (Classifier, Subscriber), b: (Classifier, Subscriber)): Int = compareClassifiers(a._1, b._1) match {
-      case 0     ⇒ compareSubscribers(a._2, b._2)
-      case other ⇒ other
-    }
-  })
+trait ScanningClassification { self: EventBus =>
+  protected final val subscribers =
+    new ConcurrentSkipListSet[(Classifier, Subscriber)](new Comparator[(Classifier, Subscriber)] {
+      def compare(a: (Classifier, Subscriber), b: (Classifier, Subscriber)): Int =
+        compareClassifiers(a._1, b._1) match {
+          case 0     => compareSubscribers(a._2, b._2)
+          case other => other
+        }
+    })
 
   /**
    * Provides a total ordering of Classifiers (think java.util.Comparator.compare)
@@ -258,12 +261,14 @@ trait ScanningClassification { self: EventBus ⇒
  * All subscribers will be watched by an `akka.event.ActorClassificationUnsubscriber` and unsubscribed when they terminate.
  * The unsubscriber actor will not be stopped automatically, and if you want to stop using the bus you should stop it yourself.
  */
-trait ManagedActorClassification { this: ActorEventBus with ActorClassifier ⇒
+trait ManagedActorClassification { this: ActorEventBus with ActorClassifier =>
   import scala.annotation.tailrec
 
   protected def system: ActorSystem
 
-  private class ManagedActorClassificationMappings(val seqNr: Int, val backing: Map[ActorRef, immutable.TreeSet[ActorRef]]) {
+  private class ManagedActorClassificationMappings(
+      val seqNr: Int,
+      val backing: Map[ActorRef, immutable.TreeSet[ActorRef]]) {
 
     def get(monitored: ActorRef): immutable.TreeSet[ActorRef] = backing.getOrElse(monitored, empty)
 
@@ -296,13 +301,13 @@ trait ManagedActorClassification { this: ActorEventBus with ActorClassifier ⇒
     val current = mappings.get
 
     current.backing.get(monitored) match {
-      case None ⇒
+      case None =>
         val added = current.add(monitored, monitor)
 
         if (mappings.compareAndSet(current, added)) registerWithUnsubscriber(monitor, added.seqNr)
         else associate(monitored, monitor)
 
-      case Some(monitors) ⇒
+      case Some(monitors) =>
         if (monitors.contains(monitored)) false
         else {
           val added = current.add(monitored, monitor)
@@ -332,17 +337,21 @@ trait ManagedActorClassification { this: ActorEventBus with ActorClassifier ⇒
       while (i.hasNext) {
         val (key, value) = i.next()
         value match {
-          case null ⇒
+          case null =>
           // do nothing
 
-          case monitors ⇒
+          case monitors =>
             if (monitors.contains(monitor))
               dissociate(key, monitor)
         }
       }
     }
 
-    try { dissociateAsMonitored(actor) } finally { dissociateAsMonitor(actor) }
+    try {
+      dissociateAsMonitored(actor)
+    } finally {
+      dissociateAsMonitor(actor)
+    }
   }
 
   @tailrec
@@ -350,8 +359,8 @@ trait ManagedActorClassification { this: ActorEventBus with ActorClassifier ⇒
     val current = mappings.get
 
     current.backing.get(monitored) match {
-      case None ⇒ false
-      case Some(monitors) ⇒
+      case None => false
+      case Some(monitors) =>
         val removed = current.remove(monitored, monitor)
         val removedMonitors = removed.get(monitored)
 
@@ -376,8 +385,8 @@ trait ManagedActorClassification { this: ActorEventBus with ActorClassifier ⇒
 
   def publish(event: Event): Unit = {
     mappings.get.backing.get(classify(event)) match {
-      case None       ⇒ ()
-      case Some(refs) ⇒ refs.foreach { _ ! event }
+      case None       => ()
+      case Some(refs) => refs.foreach { _ ! event }
     }
   }
 
@@ -410,114 +419,4 @@ trait ManagedActorClassification { this: ActorEventBus with ActorClassifier ⇒
     unsubscriber ! ActorClassificationUnsubscriber.Unregister(subscriber, seqNr)
     true
   }
-}
-
-/**
- * Maps ActorRefs to ActorRefs to form an EventBus where ActorRefs can listen to other ActorRefs
- */
-@deprecated("Use Managed ActorClassification instead", "2.4")
-trait ActorClassification { this: ActorEventBus with ActorClassifier ⇒
-  import java.util.concurrent.ConcurrentHashMap
-  import scala.annotation.tailrec
-  private val empty = immutable.TreeSet.empty[ActorRef]
-  private val mappings = new ConcurrentHashMap[ActorRef, immutable.TreeSet[ActorRef]](mapSize)
-
-  @tailrec
-  protected final def associate(monitored: ActorRef, monitor: ActorRef): Boolean = {
-    val current = mappings get monitored
-    current match {
-      case null ⇒
-        if (monitored.isTerminated) false
-        else {
-          if (mappings.putIfAbsent(monitored, empty + monitor) ne null) associate(monitored, monitor)
-          else if (monitored.isTerminated) !dissociate(monitored, monitor) else true
-        }
-      case raw: immutable.TreeSet[_] ⇒
-        val v = raw.asInstanceOf[immutable.TreeSet[ActorRef]]
-        if (monitored.isTerminated) false
-        if (v.contains(monitor)) true
-        else {
-          val added = v + monitor
-          if (!mappings.replace(monitored, v, added)) associate(monitored, monitor)
-          else if (monitored.isTerminated) !dissociate(monitored, monitor) else true
-        }
-    }
-  }
-
-  protected final def dissociate(monitored: ActorRef): immutable.Iterable[ActorRef] = {
-    @tailrec
-    def dissociateAsMonitored(monitored: ActorRef): immutable.Iterable[ActorRef] = {
-      val current = mappings get monitored
-      current match {
-        case null ⇒ empty
-        case raw: immutable.TreeSet[_] ⇒
-          val v = raw.asInstanceOf[immutable.TreeSet[ActorRef]]
-          if (!mappings.remove(monitored, v)) dissociateAsMonitored(monitored)
-          else v
-      }
-    }
-
-    def dissociateAsMonitor(monitor: ActorRef): Unit = {
-      val i = mappings.entrySet.iterator
-      while (i.hasNext()) {
-        val entry = i.next()
-        val v = entry.getValue
-        v match {
-          case raw: immutable.TreeSet[_] ⇒
-            val monitors = raw.asInstanceOf[immutable.TreeSet[ActorRef]]
-            if (monitors.contains(monitor))
-              dissociate(entry.getKey, monitor)
-          case _ ⇒ //Dun care
-        }
-      }
-    }
-
-    try { dissociateAsMonitored(monitored) } finally { dissociateAsMonitor(monitored) }
-  }
-
-  @tailrec
-  protected final def dissociate(monitored: ActorRef, monitor: ActorRef): Boolean = {
-    val current = mappings get monitored
-    current match {
-      case null ⇒ false
-      case raw: immutable.TreeSet[_] ⇒
-        val v = raw.asInstanceOf[immutable.TreeSet[ActorRef]]
-        val removed = v - monitor
-        if (removed eq raw) false
-        else if (removed.isEmpty) {
-          if (!mappings.remove(monitored, v)) dissociate(monitored, monitor) else true
-        } else {
-          if (!mappings.replace(monitored, v, removed)) dissociate(monitored, monitor) else true
-        }
-    }
-  }
-
-  /**
-   * Returns the Classifier associated with the specified Event
-   */
-  protected def classify(event: Event): Classifier
-
-  /**
-   * This is a size hint for the number of Classifiers you expect to have (use powers of 2)
-   */
-  protected def mapSize: Int
-
-  def publish(event: Event): Unit = mappings.get(classify(event)) match {
-    case null ⇒ ()
-    case some ⇒ some foreach { _ ! event }
-  }
-
-  def subscribe(subscriber: Subscriber, to: Classifier): Boolean =
-    if (subscriber eq null) throw new IllegalArgumentException("Subscriber is null")
-    else if (to eq null) throw new IllegalArgumentException("Classifier is null")
-    else associate(to, subscriber)
-
-  def unsubscribe(subscriber: Subscriber, from: Classifier): Boolean =
-    if (subscriber eq null) throw new IllegalArgumentException("Subscriber is null")
-    else if (from eq null) throw new IllegalArgumentException("Classifier is null")
-    else dissociate(from, subscriber)
-
-  def unsubscribe(subscriber: Subscriber): Unit =
-    if (subscriber eq null) throw new IllegalArgumentException("Subscriber is null")
-    else dissociate(subscriber)
 }

@@ -1,20 +1,27 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
-import akka.testkit.AkkaSpec
-import com.typesafe.config._
 import scala.concurrent.{ Await, Future }
-import TypedActorRemoteDeploySpec._
-import akka.actor.{ Deploy, ActorSystem, TypedProps, TypedActor }
 import scala.concurrent.duration._
+
+import akka.actor.{ ActorSystem, Deploy, TypedActor, TypedProps }
+import akka.testkit.AkkaSpec
+import TypedActorRemoteDeploySpec._
+
+import com.typesafe.config._
+import com.github.ghik.silencer.silent
 
 object TypedActorRemoteDeploySpec {
   val conf = ConfigFactory.parseString("""
       akka.actor.provider = remote
-      akka.remote.netty.tcp.port = 0
-                                                            """)
+      akka.remote.classic.netty.tcp.port = 0
+      akka.remote.artery.canonical.port = 0
+      akka.remote.use-unsafe-remote-features-outside-cluster = on
+      akka.actor.allow-java-serialization = on
+      """)
 
   trait RemoteNameService {
     def getName: Future[String]
@@ -22,7 +29,10 @@ object TypedActorRemoteDeploySpec {
   }
 
   class RemoteNameServiceImpl extends RemoteNameService {
+    @silent
     def getName: Future[String] = Future.successful(TypedActor.context.system.name)
+
+    @silent
     def getNameSelfDeref: Future[String] = TypedActor.self[RemoteNameService].getName
   }
 
@@ -33,10 +43,11 @@ class TypedActorRemoteDeploySpec extends AkkaSpec(conf) {
   val remoteSystem = ActorSystem(remoteName, conf)
   val remoteAddress = RARP(remoteSystem).provider.getDefaultAddress
 
-  def verify[T](f: RemoteNameService ⇒ Future[T], expected: T) = {
+  @silent
+  def verify[T](f: RemoteNameService => Future[T], expected: T) = {
     val ts = TypedActor(system)
-    val echoService: RemoteNameService = ts.typedActorOf(
-      TypedProps[RemoteNameServiceImpl].withDeploy(Deploy(scope = RemoteScope(remoteAddress))))
+    val echoService: RemoteNameService =
+      ts.typedActorOf(TypedProps[RemoteNameServiceImpl].withDeploy(Deploy(scope = RemoteScope(remoteAddress))))
     Await.result(f(echoService), 3.seconds) should ===(expected)
     val actor = ts.getActorRefFor(echoService)
     system.stop(actor)
@@ -56,7 +67,7 @@ class TypedActorRemoteDeploySpec extends AkkaSpec(conf) {
 
   }
 
-  override def afterTermination() {
+  override def afterTermination(): Unit = {
     shutdown(remoteSystem)
   }
 

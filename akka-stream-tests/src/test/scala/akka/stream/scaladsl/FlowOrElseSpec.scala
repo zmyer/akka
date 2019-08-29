@@ -1,20 +1,18 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import akka.stream.testkit.Utils.TE
-import akka.stream.testkit.{ TestPublisher, TestSubscriber }
-import akka.stream.{ ActorMaterializer, ActorMaterializerSettings }
+import akka.stream.testkit.TestPublisher
+import akka.stream.testkit.TestSubscriber
 import akka.testkit.AkkaSpec
 
 import scala.collection.immutable.Seq
+import scala.concurrent.duration._
 
 class FlowOrElseSpec extends AkkaSpec {
-
-  val settings = ActorMaterializerSettings(system)
-
-  implicit val materializer = ActorMaterializer(settings)
 
   "An OrElse flow" should {
 
@@ -102,7 +100,7 @@ class FlowOrElseSpec extends AkkaSpec {
     "complete when both inputs completes without emitting elements, regardless of order" in new OrElseProbedFlow {
       outProbe.ensureSubscription()
       inProbe2.sendComplete()
-      outProbe.expectNoMsg() // make sure it did not complete here
+      outProbe.expectNoMessage(200.millis) // make sure it did not complete here
       inProbe1.sendComplete()
       outProbe.expectComplete()
     }
@@ -132,6 +130,20 @@ class FlowOrElseSpec extends AkkaSpec {
       inProbe2.sendError(TE("in2 failed"))
       inProbe1.expectCancellation()
       outProbe.expectError()
+    }
+
+    "work in the example" in {
+      //#or-else
+      val source1 = Source(List("First source"))
+      val source2 = Source(List("Second source"))
+      val emptySource = Source.empty[String]
+
+      source1.orElse(source2).runWith(Sink.foreach(println))
+      // this will print "First source"
+
+      emptySource.orElse(source2).runWith(Sink.foreach(println))
+      // this will print "Second source"
+      //#or-else
     }
 
     trait OrElseProbedFlow {

@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -11,7 +12,12 @@ import com.typesafe.config._
 import org.scalatest._
 import java.util.UUID
 
-abstract class PluginSpec(val config: Config) extends TestKitBase with WordSpecLike with Matchers with BeforeAndAfterAll with BeforeAndAfterEach {
+abstract class PluginSpec(val config: Config)
+    extends TestKitBase
+    with WordSpecLike
+    with Matchers
+    with BeforeAndAfterAll
+    with BeforeAndAfterEach {
   private val counter = new AtomicInteger(0)
 
   private var _extension: Persistence = _

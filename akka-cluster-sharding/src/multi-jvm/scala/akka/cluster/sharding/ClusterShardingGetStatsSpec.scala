@@ -1,39 +1,45 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
-package akka.cluster.sharding
 
-import akka.actor._
-import akka.cluster.{ MemberStatus, Cluster }
-import akka.cluster.ClusterEvent.CurrentClusterState
-import akka.remote.testconductor.RoleName
-import akka.remote.testkit.{ MultiNodeConfig, MultiNodeSpec, STMultiNodeSpec }
-import akka.testkit.{ TestProbe, TestDuration }
-import com.typesafe.config.ConfigFactory
+package akka.cluster.sharding
 
 import scala.concurrent.duration._
 
+import akka.actor._
+import akka.cluster.Cluster
+import akka.cluster.MemberStatus
+import akka.cluster.MultiNodeClusterSpec
+import akka.remote.testconductor.RoleName
+import akka.remote.testkit.MultiNodeConfig
+import akka.remote.testkit.MultiNodeSpec
+import akka.remote.testkit.STMultiNodeSpec
+import akka.serialization.jackson.CborSerializable
+import akka.testkit.TestDuration
+import akka.testkit.TestProbe
+import com.typesafe.config.ConfigFactory
+
 object ClusterShardingGetStatsSpec {
-  case object Stop
-  case class Ping(id: Long)
-  case object Pong
+  case object Stop extends CborSerializable
+  case class Ping(id: Long) extends CborSerializable
+  case object Pong extends CborSerializable
 
   class ShardedActor extends Actor with ActorLogging {
     log.info(s"entity started {}", self.path)
     def receive = {
-      case Stop    ⇒ context.stop(self)
-      case _: Ping ⇒ sender() ! Pong
+      case Stop    => context.stop(self)
+      case _: Ping => sender() ! Pong
     }
   }
 
   val extractEntityId: ShardRegion.ExtractEntityId = {
-    case msg @ Ping(id) ⇒ (id.toString, msg)
+    case msg @ Ping(id) => (id.toString, msg)
   }
 
   val numberOfShards = 3
 
   val extractShardId: ShardRegion.ExtractShardId = {
-    case Ping(id) ⇒ (id % numberOfShards).toString
+    case Ping(id) => (id % numberOfShards).toString
   }
 
   val shardTypeName = "Ping"
@@ -48,20 +54,21 @@ object ClusterShardingGetStatsSpecConfig extends MultiNodeConfig {
   commonConfig(ConfigFactory.parseString("""
     akka.loglevel = INFO
     akka.actor.provider = "cluster"
-    akka.remote.log-remote-lifecycle-events = off
+    akka.remote.classic.log-remote-lifecycle-events = off
     akka.log-dead-letters-during-shutdown = off
-    akka.cluster.metrics.enabled = off
     akka.cluster.auto-down-unreachable-after = 0s
     akka.cluster.sharding {
       state-store-mode = "ddata"
       updating-state-timeout = 2s
       waiting-for-state-timeout = 2s
     }
-    akka.actor.warn-about-java-serializer-usage=false
-    """))
+    akka.cluster.sharding.distributed-data.durable.lmdb {
+      dir = target/ClusterShardingGetStatsSpec/sharding-ddata
+      map-size = 10 MiB
+    }
+    """).withFallback(MultiNodeClusterSpec.clusterConfig))
 
-  nodeConfig(first, second, third)(ConfigFactory.parseString(
-    """akka.cluster.roles=["shard"]"""))
+  nodeConfig(first, second, third)(ConfigFactory.parseString("""akka.cluster.roles=["shard"]"""))
 
 }
 
@@ -70,7 +77,9 @@ class ClusterShardingGetStatsSpecMultiJvmNode2 extends ClusterShardingGetStatsSp
 class ClusterShardingGetStatsSpecMultiJvmNode3 extends ClusterShardingGetStatsSpec
 class ClusterShardingGetStatsSpecMultiJvmNode4 extends ClusterShardingGetStatsSpec
 
-abstract class ClusterShardingGetStatsSpec extends MultiNodeSpec(ClusterShardingGetStatsSpecConfig) with STMultiNodeSpec {
+abstract class ClusterShardingGetStatsSpec
+    extends MultiNodeSpec(ClusterShardingGetStatsSpecConfig)
+    with STMultiNodeSpec {
 
   import ClusterShardingGetStatsSpec._
   import ClusterShardingGetStatsSpecConfig._
@@ -138,6 +147,7 @@ abstract class ClusterShardingGetStatsSpec extends MultiNodeSpec(ClusterSharding
           shardStats.regions.size should ===(3)
           shardStats.regions.values.map(_.stats.size).sum should ===(0)
           shardStats.regions.keys.forall(_.hasGlobalScope) should ===(true)
+          shardStats.regions.values.forall(_.failed.isEmpty) shouldBe true
         }
       }
 
@@ -151,9 +161,9 @@ abstract class ClusterShardingGetStatsSpec extends MultiNodeSpec(ClusterSharding
             val pingProbe = TestProbe()
             // trigger starting of 2 entities on first and second node
             // but leave third node without entities
-            List(1, 2, 4, 6).foreach(n ⇒ region.tell(Ping(n), pingProbe.ref))
+            List(1, 2, 4, 6).foreach(n => region.tell(Ping(n), pingProbe.ref))
             pingProbe.receiveWhile(messages = 4) {
-              case Pong ⇒ ()
+              case Pong => ()
             }
           }
         }
@@ -161,7 +171,7 @@ abstract class ClusterShardingGetStatsSpec extends MultiNodeSpec(ClusterSharding
       enterBarrier("sharded actors started")
     }
 
-    "get shard state" in {
+    "get shard stats" in {
       within(10.seconds) {
         awaitAssert {
           val probe = TestProbe()
@@ -170,11 +180,11 @@ abstract class ClusterShardingGetStatsSpec extends MultiNodeSpec(ClusterSharding
           val regions = probe.expectMsgType[ShardRegion.ClusterShardingStats].regions
           regions.size shouldEqual 3
           regions.values.flatMap(_.stats.values).sum shouldEqual 4
-          regions.keys.forall(_.hasGlobalScope) should be(true)
+          regions.values.forall(_.failed.isEmpty) shouldBe true
+          regions.keys.forall(_.hasGlobalScope) shouldBe true
         }
       }
-      enterBarrier("got shard state")
-      system.log.info("got shard state")
+      enterBarrier("received shard stats")
     }
 
     "return stats after a node leaves" in {
@@ -198,9 +208,9 @@ abstract class ClusterShardingGetStatsSpec extends MultiNodeSpec(ClusterSharding
           awaitAssert {
             val pingProbe = TestProbe()
             // make sure we have the 4 entities still alive across the fewer nodes
-            List(1, 2, 4, 6).foreach(n ⇒ region.tell(Ping(n), pingProbe.ref))
+            List(1, 2, 4, 6).foreach(n => region.tell(Ping(n), pingProbe.ref))
             pingProbe.receiveWhile(messages = 4) {
-              case Pong ⇒ ()
+              case Pong => ()
             }
           }
         }

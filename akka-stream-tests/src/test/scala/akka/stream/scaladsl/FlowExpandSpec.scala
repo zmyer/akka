@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import scala.concurrent.Await
@@ -13,8 +14,7 @@ import akka.stream.testkit.scaladsl.TestSink
 
 class FlowExpandSpec extends StreamSpec {
 
-  val settings = ActorMaterializerSettings(system)
-    .withInputBuffer(initialSize = 2, maxSize = 2)
+  val settings = ActorMaterializerSettings(system).withInputBuffer(initialSize = 2, maxSize = 2)
 
   implicit val materializer = ActorMaterializer(settings)
 
@@ -28,9 +28,9 @@ class FlowExpandSpec extends StreamSpec {
       val subscriber = TestSubscriber.probe[Int]()
 
       // Simply repeat the last element as an extrapolation step
-      Source.fromPublisher(publisher).expand(Iterator.continually(_)).to(Sink.fromSubscriber(subscriber)).run()
+      Source.fromPublisher(publisher).expand(Iterator.single).to(Sink.fromSubscriber(subscriber)).run()
 
-      for (i ← 1 to 100) {
+      for (i <- 1 to 100) {
         // Order is important here: If the request comes first it will be extrapolated!
         publisher.sendNext(i)
         subscriber.requestNext(i)
@@ -48,14 +48,14 @@ class FlowExpandSpec extends StreamSpec {
 
       publisher.sendNext(42)
 
-      for (i ← 1 to 100) {
+      for (_ <- 1 to 100) {
         subscriber.requestNext(42)
       }
 
       publisher.sendNext(-42)
 
       // The request below is otherwise in race with the above sendNext
-      subscriber.expectNoMsg(500.millis)
+      subscriber.expectNoMessage(500.millis)
       subscriber.requestNext(-42)
 
       subscriber.cancel()
@@ -75,7 +75,7 @@ class FlowExpandSpec extends StreamSpec {
       publisher.sendComplete()
 
       // The request below is otherwise in race with the above sendNext(2) (and completion)
-      subscriber.expectNoMsg(500.millis)
+      subscriber.expectNoMessage(500.millis)
 
       subscriber.requestNext(2)
       subscriber.expectComplete()
@@ -83,7 +83,9 @@ class FlowExpandSpec extends StreamSpec {
 
     "work on a variable rate chain" in {
       val future = Source(1 to 100)
-        .map { i ⇒ if (ThreadLocalRandom.current().nextBoolean()) Thread.sleep(10); i }
+        .map { i =>
+          if (ThreadLocalRandom.current().nextBoolean()) Thread.sleep(10); i
+        }
         .expand(Iterator.continually(_))
         .runFold(Set.empty[Int])(_ + _)
 
@@ -115,7 +117,7 @@ class FlowExpandSpec extends StreamSpec {
         pending -= 1
       }
 
-      publisher.expectNoMsg(1.second)
+      publisher.expectNoMessage(1.second)
 
       subscriber.request(2)
       subscriber.expectNext(2)
@@ -128,22 +130,11 @@ class FlowExpandSpec extends StreamSpec {
 
     "work properly with finite extrapolations" in {
       val (source, sink) =
-        TestSource.probe[Int]
-          .expand(i ⇒ Iterator.from(0).map(i → _).take(3))
-          .toMat(TestSink.probe)(Keep.both)
-          .run()
-      source
-        .sendNext(1)
-      sink
-        .request(4)
-        .expectNext(1 → 0, 1 → 1, 1 → 2)
-        .expectNoMsg(100.millis)
-      source
-        .sendNext(2)
-        .sendComplete()
-      sink
-        .expectNext(2 → 0)
-        .expectComplete()
+        TestSource.probe[Int].expand(i => Iterator.from(0).map(i -> _).take(3)).toMat(TestSink.probe)(Keep.both).run()
+      source.sendNext(1)
+      sink.request(4).expectNext(1 -> 0, 1 -> 1, 1 -> 2).expectNoMessage(100.millis)
+      source.sendNext(2).sendComplete()
+      sink.expectNext(2 -> 0).expectComplete()
     }
   }
 

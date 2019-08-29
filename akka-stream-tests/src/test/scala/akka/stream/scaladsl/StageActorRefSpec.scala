@@ -1,21 +1,29 @@
 /*
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import akka.actor.{ Kill, PoisonPill, NoSerializationVerificationNeeded, ActorRef }
+import akka.actor.ActorRef
+import akka.actor.Kill
+import akka.actor.NoSerializationVerificationNeeded
+import akka.actor.PoisonPill
 import akka.event.Logging
 import akka.stream._
-import akka.stream.stage.{ GraphStageWithMaterializedValue, GraphStageLogic, InHandler }
+import akka.stream.stage.GraphStageLogic
+import akka.stream.stage.GraphStageWithMaterializedValue
+import akka.stream.stage.InHandler
 import akka.stream.testkit.StreamSpec
-import akka.testkit.{ TestProbe, TestEvent, EventFilter, ImplicitSender }
+import akka.testkit.EventFilter
+import akka.testkit.ImplicitSender
+import akka.testkit.TestEvent
+import akka.testkit.TestProbe
 
-import scala.concurrent.{ Future, Promise }
 import scala.concurrent.duration._
+import scala.concurrent.Future
+import scala.concurrent.Promise
 
 class StageActorRefSpec extends StreamSpec with ImplicitSender {
-  implicit val materializer = ActorMaterializer()
-
   import StageActorRefSpec._
   import ControlProtocol._
 
@@ -73,7 +81,8 @@ class StageActorRefSpec extends StreamSpec with ImplicitSender {
       val stageRef = expectMsgType[ActorRef]
       watch(stageRef)
 
-      stageRef ! Add(1)
+      stageRef ! AddAndTell(1)
+      expectMsg(1)
       source.success(None)
 
       res.futureValue should ===(1)
@@ -103,7 +112,8 @@ class StageActorRefSpec extends StreamSpec with ImplicitSender {
       val stageRef = expectMsgType[ActorRef]
       watch(stageRef)
 
-      stageRef ! Add(1)
+      stageRef ! AddAndTell(1)
+      expectMsg(1)
       source.success(None)
 
       res.futureValue should ===(1)
@@ -121,11 +131,12 @@ class StageActorRefSpec extends StreamSpec with ImplicitSender {
       watch(stageRef)
       unwatch(stageRef)
 
-      stageRef ! Add(1)
+      stageRef ! AddAndTell(1)
+      expectMsg(1)
       source.success(None)
 
       res.futureValue should ===(1)
-      expectNoMsg(100.millis)
+      expectNoMessage(100.millis)
     }
 
     "ignore and log warnings for PoisonPill and Kill messages" in {
@@ -135,8 +146,8 @@ class StageActorRefSpec extends StreamSpec with ImplicitSender {
       stageRef ! Add(40)
 
       val filter = EventFilter.custom {
-        case e: Logging.Warning ⇒ true
-        case _                  ⇒ false
+        case _: Logging.Warning => true
+        case _                  => false
       }
       system.eventStream.publish(TestEvent.Mute(filter))
       system.eventStream.subscribe(testActor, classOf[Logging.Warning])
@@ -146,12 +157,12 @@ class StageActorRefSpec extends StreamSpec with ImplicitSender {
       val expectedMsg = s"[PoisonPill|Kill] message sent to StageActorRef($actorName) will be ignored,since it is not a real Actor. " +
         "Use a custom message type to communicate with it instead."
       expectMsgPF(1.second, expectedMsg) {
-        case Logging.Warning(_, _, msg) ⇒ expectedMsg.r.pattern.matcher(msg.toString).matches()
+        case Logging.Warning(_, _, msg) => expectedMsg.r.pattern.matcher(msg.toString).matches()
       }
 
       stageRef ! Kill // should log a warning, and NOT stop the stage.
       expectMsgPF(1.second, expectedMsg) {
-        case Logging.Warning(_, _, msg) ⇒ expectedMsg.r.pattern.matcher(msg.toString).matches()
+        case Logging.Warning(_, _, msg) => expectedMsg.r.pattern.matcher(msg.toString).matches()
       }
 
       source.success(Some(2))
@@ -188,47 +199,50 @@ object StageActorRefSpec {
 
         override def preStart(): Unit = {
           pull(in)
-          probe ! getStageActor(behaviour).ref
+          probe ! getStageActor(behavior).ref
         }
 
-        def behaviour(m: (ActorRef, Any)): Unit = {
+        def behavior(m: (ActorRef, Any)): Unit = {
           m match {
-            case (sender, Add(n))                ⇒ sum += n
-            case (sender, PullNow)               ⇒ pull(in)
-            case (sender, CallInitStageActorRef) ⇒ sender ! getStageActor(behaviour).ref
-            case (sender, BecomeStringEcho) ⇒
+            case (_, Add(n))                     => sum += n
+            case (_, PullNow)                    => pull(in)
+            case (sender, CallInitStageActorRef) => sender ! getStageActor(behavior).ref
+            case (_, BecomeStringEcho) =>
               getStageActor {
-                case (theSender, msg) ⇒ theSender ! msg.toString
+                case (theSender, msg) => theSender ! msg.toString
               }
-            case (sender, StopNow) ⇒
+            case (_, StopNow) =>
               p.trySuccess(sum)
               completeStage()
-            case (sender, AddAndTell(n)) ⇒
+            case (sender, AddAndTell(n)) =>
               sum += n
               sender ! sum
+            case _ => throw new RuntimeException("unexpected: " + m)
           }
         }
 
-        setHandler(in, new InHandler {
-          override def onPush(): Unit = {
-            sum += grab(in)
-            p.trySuccess(sum)
-            completeStage()
-          }
+        setHandler(
+          in,
+          new InHandler {
+            override def onPush(): Unit = {
+              sum += grab(in)
+              p.trySuccess(sum)
+              completeStage()
+            }
 
-          override def onUpstreamFinish(): Unit = {
-            p.trySuccess(sum)
-            completeStage()
-          }
+            override def onUpstreamFinish(): Unit = {
+              p.trySuccess(sum)
+              completeStage()
+            }
 
-          override def onUpstreamFailure(ex: Throwable): Unit = {
-            p.tryFailure(ex)
-            failStage(ex)
-          }
-        })
+            override def onUpstreamFailure(ex: Throwable): Unit = {
+              p.tryFailure(ex)
+              failStage(ex)
+            }
+          })
       }
 
-      logic → p.future
+      logic -> p.future
     }
   }
 

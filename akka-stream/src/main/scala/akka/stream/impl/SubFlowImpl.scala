@@ -1,24 +1,33 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import akka.NotUsed
+import akka.annotation.InternalApi
 import akka.stream._
 import akka.stream.scaladsl._
+
 import language.higherKinds
 
-object SubFlowImpl {
+/**
+ * INTERNAL API
+ */
+@InternalApi private[akka] object SubFlowImpl {
   trait MergeBack[In, F[+_]] {
     def apply[T](f: Flow[In, T, NotUsed], breadth: Int): F[T]
   }
 }
 
-class SubFlowImpl[In, Out, Mat, F[+_], C](
-  val subFlow:       Flow[In, Out, NotUsed],
-  mergeBackFunction: SubFlowImpl.MergeBack[In, F],
-  finishFunction:    Sink[In, NotUsed] ⇒ C)
-  extends SubFlow[Out, Mat, F, C] {
+/**
+ * INTERNAL API
+ */
+@InternalApi private[akka] class SubFlowImpl[In, Out, Mat, F[+_], C](
+    val subFlow: Flow[In, Out, NotUsed],
+    mergeBackFunction: SubFlowImpl.MergeBack[In, F],
+    finishFunction: Sink[In, NotUsed] => C)
+    extends SubFlow[Out, Mat, F, C] {
 
   override def via[T, Mat2](flow: Graph[FlowShape[Out, T], Mat2]): Repr[T] =
     new SubFlowImpl[In, T, Mat, F, C](subFlow.via(flow), mergeBackFunction, finishFunction)

@@ -1,41 +1,42 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster
 
-import scala.collection.immutable
-import scala.language.postfixOps
-import scala.concurrent.duration._
-import akka.actor.Address
-import akka.cluster.MemberStatus._
-import akka.remote.testkit.MultiNodeConfig
-import akka.remote.testkit.MultiNodeSpec
-import akka.testkit._
-import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfter
-import akka.actor.ActorSystem
-import akka.actor.ActorRef
+import akka.actor._
 import akka.event.Logging.Info
-import akka.actor.Actor
-import akka.actor.Props
+import akka.remote.RARP
+import akka.remote.testkit.{ MultiNodeConfig, MultiNodeSpec }
+import akka.testkit._
+import akka.testkit.TestKit
+import com.typesafe.config.ConfigFactory
+
+import scala.collection.immutable
+import scala.concurrent.duration._
 
 object NodeChurnMultiJvmSpec extends MultiNodeConfig {
   val first = role("first")
   val second = role("second")
   val third = role("third")
 
-  commonConfig(debugConfig(on = false).
-    withFallback(ConfigFactory.parseString("""
+  commonConfig(
+    debugConfig(on = false).withFallback(ConfigFactory.parseString("""
       akka.cluster.auto-down-unreachable-after = 1s
-      akka.remote.log-frame-size-exceeding = 2000b
-      """)).
-    withFallback(MultiNodeClusterSpec.clusterConfig))
+      akka.cluster.prune-gossip-tombstones-after = 1s
+      akka.remote.classic.log-frame-size-exceeding = 1200b
+      akka.remote.artery.advanced.aeron {
+        idle-cpu-level = 1
+        embedded-media-driver = off
+        aeron-dir = "target/aeron-NodeChurnSpec"
+      }
+      """)).withFallback(MultiNodeClusterSpec.clusterConfig))
 
   class LogListener(testActor: ActorRef) extends Actor {
     def receive = {
-      case Info(_, _, msg: String) if msg.startsWith("New maximum payload size for [akka.cluster.GossipEnvelope]") ⇒
+      case Info(_, _, msg: String) if msg.startsWith("New maximum payload size for [akka.cluster.GossipEnvelope]") =>
         testActor ! msg
-      case _ ⇒
+      case _ =>
     }
   }
 }
@@ -45,18 +46,31 @@ class NodeChurnMultiJvmNode2 extends NodeChurnSpec
 class NodeChurnMultiJvmNode3 extends NodeChurnSpec
 
 abstract class NodeChurnSpec
-  extends MultiNodeSpec(NodeChurnMultiJvmSpec)
-  with MultiNodeClusterSpec with ImplicitSender {
+    extends MultiNodeSpec({
+      // Aeron media driver must be started before ActorSystem
+      SharedMediaDriverSupport.startMediaDriver(NodeChurnMultiJvmSpec)
+      NodeChurnMultiJvmSpec
+    })
+    with MultiNodeClusterSpec
+    with ImplicitSender {
 
   import NodeChurnMultiJvmSpec._
 
   def seedNodes: immutable.IndexedSeq[Address] = Vector(first, second, third)
 
-  override def afterAll(): Unit = {
-    super.afterAll()
+  override protected def afterTermination(): Unit = {
+    SharedMediaDriverSupport.stopMediaDriver(StressMultiJvmSpec)
+    super.afterTermination()
   }
 
-  val rounds = 3
+  Runtime.getRuntime.addShutdownHook(new Thread {
+    override def run(): Unit = {
+      if (SharedMediaDriverSupport.isMediaDriverRunningByThisNode)
+        println("Abrupt exit of JVM without closing media driver. This should not happen and may cause test failure.")
+    }
+  })
+
+  val rounds = 5
 
   override def expectedTestDuration: FiniteDuration = 45.seconds * rounds
 
@@ -65,7 +79,7 @@ abstract class NodeChurnSpec
     awaitMembersUp(numberOfMembers)
     within(20.seconds) {
       awaitAssert {
-        additionaSystems.foreach { s ⇒
+        additionaSystems.foreach { s =>
           val c = Cluster(s)
           c.state.members.size should be(numberOfMembers)
           c.state.members.forall(_.status == MemberStatus.Up) shouldBe true
@@ -79,8 +93,8 @@ abstract class NodeChurnSpec
     enterBarrier("removed-" + round)
     within(3.seconds) {
       awaitAssert {
-        additionaSystems.foreach { s ⇒
-          withClue(s"Cluster(s).self:") {
+        additionaSystems.foreach { s =>
+          withClue(s"${Cluster(s).selfAddress}:") {
             Cluster(s).isTerminated should be(true)
           }
         }
@@ -88,9 +102,10 @@ abstract class NodeChurnSpec
     }
   }
 
+  def isArteryEnabled: Boolean = RARP(system).provider.remoteSettings.Artery.Enabled
+
   "Cluster with short lived members" must {
-    "TODO work with artery" in (pending)
-    /*
+
     "setup stable nodes" taggedAs LongRunningTest in within(15.seconds) {
       val logListener = system.actorOf(Props(classOf[LogListener], testActor), "logListener")
       system.eventStream.subscribe(logListener, classOf[Info])
@@ -99,20 +114,24 @@ abstract class NodeChurnSpec
       enterBarrier("stable")
     }
 
+    // FIXME issue #21483
+    // note: there must be one test step before pending, otherwise afterTermination will not run
+    if (isArteryEnabled) pending
+
     "join and remove transient nodes without growing gossip payload" taggedAs LongRunningTest in {
       // This test is configured with log-frame-size-exceeding and the LogListener
       // will send to the testActor if unexpected increase in message payload size.
       // It will fail after a while if vector clock entries of removed nodes are not pruned.
-      for (n ← 1 to rounds) {
+      for (n <- 1 to rounds) {
         log.info("round-" + n)
-        val systems = Vector.fill(5)(ActorSystem(system.name, system.settings.config))
-        systems.foreach { s ⇒
+        val systems = Vector.fill(2)(ActorSystem(system.name, system.settings.config))
+        systems.foreach { s =>
           muteDeadLetters()(s)
           Cluster(s).joinSeedNodes(seedNodes)
         }
         awaitAllMembersUp(systems)
         enterBarrier("members-up-" + n)
-        systems.foreach { node ⇒
+        systems.foreach { node =>
           if (n % 2 == 0)
             Cluster(node).down(Cluster(node).selfAddress)
           else
@@ -120,14 +139,14 @@ abstract class NodeChurnSpec
         }
         awaitRemoved(systems, n)
         enterBarrier("members-removed-" + n)
-        systems.foreach(_.terminate().await)
+        systems.foreach(s => TestKit.shutdownActorSystem(s, verifySystemShutdown = true))
+        enterBarrier("end-round-" + n)
         log.info("end of round-" + n)
         // log listener will send to testActor if payload size exceed configured log-frame-size-exceeding
-        expectNoMsg(2.seconds)
+        expectNoMessage(2.seconds)
       }
-      expectNoMsg(5.seconds)
+      expectNoMessage(5.seconds)
     }
-    */
 
   }
 

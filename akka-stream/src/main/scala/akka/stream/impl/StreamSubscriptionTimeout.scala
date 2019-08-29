@@ -1,16 +1,22 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import akka.actor._
+import akka.annotation.InternalApi
 import akka.stream.StreamSubscriptionTimeoutTerminationMode.{ CancelTermination, NoopTermination, WarnTermination }
 import akka.stream.StreamSubscriptionTimeoutSettings
 import org.reactivestreams._
+
 import scala.concurrent.duration.FiniteDuration
 import scala.util.control.NoStackTrace
 
-object StreamSubscriptionTimeoutSupport {
+/**
+ * INTERNAL API
+ */
+@InternalApi private[akka] object StreamSubscriptionTimeoutSupport {
 
   /**
    * A subscriber who calls `cancel` directly from `onSubscribe` and ignores all other callbacks.
@@ -37,7 +43,7 @@ object StreamSubscriptionTimeoutSupport {
    * Subscription timeout which does not start any scheduled events and always returns `true`.
    * This specialized implementation is to be used for "noop" timeout mode.
    */
-  case object NoopSubscriptionTimeout extends Cancellable {
+  @InternalApi private[akka] case object NoopSubscriptionTimeout extends Cancellable {
     override def cancel() = true
     override def isCancelled = true
   }
@@ -50,8 +56,8 @@ object StreamSubscriptionTimeoutSupport {
  *
  * See `akka.stream.materializer.subscription-timeout` for configuration options.
  */
-private[akka] trait StreamSubscriptionTimeoutSupport {
-  this: Actor with ActorLogging ⇒
+@InternalApi private[akka] trait StreamSubscriptionTimeoutSupport {
+  this: Actor with ActorLogging =>
 
   import StreamSubscriptionTimeoutSupport._
 
@@ -66,9 +72,9 @@ private[akka] trait StreamSubscriptionTimeoutSupport {
    */
   protected def scheduleSubscriptionTimeout(actor: ActorRef, message: Any): Cancellable =
     subscriptionTimeoutSettings.mode match {
-      case NoopTermination ⇒
+      case NoopTermination =>
         NoopSubscriptionTimeout
-      case _ ⇒
+      case _ =>
         import context.dispatcher
         val cancellable = context.system.scheduler.scheduleOnce(subscriptionTimeoutSettings.timeout, actor, message)
         cancellable
@@ -77,30 +83,38 @@ private[akka] trait StreamSubscriptionTimeoutSupport {
   private def cancel(target: Publisher[_], timeout: FiniteDuration): Unit = {
     val millis = timeout.toMillis
     target match {
-      case p: Processor[_, _] ⇒
+      case p: Processor[_, _] =>
         log.debug("Cancelling {} Processor's publisher and subscriber sides (after {} ms)", p, millis)
-        handleSubscriptionTimeout(target, new SubscriptionTimeoutException(s"Publisher was not attached to upstream within deadline ($millis) ms") with NoStackTrace)
+        handleSubscriptionTimeout(
+          target,
+          new SubscriptionTimeoutException(s"Publisher was not attached to upstream within deadline ($millis) ms")
+          with NoStackTrace)
 
-      case p: Publisher[_] ⇒
+      case p: Publisher[_] =>
         log.debug("Cancelling {} (after: {} ms)", p, millis)
-        handleSubscriptionTimeout(target, new SubscriptionTimeoutException(s"Publisher ($p) you are trying to subscribe to has been shut-down " +
-          s"because exceeding it's subscription-timeout.") with NoStackTrace)
+        handleSubscriptionTimeout(
+          target,
+          new SubscriptionTimeoutException(
+            s"Publisher ($p) you are trying to subscribe to has been shut-down " +
+            s"because exceeding it's subscription-timeout.") with NoStackTrace)
     }
   }
 
   private def warn(target: Publisher[_], timeout: FiniteDuration): Unit = {
     log.warning(
       "Timed out {} detected (after {} ms)! You should investigate if you either cancel or consume all {} instances",
-      target, timeout.toMillis, target.getClass.getCanonicalName)
+      target,
+      timeout.toMillis,
+      target.getClass.getCanonicalName)
   }
 
   /**
    * Called by the actor when a subscription has timed out. Expects the actual `Publisher` or `Processor` target.
    */
   protected def subscriptionTimedOut(target: Publisher[_]): Unit = subscriptionTimeoutSettings.mode match {
-    case NoopTermination   ⇒ // ignore...
-    case WarnTermination   ⇒ warn(target, subscriptionTimeoutSettings.timeout)
-    case CancelTermination ⇒ cancel(target, subscriptionTimeoutSettings.timeout)
+    case NoopTermination   => // ignore...
+    case WarnTermination   => warn(target, subscriptionTimeoutSettings.timeout)
+    case CancelTermination => cancel(target, subscriptionTimeoutSettings.timeout)
   }
 
   /**
@@ -112,4 +126,4 @@ private[akka] trait StreamSubscriptionTimeoutSupport {
 /**
  * INTERNAL API
  */
-private[akka] class SubscriptionTimeoutException(msg: String) extends RuntimeException(msg)
+@InternalApi private[akka] class SubscriptionTimeoutException(msg: String) extends RuntimeException(msg)

@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.actor
@@ -26,8 +26,9 @@ class TellOnlyBenchmark {
 
   @Setup(Level.Trial)
   def setup(): Unit = {
-    system = ActorSystem("TellOnlyBenchmark", ConfigFactory.parseString(
-      s"""| akka {
+    system = ActorSystem(
+      "TellOnlyBenchmark",
+      ConfigFactory.parseString(s"""| akka {
           |   log-dead-letters = off
           |   actor {
           |     default-dispatcher {
@@ -46,8 +47,7 @@ class TellOnlyBenchmark {
           |   type = "akka.actor.TellOnlyBenchmark$$DroppingDispatcherConfigurator"
           |   mailbox-type = "akka.actor.TellOnlyBenchmark$$UnboundedDroppingMailbox"
           | }
-          | """.stripMargin
-    ))
+          | """.stripMargin))
   }
 
   @TearDown(Level.Trial)
@@ -67,14 +67,14 @@ class TellOnlyBenchmark {
     probe.send(actor, message)
     probe.expectMsg(message)
     probe.send(actor, flipDrop)
-    probe.expectNoMsg(200.millis)
+    probe.expectNoMessage(200.millis)
     System.gc()
   }
 
   @TearDown(Level.Iteration)
   def shutdownIteration(): Unit = {
     probe.send(actor, flipDrop)
-    probe.expectNoMsg(200.millis)
+    probe.expectNoMessage(200.millis)
     actor ! stop
     probe.expectTerminated(actor, timeout)
     actor = null
@@ -97,9 +97,9 @@ object TellOnlyBenchmark {
 
   class Echo extends Actor {
     def receive = {
-      case s @ `stop` ⇒
-        context stop self
-      case m ⇒ sender ! m
+      case s @ `stop` =>
+        context.stop(self)
+      case m => sender ! m
     }
   }
 
@@ -121,21 +121,26 @@ object TellOnlyBenchmark {
   }
 
   class DroppingDispatcher(
-    _configurator: MessageDispatcherConfigurator,
-    _id: String,
-    _throughput: Int,
-    _throughputDeadlineTime: Duration,
-    _executorServiceFactoryProvider: ExecutorServiceFactoryProvider,
-    _shutdownTimeout: FiniteDuration
-  )
-      extends Dispatcher(_configurator, _id, _throughput, _throughputDeadlineTime, _executorServiceFactoryProvider, _shutdownTimeout) {
+      _configurator: MessageDispatcherConfigurator,
+      _id: String,
+      _throughput: Int,
+      _throughputDeadlineTime: Duration,
+      _executorServiceFactoryProvider: ExecutorServiceFactoryProvider,
+      _shutdownTimeout: FiniteDuration)
+      extends Dispatcher(
+        _configurator,
+        _id,
+        _throughput,
+        _throughputDeadlineTime,
+        _executorServiceFactoryProvider,
+        _shutdownTimeout) {
 
     override protected[akka] def dispatch(receiver: ActorCell, invocation: Envelope): Unit = {
       val mbox = receiver.mailbox
       mbox.enqueue(receiver.self, invocation)
       mbox.messageQueue match {
-        case mb: DroppingMessageQueue if mb.dropping ⇒ // do nothing
-        case _ ⇒ registerForExecution(mbox, true, false)
+        case mb: DroppingMessageQueue if mb.dropping => // do nothing
+        case _                                       => registerForExecution(mbox, true, false)
       }
     }
   }
@@ -143,13 +148,13 @@ object TellOnlyBenchmark {
   class DroppingDispatcherConfigurator(config: Config, prerequisites: DispatcherPrerequisites)
       extends MessageDispatcherConfigurator(config, prerequisites) {
 
-    override def dispatcher(): MessageDispatcher = new DroppingDispatcher(
-      this,
-      config.getString("id"),
-      config.getInt("throughput"),
-      config.getNanosDuration("throughput-deadline-time"),
-      configureExecutor(),
-      config.getMillisDuration("shutdown-timeout")
-    )
+    override def dispatcher(): MessageDispatcher =
+      new DroppingDispatcher(
+        this,
+        config.getString("id"),
+        config.getInt("throughput"),
+        config.getNanosDuration("throughput-deadline-time"),
+        configureExecutor(),
+        config.getMillisDuration("shutdown-timeout"))
   }
 }

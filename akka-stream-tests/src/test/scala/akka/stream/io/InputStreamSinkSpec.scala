@@ -1,24 +1,29 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.io
 
 import java.io.{ IOException, InputStream }
 import java.util.concurrent.TimeoutException
+
 import akka.actor.ActorSystem
 import akka.stream._
 import akka.stream.Attributes.inputBuffer
 import akka.stream.impl.StreamSupervisor.Children
 import akka.stream.impl.io.InputStreamSinkStage
-import akka.stream.impl.{ ActorMaterializerImpl, StreamSupervisor }
+import akka.stream.impl.{ PhasedFusingActorMaterializer, StreamSupervisor }
 import akka.stream.scaladsl.{ Keep, Source, StreamConverters }
 import akka.stream.testkit.Utils._
+import akka.stream.testkit.scaladsl.StreamTestKit._
 import akka.stream.testkit.scaladsl.TestSource
-import akka.stream.testkit.{ StreamSpec, GraphStageMessages, TestSinkStage }
+import akka.stream.testkit._
 import akka.testkit.TestProbe
 import akka.util.ByteString
+
 import scala.concurrent.duration._
 import java.util.concurrent.ThreadLocalRandom
+
 import scala.concurrent.{ Await, Future }
 import scala.util.control.NoStackTrace
 
@@ -55,8 +60,7 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
     "read bytes correctly if requested by InputStream not in chunk size" in assertAllStagesStopped {
       val sinkProbe = TestProbe()
       val byteString2 = randomByteString(3)
-      val inputStream = Source(byteString :: byteString2 :: Nil)
-        .runWith(testSink(sinkProbe))
+      val inputStream = Source(byteString :: byteString2 :: Nil).runWith(testSink(sinkProbe))
 
       sinkProbe.expectMsgAllOf(GraphStageMessages.Push, GraphStageMessages.Push)
 
@@ -90,6 +94,17 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
       inputStream.close()
     }
 
+    "ignore an empty ByteString" in assertAllStagesStopped {
+      val (probe, inputStream) = TestSource.probe[ByteString].toMat(StreamConverters.asInputStream())(Keep.both).run()
+      probe.sendNext(ByteString.empty)
+      val f = Future(inputStream.read())
+
+      the[Exception] thrownBy Await.result(f, timeout) shouldBe a[TimeoutException]
+      probe.sendComplete()
+      Await.result(f, remainingOrDefault) should ===(-1)
+      inputStream.close()
+    }
+
     "fill up buffer by default" in assertAllStagesStopped {
       val byteString2 = randomByteString(3)
       val inputStream = Source(byteString :: byteString2 :: Nil).runWith(StreamConverters.asInputStream())
@@ -110,8 +125,7 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
 
     "return all data when upstream is completed" in assertAllStagesStopped {
       val sinkProbe = TestProbe()
-      val (probe, inputStream) = TestSource.probe[ByteString]
-        .toMat(testSink(sinkProbe))(Keep.both).run()
+      val (probe, inputStream) = TestSource.probe[ByteString].toMat(testSink(sinkProbe))(Keep.both).run()
       val bytes = randomByteString(1)
 
       probe.sendNext(bytes)
@@ -127,7 +141,7 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
       val bytes = randomByteString(10)
       val inputStream = Source.single(bytes).runWith(StreamConverters.asInputStream())
 
-      for (expect ← bytes.sliding(3, 3))
+      for (expect <- bytes.sliding(3, 3))
         readN(inputStream, 3) should ===((expect.size, expect))
 
       inputStream.close()
@@ -146,13 +160,14 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
     "successfully read several chunks at once" in assertAllStagesStopped {
       val bytes = List.fill(4)(randomByteString(4))
       val sinkProbe = TestProbe()
-      val inputStream = Source[ByteString](bytes)
-        .runWith(testSink(sinkProbe))
+      val inputStream = Source[ByteString](bytes).runWith(testSink(sinkProbe))
 
       //need to wait while all elements arrive to sink
-      bytes foreach { _ ⇒ sinkProbe.expectMsg(GraphStageMessages.Push) }
+      bytes.foreach { _ =>
+        sinkProbe.expectMsg(GraphStageMessages.Push)
+      }
 
-      for (i ← 0 to 1)
+      for (i <- 0 to 1)
         readN(inputStream, 8) should ===((8, bytes(i * 2) ++ bytes(i * 2 + 1)))
 
       inputStream.close()
@@ -203,9 +218,12 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
       val materializer = ActorMaterializer()(sys)
       try {
         TestSource.probe[ByteString].runWith(StreamConverters.asInputStream())(materializer)
-        materializer.asInstanceOf[ActorMaterializerImpl].supervisor.tell(StreamSupervisor.GetChildren, testActor)
+        materializer
+          .asInstanceOf[PhasedFusingActorMaterializer]
+          .supervisor
+          .tell(StreamSupervisor.GetChildren, testActor)
         val ref = expectMsgType[Children].children.find(_.path.toString contains "inputStreamSink").get
-        assertDispatcher(ref, "akka.stream.default-blocking-io-dispatcher")
+        assertDispatcher(ref, ActorAttributes.IODispatcher.dispatcher)
       } finally shutdown(sys)
     }
 
@@ -217,18 +235,51 @@ class InputStreamSinkSpec extends StreamSpec(UnboundedMailboxConfig) {
 
       inputStream.close()
     }
-  }
 
-  "fail to materialize with zero sized input buffer" in {
-    an[IllegalArgumentException] shouldBe thrownBy {
-      Source.single(byteString)
-        .runWith(StreamConverters.asInputStream(timeout).withAttributes(inputBuffer(0, 0)))
-      /*
-       With Source.single we test the code path in which the sink
-       itself throws an exception when being materialized. If
-       Source.empty is used, the same exception is thrown by
-       Materializer.
+    "read next byte as an int from InputStream" in assertAllStagesStopped {
+      val bytes = ByteString(0, 100, 200, 255)
+      val inputStream = Source.single(bytes).runWith(StreamConverters.asInputStream())
+      List.fill(5)(inputStream.read()) should ===(List(0, 100, 200, 255, -1))
+      inputStream.close()
+    }
+
+    "fail to materialize with zero sized input buffer" in {
+      an[IllegalArgumentException] shouldBe thrownBy {
+        Source.single(byteString).runWith(StreamConverters.asInputStream(timeout).withAttributes(inputBuffer(0, 0)))
+        /*
+         With Source.single we test the code path in which the sink
+         itself throws an exception when being materialized. If
+         Source.empty is used, the same exception is thrown by
+         Materializer.
        */
+      }
+    }
+
+    "throw from inputstream read if terminated abruptly" in {
+      val mat = ActorMaterializer()
+      val probe = TestPublisher.probe[ByteString]()
+      val inputStream = Source.fromPublisher(probe).runWith(StreamConverters.asInputStream())(mat)
+      mat.shutdown()
+
+      intercept[IOException] {
+        inputStream.read()
+      }
+    }
+
+    "propagate error to InputStream" in {
+      val readTimeout = 3.seconds
+      val (probe, inputStream) =
+        TestSource.probe[ByteString].toMat(StreamConverters.asInputStream(readTimeout))(Keep.both).run()
+
+      probe.sendNext(ByteString("one"))
+      val error = new RuntimeException("failure")
+      probe.sendError(error)
+      val buffer = Array.ofDim[Byte](5)
+      val thrown = intercept[IOException] {
+        inputStream.read(buffer) should !==(-1)
+      }
+      thrown.getCause should ===(error)
     }
   }
+
 }

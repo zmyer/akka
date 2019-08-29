@@ -1,12 +1,13 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import akka.testkit.AkkaSpec
 import akka.testkit.ImplicitSender
-import scala.concurrent.duration._
 import akka.testkit.EventFilter
+import akka.actor.dungeon.SerializationCheckFailedException
 
 object FunctionRefSpec {
 
@@ -16,11 +17,11 @@ object FunctionRefSpec {
 
   class Super extends Actor {
     def receive = {
-      case GetForwarder(replyTo) ⇒
+      case GetForwarder(replyTo) =>
         val cell = context.asInstanceOf[ActorCell]
-        val ref = cell.addFunctionRef((sender, msg) ⇒ replyTo ! Forwarded(msg, sender))
+        val ref = cell.addFunctionRef((sender, msg) => replyTo ! Forwarded(msg, sender))
         replyTo ! ref
-      case DropForwarder(ref) ⇒
+      case DropForwarder(ref) =>
         val cell = context.asInstanceOf[ActorCell]
         cell.removeFunctionRef(ref)
     }
@@ -29,13 +30,18 @@ object FunctionRefSpec {
   class SupSuper extends Actor {
     val s = context.actorOf(Props[Super], "super")
     def receive = {
-      case msg ⇒ s ! msg
+      case msg => s ! msg
     }
   }
 
 }
 
-class FunctionRefSpec extends AkkaSpec with ImplicitSender {
+class FunctionRefSpec extends AkkaSpec("""
+  # test is using Java serialization and relies on serialize-messages=on
+  akka.actor.allow-java-serialization = on
+  akka.actor.warn-about-java-serializer-usage = off
+  akka.actor.serialize-messages = on
+  """) with ImplicitSender {
   import FunctionRefSpec._
 
   def commonTests(s: ActorRef) = {
@@ -59,8 +65,14 @@ class FunctionRefSpec extends AkkaSpec with ImplicitSender {
       s ! GetForwarder(testActor)
       val f = expectMsgType[FunctionRef]
       forwarder.watch(f)
+      forwarder.isWatching(f) should ===(true)
       s ! DropForwarder(f)
-      expectMsg(Forwarded(Terminated(f)(true, false), null))
+      expectMsg(Forwarded(Terminated(f)(true, false), f))
+
+      // Upon receiving the Terminated message, unwatch() must be called, which is different from an ordinary actor.
+      forwarder.isWatching(f) should ===(true)
+      forwarder.unwatch(f)
+      forwarder.isWatching(f) should ===(false)
     }
 
     "terminate when their parent terminates" in {
@@ -85,12 +97,14 @@ class FunctionRefSpec extends AkkaSpec with ImplicitSender {
     "not registered" must {
       "not be found" in {
         val provider = system.asInstanceOf[ExtendedActorSystem].provider
-        val ref = new FunctionRef(testActor.path / "blabla", provider, system.eventStream, (x, y) ⇒ ())
-        EventFilter[ClassCastException](occurrences = 1) intercept {
+        val ref = new FunctionRef(testActor.path / "blabla", provider, system, (_, _) => ())
+        EventFilter[SerializationCheckFailedException](
+          start = "Failed to serialize and deserialize message of type akka.actor.FunctionRefSpec",
+          occurrences = 1).intercept {
           // needs to be something that fails when the deserialized form is not a FunctionRef
           // this relies upon serialize-messages during tests
           testActor ! DropForwarder(ref)
-          expectNoMsg(1.second)
+          expectNoMessage()
         }
       }
     }

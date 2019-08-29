@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka
 
 /**
@@ -38,5 +39,9 @@ package akka
  * ask(actor, message);
  * }}}
  */
-package object pattern extends PipeToSupport with AskSupport with GracefulStopSupport with FutureTimeoutSupport
-
+package object pattern
+    extends PipeToSupport
+    with AskSupport
+    with GracefulStopSupport
+    with FutureTimeoutSupport
+    with RetrySupport

@@ -1,27 +1,28 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.cluster
 
 import scala.collection.immutable
+import ClusterSettings.DataCenter
 import MemberStatus._
+import akka.annotation.InternalApi
+
 import scala.concurrent.duration.Deadline
 
 /**
  * INTERNAL API
  */
 private[cluster] object Gossip {
+  type Timestamp = Long
   val emptyMembers: immutable.SortedSet[Member] = immutable.SortedSet.empty
   val empty: Gossip = new Gossip(Gossip.emptyMembers)
 
   def apply(members: immutable.SortedSet[Member]) =
     if (members.isEmpty) empty else empty.copy(members = members)
 
-  private val leaderMemberStatus = Set[MemberStatus](Up, Leaving)
-  private val convergenceMemberStatus = Set[MemberStatus](Up, Leaving)
-  val convergenceSkipUnreachableWithMemberStatus = Set[MemberStatus](Down, Exiting)
-  val removeUnreachableWithMemberStatus = Set[MemberStatus](Down, Exiting)
+  def vclockName(node: UniqueAddress): String = s"${node.address}-${node.longUid}"
 
 }
 
@@ -59,32 +60,53 @@ private[cluster] object Gossip {
  * removed node telling it to shut itself down.
  */
 @SerialVersionUID(1L)
+@InternalApi
 private[cluster] final case class Gossip(
-  members:  immutable.SortedSet[Member], // sorted set of members with their status, sorted by address
-  overview: GossipOverview              = GossipOverview(),
-  version:  VectorClock                 = VectorClock()) { // vector clock version
+    members: immutable.SortedSet[Member], // sorted set of members with their status, sorted by address
+    overview: GossipOverview = GossipOverview(),
+    version: VectorClock = VectorClock(), // vector clock version
+    tombstones: Map[UniqueAddress, Gossip.Timestamp] = Map.empty) {
 
   if (Cluster.isAssertInvariantsEnabled) assertInvariants()
 
   private def assertInvariants(): Unit = {
 
-    if (members.exists(_.status == Removed))
-      throw new IllegalArgumentException(s"Live members must have status [${Removed}], " +
-        s"got [${members.filter(_.status == Removed)}]")
+    def ifTrueThrow(func: => Boolean, expected: String, actual: String): Unit =
+      if (func) throw new IllegalArgumentException(s"$expected, but found [$actual]")
 
-    val inReachabilityButNotMember = overview.reachability.allObservers diff members.map(_.uniqueAddress)
-    if (inReachabilityButNotMember.nonEmpty)
-      throw new IllegalArgumentException("Nodes not part of cluster in reachability table, got [%s]"
-        format inReachabilityButNotMember.mkString(", "))
+    ifTrueThrow(
+      members.exists(_.status == Removed),
+      expected = s"Live members must not have status [$Removed]",
+      actual = s"${members.filter(_.status == Removed)}")
 
-    val seenButNotMember = overview.seen diff members.map(_.uniqueAddress)
-    if (seenButNotMember.nonEmpty)
-      throw new IllegalArgumentException("Nodes not part of cluster have marked the Gossip as seen, got [%s]"
-        format seenButNotMember.mkString(", "))
+    val inReachabilityButNotMember = overview.reachability.allObservers.diff(members.map(_.uniqueAddress))
+    ifTrueThrow(
+      inReachabilityButNotMember.nonEmpty,
+      expected = "Nodes not part of cluster in reachability table",
+      actual = inReachabilityButNotMember.mkString(", "))
+
+    val inReachabilityVersionsButNotMember = overview.reachability.versions.keySet.diff(members.map(_.uniqueAddress))
+    ifTrueThrow(
+      inReachabilityVersionsButNotMember.nonEmpty,
+      expected = "Nodes not part of cluster in reachability versions table",
+      actual = inReachabilityVersionsButNotMember.mkString(", "))
+
+    val seenButNotMember = overview.seen.diff(members.map(_.uniqueAddress))
+    ifTrueThrow(
+      seenButNotMember.nonEmpty,
+      expected = "Nodes not part of cluster have marked the Gossip as seen",
+      actual = seenButNotMember.mkString(", "))
   }
 
   @transient private lazy val membersMap: Map[UniqueAddress, Member] =
-    members.map(m ⇒ m.uniqueAddress → m)(collection.breakOut)
+    members.iterator.map(m => m.uniqueAddress -> m).toMap
+
+  @transient lazy val isMultiDc =
+    if (members.size <= 1) false
+    else {
+      val dc1 = members.head.dataCenter
+      members.exists(_.dataCenter != dc1)
+    }
 
   /**
    * Increments the version for this 'Node'.
@@ -96,7 +118,7 @@ private[cluster] final case class Gossip(
    */
   def :+(member: Member): Gossip = {
     if (members contains member) this
-    else this copy (members = members + member)
+    else this.copy(members = members + member)
   }
 
   /**
@@ -104,14 +126,21 @@ private[cluster] final case class Gossip(
    */
   def seen(node: UniqueAddress): Gossip = {
     if (seenByNode(node)) this
-    else this copy (overview = overview copy (seen = overview.seen + node))
+    else this.copy(overview = overview.copy(seen = overview.seen + node))
   }
 
   /**
    * Marks the gossip as seen by only this node (address) by replacing the 'gossip.overview.seen'
    */
   def onlySeen(node: UniqueAddress): Gossip = {
-    this copy (overview = overview copy (seen = Set(node)))
+    this.copy(overview = overview.copy(seen = Set(node)))
+  }
+
+  /**
+   * Remove all seen entries
+   */
+  def clearSeen(): Gossip = {
+    this.copy(overview = overview.copy(seen = Set.empty))
   }
 
   /**
@@ -128,89 +157,101 @@ private[cluster] final case class Gossip(
    * Merges the seen table of two Gossip instances.
    */
   def mergeSeen(that: Gossip): Gossip =
-    this copy (overview = overview copy (seen = overview.seen union that.overview.seen))
+    this.copy(overview = overview.copy(seen = overview.seen.union(that.overview.seen)))
 
   /**
-   * Merges two Gossip instances including membership tables, and the VectorClock histories.
+   * Merges two Gossip instances including membership tables, tombstones, and the VectorClock histories.
    */
   def merge(that: Gossip): Gossip = {
 
-    // 1. merge vector clocks
-    val mergedVClock = this.version merge that.version
+    // 1. merge sets of tombstones
+    val mergedTombstones = tombstones ++ that.tombstones
+
+    // 2. merge vector clocks (but remove entries for tombstoned nodes)
+    val mergedVClock = mergedTombstones.keys.foldLeft(this.version.merge(that.version)) { (vclock, node) =>
+      vclock.prune(VectorClock.Node(Gossip.vclockName(node)))
+    }
 
     // 2. merge members by selecting the single Member with highest MemberStatus out of the Member groups
-    val mergedMembers = Gossip.emptyMembers union Member.pickHighestPriority(this.members, that.members)
+    val mergedMembers =
+      Gossip.emptyMembers.union(Member.pickHighestPriority(this.members, that.members, mergedTombstones))
 
     // 3. merge reachability table by picking records with highest version
-    val mergedReachability = this.overview.reachability.merge(
-      mergedMembers.map(_.uniqueAddress),
-      that.overview.reachability)
+    val mergedReachability =
+      this.overview.reachability.merge(mergedMembers.map(_.uniqueAddress), that.overview.reachability)
 
     // 4. Nobody can have seen this new gossip yet
     val mergedSeen = Set.empty[UniqueAddress]
 
-    Gossip(mergedMembers, GossipOverview(mergedSeen, mergedReachability), mergedVClock)
-  }
-
-  /**
-   * Checks if we have a cluster convergence. If there are any unreachable nodes then we can't have a convergence -
-   * waiting for user to act (issuing DOWN) or leader to act (issuing DOWN through auto-down).
-   *
-   * @return true if convergence have been reached and false if not
-   */
-  def convergence(selfUniqueAddress: UniqueAddress): Boolean = {
-    // First check that:
-    //   1. we don't have any members that are unreachable, excluding observations from members
-    //      that have status DOWN, or
-    //   2. all unreachable members in the set have status DOWN or EXITING
-    // Else we can't continue to check for convergence
-    // When that is done we check that all members with a convergence
-    // status is in the seen table, i.e. has seen this version
-    val unreachable = reachabilityExcludingDownedObservers.allUnreachableOrTerminated.collect {
-      case node if (node != selfUniqueAddress) ⇒ member(node)
-    }
-    unreachable.forall(m ⇒ Gossip.convergenceSkipUnreachableWithMemberStatus(m.status)) &&
-      !members.exists(m ⇒ Gossip.convergenceMemberStatus(m.status) && !seenByNode(m.uniqueAddress))
+    Gossip(mergedMembers, GossipOverview(mergedSeen, mergedReachability), mergedVClock, mergedTombstones)
   }
 
   lazy val reachabilityExcludingDownedObservers: Reachability = {
-    val downed = members.collect { case m if m.status == Down ⇒ m }
+    val downed = members.collect { case m if m.status == Down => m }
     overview.reachability.removeObservers(downed.map(_.uniqueAddress))
   }
 
-  def isLeader(node: UniqueAddress, selfUniqueAddress: UniqueAddress): Boolean =
-    leader(selfUniqueAddress) == Some(node)
-
-  def leader(selfUniqueAddress: UniqueAddress): Option[UniqueAddress] =
-    leaderOf(members, selfUniqueAddress)
-
-  def roleLeader(role: String, selfUniqueAddress: UniqueAddress): Option[UniqueAddress] =
-    leaderOf(members.filter(_.hasRole(role)), selfUniqueAddress)
-
-  private def leaderOf(mbrs: immutable.SortedSet[Member], selfUniqueAddress: UniqueAddress): Option[UniqueAddress] = {
-    val reachableMembers =
-      if (overview.reachability.isAllReachable) mbrs
-      else mbrs.filter(m ⇒ overview.reachability.isReachable(m.uniqueAddress) || m.uniqueAddress == selfUniqueAddress)
-    if (reachableMembers.isEmpty) None
-    else reachableMembers.find(m ⇒ Gossip.leaderMemberStatus(m.status)).
-      orElse(Some(reachableMembers.min(Member.leaderStatusOrdering))).map(_.uniqueAddress)
-  }
+  def allDataCenters: Set[DataCenter] = members.map(_.dataCenter)
 
   def allRoles: Set[String] = members.flatMap(_.roles)
 
   def isSingletonCluster: Boolean = members.size == 1
 
+  /**
+   * @return true if fromAddress should be able to reach toAddress based on the unreachability data and their
+   *         respective data centers
+   */
+  def isReachable(fromAddress: UniqueAddress, toAddress: UniqueAddress): Boolean =
+    if (!hasMember(toAddress)) false
+    else {
+      // as it looks for specific unreachable entires for the node pair we don't have to filter on data center
+      overview.reachability.isReachable(fromAddress, toAddress)
+    }
+
   def member(node: UniqueAddress): Member = {
-    membersMap.getOrElse(
-      node,
-      Member.removed(node)) // placeholder for removed member
+    membersMap.getOrElse(node, Member.removed(node)) // placeholder for removed member
   }
 
   def hasMember(node: UniqueAddress): Boolean = membersMap.contains(node)
 
-  def youngestMember: Member = {
-    require(members.nonEmpty, "No youngest when no members")
-    members.maxBy(m ⇒ if (m.upNumber == Int.MaxValue) 0 else m.upNumber)
+  def removeAll(nodes: Iterable[UniqueAddress], removalTimestamp: Long): Gossip = {
+    nodes.foldLeft(this)((gossip, node) => gossip.remove(node, removalTimestamp))
+  }
+
+  def update(updatedMembers: immutable.SortedSet[Member]): Gossip = {
+    copy(members = updatedMembers.union(members.diff(updatedMembers)))
+  }
+
+  /**
+   * Remove the given member from the set of members and mark it's removal with a tombstone to avoid having it
+   * reintroduced when merging with another gossip that has not seen the removal.
+   */
+  def remove(node: UniqueAddress, removalTimestamp: Long): Gossip = {
+    // removing REMOVED nodes from the `seen` table
+    val newSeen = overview.seen - node
+    // removing REMOVED nodes from the `reachability` table
+    val newReachability = overview.reachability.remove(node :: Nil)
+    val newOverview = overview.copy(seen = newSeen, reachability = newReachability)
+
+    // Clear the VectorClock when member is removed. The change made by the leader is stamped
+    // and will propagate as is if there are no other changes on other nodes.
+    // If other concurrent changes on other nodes (e.g. join) the pruning is also
+    // taken care of when receiving gossips.
+    val newVersion = version.prune(VectorClock.Node(Gossip.vclockName(node)))
+    val newMembers = members.filterNot(_.uniqueAddress == node)
+    val newTombstones = tombstones + (node -> removalTimestamp)
+    copy(version = newVersion, members = newMembers, overview = newOverview, tombstones = newTombstones)
+  }
+
+  def markAsDown(member: Member): Gossip = {
+    // replace member (changed status)
+    val newMembers = members - member + member.copy(status = Down)
+    // remove nodes marked as DOWN from the `seen` table
+    val newSeen = overview.seen - member.uniqueAddress
+
+    // update gossip overview
+    val newOverview = overview.copy(seen = newSeen)
+    copy(members = newMembers, overview = newOverview) // update gossip
   }
 
   def prune(removedNode: VectorClock.Node): Gossip = {
@@ -219,8 +260,14 @@ private[cluster] final case class Gossip(
     else copy(version = newVersion)
   }
 
+  def pruneTombstones(removeEarlierThan: Gossip.Timestamp): Gossip = {
+    val newTombstones = tombstones.filter { case (_, timestamp) => timestamp > removeEarlierThan }
+    if (newTombstones.size == tombstones.size) this
+    else copy(tombstones = newTombstones)
+  }
+
   override def toString =
-    s"Gossip(members = [${members.mkString(", ")}], overview = ${overview}, version = ${version})"
+    s"Gossip(members = [${members.mkString(", ")}], overview = $overview, version = $version, tombstones = $tombstones)"
 }
 
 /**
@@ -229,8 +276,8 @@ private[cluster] final case class Gossip(
  */
 @SerialVersionUID(1L)
 private[cluster] final case class GossipOverview(
-  seen:         Set[UniqueAddress] = Set.empty,
-  reachability: Reachability       = Reachability.empty) {
+    seen: Set[UniqueAddress] = Set.empty,
+    reachability: Reachability = Reachability.empty) {
 
   override def toString =
     s"GossipOverview(reachability = [$reachability], seen = [${seen.mkString(", ")}])"
@@ -240,7 +287,7 @@ object GossipEnvelope {
   def apply(from: UniqueAddress, to: UniqueAddress, gossip: Gossip): GossipEnvelope =
     new GossipEnvelope(from, to, gossip, null, null)
 
-  def apply(from: UniqueAddress, to: UniqueAddress, serDeadline: Deadline, ser: () ⇒ Gossip): GossipEnvelope =
+  def apply(from: UniqueAddress, to: UniqueAddress, serDeadline: Deadline, ser: () => Gossip): GossipEnvelope =
     new GossipEnvelope(from, to, null, serDeadline, ser)
 }
 
@@ -254,11 +301,12 @@ object GossipEnvelope {
  */
 @SerialVersionUID(2L)
 private[cluster] class GossipEnvelope private (
-  val from:                    UniqueAddress,
-  val to:                      UniqueAddress,
-  @volatile var g:             Gossip,
-  serDeadline:                 Deadline,
-  @transient @volatile var ser:() ⇒ Gossip) extends ClusterMessage {
+    val from: UniqueAddress,
+    val to: UniqueAddress,
+    @volatile var g: Gossip,
+    serDeadline: Deadline,
+    @transient @volatile var ser: () => Gossip)
+    extends ClusterMessage {
 
   def gossip: Gossip = {
     deserialize()

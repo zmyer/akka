@@ -1,22 +1,29 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import akka.actor._
+import akka.annotation.{ DoNotInherit, InternalApi }
 import akka.stream.{ AbruptTerminationException, ActorMaterializerSettings }
-import akka.stream.actor.{ ActorSubscriberMessage, ActorSubscriber }
-import org.reactivestreams.{ Subscription, Subscriber }
+import akka.stream.actor.{ ActorSubscriber, ActorSubscriberMessage }
+import akka.util.unused
+import org.reactivestreams.{ Subscriber, Subscription }
 
 /**
  * INTERNAL API
  */
-object FanIn {
+@InternalApi private[akka] object FanIn {
 
-  final case class OnError(id: Int, cause: Throwable) extends DeadLetterSuppression with NoSerializationVerificationNeeded
+  final case class OnError(id: Int, cause: Throwable)
+      extends DeadLetterSuppression
+      with NoSerializationVerificationNeeded
   final case class OnComplete(id: Int) extends DeadLetterSuppression with NoSerializationVerificationNeeded
   final case class OnNext(id: Int, e: Any) extends DeadLetterSuppression with NoSerializationVerificationNeeded
-  final case class OnSubscribe(id: Int, subscription: Subscription) extends DeadLetterSuppression with NoSerializationVerificationNeeded
+  final case class OnSubscribe(id: Int, subscription: Subscription)
+      extends DeadLetterSuppression
+      with NoSerializationVerificationNeeded
 
   final case class SubInput[T](impl: ActorRef, id: Int) extends Subscriber[T] {
     override def onError(cause: Throwable): Unit = {
@@ -44,13 +51,13 @@ object FanIn {
   abstract class InputBunch(inputCount: Int, bufferSize: Int, pump: Pump) {
     private var allCancelled = false
 
-    private val inputs: Array[BatchingInputBuffer] = Array.tabulate(inputCount) { i ⇒
+    private val inputs: Array[BatchingInputBuffer] = Array.tabulate(inputCount) { i =>
       new BatchingInputBuffer(bufferSize, pump) {
         override protected def onError(e: Throwable): Unit = InputBunch.this.onError(i, e)
       }
     }
 
-    private[this] final val states = Array.ofDim[State](inputCount)
+    private[this] final val states = new Array[State](inputCount)
     private var markCount = 0
     private var markedPending = 0
     private var markedDepleted = 0
@@ -114,7 +121,7 @@ object FanIn {
 
     def onError(input: Int, e: Throwable): Unit
 
-    def onDepleted(input: Int): Unit = ()
+    def onDepleted(@unused input: Int): Unit = ()
 
     def onCompleteWhenNoInput(): Unit = ()
 
@@ -224,26 +231,27 @@ object FanIn {
     }
 
     // FIXME: Eliminate re-wraps
-    def subreceive: SubReceive = new SubReceive({
-      case OnSubscribe(id, subscription) ⇒
-        inputs(id).subreceive(ActorSubscriber.OnSubscribe(subscription))
-      case OnNext(id, elem) ⇒
-        if (marked(id) && !pending(id)) markedPending += 1
-        pending(id, on = true)
-        receivedInput = true
-        inputs(id).subreceive(ActorSubscriberMessage.OnNext(elem))
-      case OnComplete(id) ⇒
-        if (!pending(id)) {
-          if (marked(id) && !depleted(id)) markedDepleted += 1
-          depleted(id, on = true)
-          onDepleted(id)
-        }
-        registerCompleted(id)
-        inputs(id).subreceive(ActorSubscriberMessage.OnComplete)
-        if (!receivedInput && isAllCompleted) onCompleteWhenNoInput()
-      case OnError(id, e) ⇒
-        onError(id, e)
-    })
+    def subreceive: SubReceive =
+      new SubReceive({
+        case OnSubscribe(id, subscription) =>
+          inputs(id).subreceive(ActorSubscriber.OnSubscribe(subscription))
+        case OnNext(id, elem) =>
+          if (marked(id) && !pending(id)) markedPending += 1
+          pending(id, on = true)
+          receivedInput = true
+          inputs(id).subreceive(ActorSubscriberMessage.OnNext(elem))
+        case OnComplete(id) =>
+          if (!pending(id)) {
+            if (marked(id) && !depleted(id)) markedDepleted += 1
+            depleted(id, on = true)
+            onDepleted(id)
+          }
+          registerCompleted(id)
+          inputs(id).subreceive(ActorSubscriberMessage.OnComplete)
+          if (!receivedInput && isAllCompleted) onCompleteWhenNoInput()
+        case OnError(id, e) =>
+          onError(id, e)
+      })
 
   }
 
@@ -252,7 +260,10 @@ object FanIn {
 /**
  * INTERNAL API
  */
-abstract class FanIn(val settings: ActorMaterializerSettings, val inputCount: Int) extends Actor with ActorLogging with Pump {
+@DoNotInherit private[akka] class FanIn(val settings: ActorMaterializerSettings, val inputCount: Int)
+    extends Actor
+    with ActorLogging
+    with Pump {
   import FanIn._
 
   protected val primaryOutputs: Outputs = new SimpleOutputs(self, this)
@@ -290,4 +301,3 @@ abstract class FanIn(val settings: ActorMaterializerSettings, val inputCount: In
   def receive = inputBunch.subreceive.orElse[Any, Unit](primaryOutputs.subreceive)
 
 }
-

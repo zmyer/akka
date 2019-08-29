@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import akka.actor.Address
@@ -16,5 +17,5 @@ final case class UniqueAddress(address: Address, uid: Long) extends Ordered[Uniq
   }
 
   override def toString(): String =
-    address + "#" + uid
+    address.toString + "#" + uid
 }

@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import scala.collection.immutable
@@ -9,12 +10,11 @@ import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 import akka.stream._
 import akka.stream.testkit._
-import akka.stream.testkit.Utils._
+import akka.stream.testkit.scaladsl.StreamTestKit._
 
 class FlowPrefixAndTailSpec extends StreamSpec {
 
-  val settings = ActorMaterializerSettings(system)
-    .withInputBuffer(initialSize = 2, maxSize = 2)
+  val settings = ActorMaterializerSettings(system).withInputBuffer(initialSize = 2, maxSize = 2)
 
   implicit val materializer = ActorMaterializer(settings)
 
@@ -99,7 +99,8 @@ class FlowPrefixAndTailSpec extends StreamSpec {
 
       val subscriber2 = TestSubscriber.probe[Int]()
       tail.to(Sink.fromSubscriber(subscriber2)).run()
-      subscriber2.expectSubscriptionAndError().getMessage should ===("Substream Source cannot be materialized more than once")
+      subscriber2.expectSubscriptionAndError().getMessage should ===(
+        "Substream Source cannot be materialized more than once")
 
       subscriber1.requestNext(2).expectComplete()
 
@@ -109,8 +110,8 @@ class FlowPrefixAndTailSpec extends StreamSpec {
       val ms = 300
 
       val tightTimeoutMaterializer =
-        ActorMaterializer(ActorMaterializerSettings(system)
-          .withSubscriptionTimeoutSettings(
+        ActorMaterializer(
+          ActorMaterializerSettings(system).withSubscriptionTimeoutSettings(
             StreamSubscriptionTimeoutSettings(StreamSubscriptionTimeoutTerminationMode.cancel, ms.millisecond)))
 
       val futureSink = newHeadSink
@@ -122,12 +123,13 @@ class FlowPrefixAndTailSpec extends StreamSpec {
       Thread.sleep(1000)
 
       tail.to(Sink.fromSubscriber(subscriber)).run()(tightTimeoutMaterializer)
-      subscriber.expectSubscriptionAndError().getMessage should ===(s"Substream Source has not been materialized in ${ms} milliseconds")
+      subscriber.expectSubscriptionAndError().getMessage should ===(
+        s"Substream Source has not been materialized in ${ms} milliseconds")
     }
     "not fail the stream if substream has not been subscribed in time and configured subscription timeout is noop" in assertAllStagesStopped {
       val tightTimeoutMaterializer =
-        ActorMaterializer(ActorMaterializerSettings(system)
-          .withSubscriptionTimeoutSettings(
+        ActorMaterializer(
+          ActorMaterializerSettings(system).withSubscriptionTimeoutSettings(
             StreamSubscriptionTimeoutSettings(StreamSubscriptionTimeoutTerminationMode.noop, 1.millisecond)))
 
       val futureSink = newHeadSink
@@ -146,7 +148,7 @@ class FlowPrefixAndTailSpec extends StreamSpec {
     "shut down main stage if substream is empty, even when not subscribed" in assertAllStagesStopped {
       val futureSink = newHeadSink
       val fut = Source.single(1).prefixAndTail(1).runWith(futureSink)
-      val (takes, tail) = Await.result(fut, 3.seconds)
+      val (takes, _) = Await.result(fut, 3.seconds)
       takes should be(Seq(1))
     }
 

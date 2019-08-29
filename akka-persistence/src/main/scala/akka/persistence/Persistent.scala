@@ -1,13 +1,14 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.persistence
 
 import akka.actor.{ ActorRef, NoSerializationVerificationNeeded }
 import akka.persistence.serialization.Message
-
 import scala.collection.immutable
+
+import akka.annotation.DoNotInherit
 
 /**
  * INTERNAL API
@@ -36,20 +37,25 @@ object AtomicWrite {
 
 final case class AtomicWrite(payload: immutable.Seq[PersistentRepr]) extends PersistentEnvelope with Message {
   require(payload.nonEmpty, "payload of AtomicWrite must not be empty!")
+  private var _highestSequenceNr: Long = payload.head.sequenceNr
 
   // only check that all persistenceIds are equal when there's more than one in the Seq
   if (payload match {
-    case l: List[PersistentRepr]   ⇒ l.tail.nonEmpty // avoids calling .size
-    case v: Vector[PersistentRepr] ⇒ v.size > 1
-    case _                         ⇒ true // some other collection type, let's just check
-  }) require(
-    payload.forall(_.persistenceId == payload.head.persistenceId),
-    "AtomicWrite must contain messages for the same persistenceId, " +
-      s"yet different persistenceIds found: ${payload.map(_.persistenceId).toSet}")
+        case l: List[PersistentRepr]   => l.tail.nonEmpty // avoids calling .size
+        case v: Vector[PersistentRepr] => v.size > 1
+        case _                         => true // some other collection type, let's just check
+      }) payload.foreach { pr =>
+    if (pr.persistenceId != payload.head.persistenceId)
+      throw new IllegalArgumentException(
+        "AtomicWrite must contain messages for the same persistenceId, " +
+        s"yet different persistenceIds found: ${payload.map(_.persistenceId).toSet}")
+    _highestSequenceNr = pr.sequenceNr
+  }
 
   def persistenceId = payload.head.persistenceId
-  def lowestSequenceNr = payload.head.sequenceNr // this assumes they're gapless; they should be (it is only our code creating AWs)
-  def highestSequenceNr = payload.last.sequenceNr // TODO: could be optimised, since above require traverses already
+  def lowestSequenceNr =
+    payload.head.sequenceNr // this assumes they're gapless; they should be (it is only our code creating AWs)
+  def highestSequenceNr = _highestSequenceNr
 
   override def sender: ActorRef = ActorRef.noSender
   override def size: Int = payload.size
@@ -61,15 +67,17 @@ final case class AtomicWrite(payload: immutable.Seq[PersistentRepr]) extends Per
  * @see [[akka.persistence.journal.AsyncWriteJournal]]
  * @see [[akka.persistence.journal.AsyncRecovery]]
  */
-trait PersistentRepr extends Message {
+@DoNotInherit trait PersistentRepr extends Message {
 
   /**
-   * This persistent message's payload.
+   * This persistent message's payload (the event).
    */
   def payload: Any
 
   /**
-   * Returns the persistent payload's manifest if available
+   * Returns the event adapter manifest for the persistent payload (event) if available
+   * May be `""` if event adapter manifest is not used.
+   * Note that this is not the same as the manifest of the serialized representation of the `payload`.
    */
   def manifest: String
 
@@ -91,41 +99,45 @@ trait PersistentRepr extends Message {
   def writerUuid: String
 
   /**
-   * Creates a new persistent message with the specified `payload`.
+   * Creates a new persistent message with the specified `payload` (event).
    */
   def withPayload(payload: Any): PersistentRepr
 
   /**
-   * Creates a new persistent message with the specified `manifest`.
+   * Creates a new persistent message with the specified event adapter `manifest`.
    */
   def withManifest(manifest: String): PersistentRepr
 
   /**
+   * Not used, can always be `false`.
+   *
    * Not used in new records stored with Akka v2.4, but
    * old records from v2.3 may have this as `true` if
    * it was a non-permanent delete.
    */
-  def deleted: Boolean
+  def deleted: Boolean // FIXME deprecate, issue #27278
 
   /**
-   * Sender of this message.
+   * Not used, can be `null`
    */
-  def sender: ActorRef
+  def sender: ActorRef // FIXME deprecate, issue #27278
 
   /**
    * Creates a new copy of this [[PersistentRepr]].
    */
   def update(
-    sequenceNr:    Long     = sequenceNr,
-    persistenceId: String   = persistenceId,
-    deleted:       Boolean  = deleted,
-    sender:        ActorRef = sender,
-    writerUuid:    String   = writerUuid): PersistentRepr
+      sequenceNr: Long = sequenceNr,
+      persistenceId: String = persistenceId,
+      deleted: Boolean = deleted,
+      sender: ActorRef = sender,
+      writerUuid: String = writerUuid): PersistentRepr
 }
 
 object PersistentRepr {
+
   /** Plugin API: value of an undefined persistenceId or manifest. */
   val Undefined = ""
+
   /** Plugin API: value of an undefined / identity event adapter. */
   val UndefinedId = 0
 
@@ -133,13 +145,13 @@ object PersistentRepr {
    * Plugin API.
    */
   def apply(
-    payload:       Any,
-    sequenceNr:    Long     = 0L,
-    persistenceId: String   = PersistentRepr.Undefined,
-    manifest:      String   = PersistentRepr.Undefined,
-    deleted:       Boolean  = false,
-    sender:        ActorRef = null,
-    writerUuid:    String   = PersistentRepr.Undefined): PersistentRepr =
+      payload: Any,
+      sequenceNr: Long = 0L,
+      persistenceId: String = PersistentRepr.Undefined,
+      manifest: String = PersistentRepr.Undefined,
+      deleted: Boolean = false,
+      sender: ActorRef = null,
+      writerUuid: String = PersistentRepr.Undefined): PersistentRepr =
     PersistentImpl(payload, sequenceNr, persistenceId, manifest, deleted, sender, writerUuid)
 
   /**
@@ -158,13 +170,15 @@ object PersistentRepr {
  * INTERNAL API.
  */
 private[persistence] final case class PersistentImpl(
-  override val payload:       Any,
-  override val sequenceNr:    Long,
-  override val persistenceId: String,
-  override val manifest:      String,
-  override val deleted:       Boolean,
-  override val sender:        ActorRef,
-  override val writerUuid:    String) extends PersistentRepr with NoSerializationVerificationNeeded {
+    override val payload: Any,
+    override val sequenceNr: Long,
+    override val persistenceId: String,
+    override val manifest: String,
+    override val deleted: Boolean,
+    override val sender: ActorRef,
+    override val writerUuid: String)
+    extends PersistentRepr
+    with NoSerializationVerificationNeeded {
 
   def withPayload(payload: Any): PersistentRepr =
     copy(payload = payload)
@@ -182,4 +196,3 @@ private[persistence] final case class PersistentImpl(
       writerUuid = writerUuid)
 
 }
-

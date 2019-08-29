@@ -1,20 +1,18 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import java.util.Queue
-import akka.stream.stage.GraphStage
+
 import akka.stream.stage.OutHandler
 import akka.stream.Attributes
 import akka.stream.Outlet
 import akka.stream.SourceShape
 import akka.stream.stage.GraphStageLogic
-import org.agrona.concurrent.ManyToOneConcurrentArrayQueue
 import akka.stream.stage.GraphStageWithMaterializedValue
-import org.agrona.concurrent.ManyToOneConcurrentLinkedQueueTail
-import org.agrona.concurrent.ManyToOneConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicInteger
+
 import scala.annotation.tailrec
 import scala.concurrent.Promise
 import scala.util.Try
@@ -43,7 +41,8 @@ private[remote] object SendQueue {
 /**
  * INTERNAL API
  */
-private[remote] final class SendQueue[T] extends GraphStageWithMaterializedValue[SourceShape[T], SendQueue.QueueValue[T]] {
+private[remote] final class SendQueue[T](postStopAction: Vector[T] => Unit)
+    extends GraphStageWithMaterializedValue[SourceShape[T], SendQueue.QueueValue[T]] {
   import SendQueue._
 
   val out: Outlet[T] = Outlet("SendQueue.out")
@@ -58,7 +57,7 @@ private[remote] final class SendQueue[T] extends GraphStageWithMaterializedValue
       // using a local field for the consumer side of queue to avoid volatile access
       private var consumerQueue: Queue[T] = null
 
-      private val wakeupCallback = getAsyncCallback[Unit] { _ ⇒
+      private val wakeupCallback = getAsyncCallback[Unit] { _ =>
         if (isAvailable(out))
           tryPush()
       }
@@ -66,12 +65,12 @@ private[remote] final class SendQueue[T] extends GraphStageWithMaterializedValue
       override def preStart(): Unit = {
         implicit val ec = materializer.executionContext
         queuePromise.future.onComplete(getAsyncCallback[Try[Queue[T]]] {
-          case Success(q) ⇒
+          case Success(q) =>
             consumerQueue = q
             needWakeup = true
             if (isAvailable(out))
               tryPush()
-          case Failure(e) ⇒
+          case Failure(e) =>
             failStage(e)
         }.invoke)
       }
@@ -83,13 +82,13 @@ private[remote] final class SendQueue[T] extends GraphStageWithMaterializedValue
 
       @tailrec private def tryPush(firstAttempt: Boolean = true): Unit = {
         consumerQueue.poll() match {
-          case null ⇒
+          case null =>
             needWakeup = true
             // additional poll() to grab any elements that might missed the needWakeup
             // and have been enqueued just after it
             if (firstAttempt)
               tryPush(firstAttempt = false)
-          case elem ⇒
+          case elem =>
             needWakeup = false // there will be another onPull
             push(out, elem)
         }
@@ -101,9 +100,17 @@ private[remote] final class SendQueue[T] extends GraphStageWithMaterializedValue
       }
 
       override def postStop(): Unit = {
-        // TODO quarantine will currently always be done when control stream is terminated, see issue #21359
-        if (consumerQueue ne null)
+        val pending = Vector.newBuilder[T]
+        if (consumerQueue ne null) {
+          var msg = consumerQueue.poll()
+          while (msg != null) {
+            pending += msg
+            msg = consumerQueue.poll()
+          }
           consumerQueue.clear()
+        }
+        postStopAction(pending.result())
+
         super.postStop()
       }
 

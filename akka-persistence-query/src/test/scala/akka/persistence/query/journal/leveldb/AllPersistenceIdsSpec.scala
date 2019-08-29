@@ -1,13 +1,14 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence.query.journal.leveldb
 
 import scala.concurrent.duration._
 
 import akka.persistence.query.PersistenceQuery
 import akka.persistence.query.journal.leveldb.scaladsl.LeveldbReadJournal
-import akka.persistence.query.scaladsl.AllPersistenceIdsQuery
+import akka.persistence.query.scaladsl.PersistenceIdsQuery
 import akka.stream.ActorMaterializer
 import akka.stream.testkit.scaladsl.TestSink
 import akka.testkit.AkkaSpec
@@ -19,11 +20,13 @@ object AllPersistenceIdsSpec {
     akka.persistence.journal.plugin = "akka.persistence.journal.leveldb"
     akka.persistence.journal.leveldb.dir = "target/journal-AllPersistenceIdsSpec"
     akka.test.single-expect-default = 10s
+    # test is using Java serialization and not priority to rewrite
+    akka.actor.allow-java-serialization = on
+    akka.actor.warn-about-java-serializer-usage = off
     """
 }
 
-class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
-  with Cleanup with ImplicitSender {
+class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config) with Cleanup with ImplicitSender {
 
   implicit val mat = ActorMaterializer()(system)
 
@@ -32,7 +35,7 @@ class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
   "Leveldb query AllPersistenceIds" must {
 
     "implement standard AllPersistenceIdsQuery" in {
-      queries.isInstanceOf[AllPersistenceIdsQuery] should ===(true)
+      queries.isInstanceOf[PersistenceIdsQuery] should ===(true)
     }
 
     "find existing persistenceIds" in {
@@ -46,9 +49,7 @@ class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
       val src = queries.currentPersistenceIds()
       val probe = src.runWith(TestSink.probe[String])
       probe.within(10.seconds) {
-        probe.request(5)
-          .expectNextUnordered("a", "b", "c")
-          .expectComplete()
+        probe.request(5).expectNextUnordered("a", "b", "c").expectComplete()
       }
     }
 
@@ -57,17 +58,16 @@ class AllPersistenceIdsSpec extends AkkaSpec(AllPersistenceIdsSpec.config)
       system.actorOf(TestActor.props("d")) ! "d1"
       expectMsg("d1-done")
 
-      val src = queries.allPersistenceIds()
+      val src = queries.persistenceIds()
       val probe = src.runWith(TestSink.probe[String])
       probe.within(10.seconds) {
-        probe.request(5)
-          .expectNextUnorderedN(List("a", "b", "c", "d"))
+        probe.request(5).expectNextUnorderedN(List("a", "b", "c", "d"))
 
         system.actorOf(TestActor.props("e")) ! "e1"
         probe.expectNext("e")
 
         val more = (1 to 100).map("f" + _)
-        more.foreach { p ⇒
+        more.foreach { p =>
           system.actorOf(TestActor.props(p)) ! p
         }
 

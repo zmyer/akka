@@ -1,13 +1,20 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.javadsl
+
+import java.util
 
 import akka.NotUsed
 import akka.stream._
-import akka.japi.{ Pair, function }
+import akka.japi.{ function, Pair }
+import akka.util.ConstantFun
+
 import scala.annotation.unchecked.uncheckedVariance
-import akka.stream.impl.ConstantFun
+import akka.util.ccompat.JavaConverters._
+import akka.stream.scaladsl.GenericGraph
+import akka.util.unused
 
 /**
  * Merge several streams, taking elements as they arrive from input streams
@@ -24,32 +31,35 @@ import akka.stream.impl.ConstantFun
 object Merge {
 
   /**
-   * Create a new `Merge` stage with the specified output type.
+   * Create a new `Merge` operator with the specified output type.
    */
   def create[T](inputPorts: Int): Graph[UniformFanInShape[T, T], NotUsed] =
     scaladsl.Merge(inputPorts)
 
   /**
-   * Create a new `Merge` stage with the specified output type.
+   * Create a new `Merge` operator with the specified output type.
    */
-  def create[T](clazz: Class[T], inputPorts: Int): Graph[UniformFanInShape[T, T], NotUsed] = create(inputPorts)
+  def create[T](@unused clazz: Class[T], inputPorts: Int): Graph[UniformFanInShape[T, T], NotUsed] = create(inputPorts)
 
   /**
-   * Create a new `Merge` stage with the specified output type.
+   * Create a new `Merge` operator with the specified output type.
    *
-   * @param eagerComplete set to true in order to make this stage eagerly
+   * @param eagerComplete set to true in order to make this operator eagerly
    *                   finish as soon as one of its inputs completes
    */
   def create[T](inputPorts: Int, eagerComplete: Boolean): Graph[UniformFanInShape[T, T], NotUsed] =
     scaladsl.Merge(inputPorts, eagerComplete = eagerComplete)
 
   /**
-   * Create a new `Merge` stage with the specified output type.
+   * Create a new `Merge` operator with the specified output type.
    *
-   * @param eagerComplete set to true in order to make this stage eagerly
+   * @param eagerComplete set to true in order to make this operator eagerly
    *                   finish as soon as one of its inputs completes
    */
-  def create[T](clazz: Class[T], inputPorts: Int, eagerComplete: Boolean): Graph[UniformFanInShape[T, T], NotUsed] =
+  def create[T](
+      @unused clazz: Class[T],
+      inputPorts: Int,
+      eagerComplete: Boolean): Graph[UniformFanInShape[T, T], NotUsed] =
     create(inputPorts, eagerComplete)
 }
 
@@ -67,34 +77,97 @@ object Merge {
  * '''Cancels when''' downstream cancels
  */
 object MergePreferred {
+
   /**
-   * Create a new `MergePreferred` stage with the specified output type.
+   * Create a new `MergePreferred` operator with the specified output type.
    */
   def create[T](secondaryPorts: Int): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] =
     scaladsl.MergePreferred(secondaryPorts)
 
   /**
-   * Create a new `MergePreferred` stage with the specified output type.
+   * Create a new `MergePreferred` operator with the specified output type.
    */
-  def create[T](clazz: Class[T], secondaryPorts: Int): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] = create(secondaryPorts)
+  def create[T](
+      @unused clazz: Class[T],
+      secondaryPorts: Int): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] =
+    create(secondaryPorts)
 
   /**
-   * Create a new `MergePreferred` stage with the specified output type.
+   * Create a new `MergePreferred` operator with the specified output type.
    *
-   * @param eagerComplete set to true in order to make this stage eagerly
+   * @param eagerComplete set to true in order to make this operator eagerly
    *                   finish as soon as one of its inputs completes
    */
-  def create[T](secondaryPorts: Int, eagerComplete: Boolean): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] =
+  def create[T](
+      secondaryPorts: Int,
+      eagerComplete: Boolean): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] =
     scaladsl.MergePreferred(secondaryPorts, eagerComplete = eagerComplete)
 
   /**
-   * Create a new `MergePreferred` stage with the specified output type.
+   * Create a new `MergePreferred` operator with the specified output type.
    *
-   * @param eagerComplete set to true in order to make this stage eagerly
+   * @param eagerComplete set to true in order to make this operator eagerly
    *                   finish as soon as one of its inputs completes
    */
-  def create[T](clazz: Class[T], secondaryPorts: Int, eagerComplete: Boolean): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] =
+  def create[T](
+      @unused clazz: Class[T],
+      secondaryPorts: Int,
+      eagerComplete: Boolean): Graph[scaladsl.MergePreferred.MergePreferredShape[T], NotUsed] =
     create(secondaryPorts, eagerComplete)
+
+}
+
+/**
+ * Merge several streams, taking elements as they arrive from input streams
+ * (picking from prioritized once when several have elements ready).
+ *
+ * A `MergePrioritized` has one `out` port, one or more input port with their priorities.
+ *
+ * '''Emits when''' one of the inputs has an element available, preferring
+ * a input based on its priority if multiple have elements available
+ *
+ * '''Backpressures when''' downstream backpressures
+ *
+ * '''Completes when''' all upstreams complete (eagerComplete=false) or one upstream completes (eagerComplete=true), default value is `false`
+ *
+ * '''Cancels when''' downstream cancels
+ *
+ * A `Broadcast` has one `in` port and 2 or more `out` ports.
+ */
+object MergePrioritized {
+
+  /**
+   * Create a new `MergePrioritized` operator with the specified output type.
+   */
+  def create[T](priorities: Array[Int]): Graph[UniformFanInShape[T, T], NotUsed] =
+    scaladsl.MergePrioritized(priorities.toIndexedSeq)
+
+  /**
+   * Create a new `MergePrioritized` operator with the specified output type.
+   */
+  def create[T](@unused clazz: Class[T], priorities: Array[Int]): Graph[UniformFanInShape[T, T], NotUsed] =
+    create(priorities)
+
+  /**
+   * Create a new `MergePrioritized` operator with the specified output type.
+   *
+   * @param eagerComplete set to true in order to make this operator eagerly
+   *                   finish as soon as one of its inputs completes
+   */
+  def create[T](priorities: Array[Int], eagerComplete: Boolean): Graph[UniformFanInShape[T, T], NotUsed] =
+    scaladsl.MergePrioritized(priorities.toIndexedSeq, eagerComplete = eagerComplete)
+
+  /**
+   * Create a new `MergePrioritized` operator with the specified output type.
+   *
+   * @param eagerComplete set to true in order to make this operator eagerly
+   *                   finish as soon as one of its inputs completes
+   */
+  def create[T](
+      @unused clazz: Class[T],
+      priorities: Array[Int],
+      eagerComplete: Boolean): Graph[UniformFanInShape[T, T], NotUsed] =
+    create(priorities, eagerComplete)
 
 }
 
@@ -113,8 +186,9 @@ object MergePreferred {
  *   If eagerCancel is enabled: when any downstream cancels; otherwise: when all downstreams cancel
  */
 object Broadcast {
+
   /**
-   * Create a new `Broadcast` stage with the specified input type.
+   * Create a new `Broadcast` operator with the specified input type.
    *
    * @param outputCount number of output ports
    * @param eagerCancel if true, broadcast cancels upstream if any of its downstreams cancel.
@@ -123,22 +197,25 @@ object Broadcast {
     scaladsl.Broadcast(outputCount, eagerCancel = eagerCancel)
 
   /**
-   * Create a new `Broadcast` stage with the specified input type.
+   * Create a new `Broadcast` operator with the specified input type.
    *
    * @param outputCount number of output ports
    */
   def create[T](outputCount: Int): Graph[UniformFanOutShape[T, T], NotUsed] = create(outputCount, eagerCancel = false)
 
   /**
-   * Create a new `Broadcast` stage with the specified input type.
+   * Create a new `Broadcast` operator with the specified input type.
    */
-  def create[T](clazz: Class[T], outputCount: Int): Graph[UniformFanOutShape[T, T], NotUsed] = create(outputCount)
+  def create[T](@unused clazz: Class[T], outputCount: Int): Graph[UniformFanOutShape[T, T], NotUsed] =
+    create(outputCount)
 
 }
 
 /**
  * Fan-out the stream to several streams. emitting an incoming upstream element to one downstream consumer according
  * to the partitioner function applied to the element
+ *
+ * Adheres to the [[ActorAttributes.SupervisionStrategy]] attribute.
  *
  * '''Emits when''' all of the outputs stops backpressuring and there is an input element available
  *
@@ -147,26 +224,61 @@ object Broadcast {
  * '''Completes when''' upstream completes
  *
  * '''Cancels when'''
- *   when one of the downstreams cancel
+ *   when any (eagerCancel=true) or all (eagerCancel=false) of the downstreams cancel
  */
 object Partition {
-  /**
-   * Create a new `Partition` stage with the specified input type.
-   *
-   * @param outputCount number of output ports
-   * @param partitioner function deciding which output each element will be targeted
-   */
-  def create[T](outputCount: Int, partitioner: function.Function[T, Int]): Graph[UniformFanOutShape[T, T], NotUsed] =
-    scaladsl.Partition(outputCount, partitioner = (t: T) ⇒ partitioner.apply(t))
 
   /**
-   * Create a new `Partition` stage with the specified input type.
+   * Create a new `Partition` operator with the specified input type, `eagerCancel` is `false`.
    *
    * @param outputCount number of output ports
    * @param partitioner function deciding which output each element will be targeted
    */
-  def create[T](clazz: Class[T], outputCount: Int, partitioner: function.Function[T, Int]): Graph[UniformFanOutShape[T, T], NotUsed] =
-    create(outputCount, partitioner)
+  def create[T](
+      outputCount: Int,
+      partitioner: function.Function[T, Integer]): Graph[UniformFanOutShape[T, T], NotUsed] =
+    new scaladsl.Partition(outputCount, partitioner.apply, eagerCancel = false)
+
+  /**
+   * Create a new `Partition` operator with the specified input type.
+   *
+   * @param outputCount number of output ports
+   * @param partitioner function deciding which output each element will be targeted
+   * @param eagerCancel this operator cancels, when any (true) or all (false) of the downstreams cancel
+   */
+  def create[T](
+      outputCount: Int,
+      partitioner: function.Function[T, Integer],
+      eagerCancel: Boolean): Graph[UniformFanOutShape[T, T], NotUsed] =
+    new scaladsl.Partition(outputCount, partitioner.apply, eagerCancel)
+
+  /**
+   * Create a new `Partition` operator with the specified input type, `eagerCancel` is `false`.
+   *
+   * @param clazz a type hint for this method
+   * @param outputCount number of output ports
+   * @param partitioner function deciding which output each element will be targeted
+   */
+  def create[T](
+      @unused clazz: Class[T],
+      outputCount: Int,
+      partitioner: function.Function[T, Integer]): Graph[UniformFanOutShape[T, T], NotUsed] =
+    new scaladsl.Partition(outputCount, partitioner.apply, eagerCancel = false)
+
+  /**
+   * Create a new `Partition` operator with the specified input type.
+   *
+   * @param clazz a type hint for this method
+   * @param outputCount number of output ports
+   * @param partitioner function deciding which output each element will be targeted
+   * @param eagerCancel this operator cancels, when any (true) or all (false) of the downstreams cancel
+   */
+  def create[T](
+      @unused clazz: Class[T],
+      outputCount: Int,
+      partitioner: function.Function[T, Integer],
+      eagerCancel: Boolean): Graph[UniformFanOutShape[T, T], NotUsed] =
+    new scaladsl.Partition(outputCount, partitioner.apply, eagerCancel)
 
 }
 
@@ -181,12 +293,14 @@ object Partition {
  *
  * '''Completes when''' upstream completes
  *
- * '''Cancels when''' all downstreams cancel
+ * '''Cancels when''' If eagerCancel is enabled: when any downstream cancels; otherwise: when all downstreams cancel
  */
 object Balance {
+
   /**
-   * Create a new `Balance` stage with the specified input type.
+   * Create a new `Balance` operator with the specified input type, `eagerCancel` is `false`.
    *
+   * @param outputCount number of output ports
    * @param waitForAllDownstreams if `true` it will not start emitting
    *   elements to downstream outputs until all of them have requested at least one element
    */
@@ -194,25 +308,62 @@ object Balance {
     scaladsl.Balance(outputCount, waitForAllDownstreams)
 
   /**
-   * Create a new `Balance` stage with the specified input type.
+   * Create a new `Balance` operator with the specified input type.
+   *
+   * @param outputCount number of output ports
+   * @param waitForAllDownstreams if `true` it will not start emitting elements to downstream outputs until all of them have requested at least one element
+   * @param eagerCancel if true, balance cancels upstream if any of its downstreams cancel, if false, when all have cancelled.
+   */
+  def create[T](
+      outputCount: Int,
+      waitForAllDownstreams: Boolean,
+      eagerCancel: Boolean): Graph[UniformFanOutShape[T, T], NotUsed] =
+    new scaladsl.Balance(outputCount, waitForAllDownstreams, eagerCancel)
+
+  /**
+   * Create a new `Balance` operator with the specified input type, both `waitForAllDownstreams` and `eagerCancel` are `false`.
+   *
+   * @param outputCount number of output ports
    */
   def create[T](outputCount: Int): Graph[UniformFanOutShape[T, T], NotUsed] =
     create(outputCount, waitForAllDownstreams = false)
 
   /**
-   * Create a new `Balance` stage with the specified input type.
+   * Create a new `Balance` operator with the specified input type, both `waitForAllDownstreams` and `eagerCancel` are `false`.
+   *
+   * @param clazz a type hint for this method
+   * @param outputCount number of output ports
    */
-  def create[T](clazz: Class[T], outputCount: Int): Graph[UniformFanOutShape[T, T], NotUsed] =
+  def create[T](@unused clazz: Class[T], outputCount: Int): Graph[UniformFanOutShape[T, T], NotUsed] =
     create(outputCount)
 
   /**
-   * Create a new `Balance` stage with the specified input type.
+   * Create a new `Balance` operator with the specified input type, `eagerCancel` is `false`.
    *
-   * @param waitForAllDownstreams if `true` it will not start emitting
-   *   elements to downstream outputs until all of them have requested at least one element
+   * @param clazz a type hint for this method
+   * @param outputCount number of output ports
+   * @param waitForAllDownstreams if `true` it will not start emitting elements to downstream outputs until all of them have requested at least one element
    */
-  def create[T](clazz: Class[T], outputCount: Int, waitForAllDownstreams: Boolean): Graph[UniformFanOutShape[T, T], NotUsed] =
+  def create[T](
+      @unused clazz: Class[T],
+      outputCount: Int,
+      waitForAllDownstreams: Boolean): Graph[UniformFanOutShape[T, T], NotUsed] =
     create(outputCount, waitForAllDownstreams)
+
+  /**
+   * Create a new `Balance` operator with the specified input type.
+   *
+   * @param clazz a type hint for this method
+   * @param outputCount number of output ports
+   * @param waitForAllDownstreams if `true` it will not start emitting elements to downstream outputs until all of them have requested at least one element
+   * @param eagerCancel if true, balance cancels upstream if any of its downstreams cancel, if false, when all have cancelled.
+   */
+  def create[T](
+      @unused clazz: Class[T],
+      outputCount: Int,
+      waitForAllDownstreams: Boolean,
+      eagerCancel: Boolean): Graph[UniformFanOutShape[T, T], NotUsed] =
+    new scaladsl.Balance(outputCount, waitForAllDownstreams, eagerCancel)
 }
 
 /**
@@ -233,11 +384,40 @@ object Zip {
   import akka.japi.Pair
 
   /**
-   * Create a new `Zip` stage with the specified input types and zipping-function
+   * Create a new `Zip` operator with the specified input types and zipping-function
    * which creates `akka.japi.Pair`s.
    */
   def create[A, B]: Graph[FanInShape2[A, B, A Pair B], NotUsed] =
     ZipWith.create(_toPair.asInstanceOf[Function2[A, B, A Pair B]])
+
+  private[this] final val _toPair: Function2[Any, Any, Any Pair Any] =
+    new Function2[Any, Any, Any Pair Any] { override def apply(a: Any, b: Any): Any Pair Any = new Pair(a, b) }
+}
+
+/**
+ * Combine the elements of 2 streams into a stream of tuples, picking always the latest element of each.
+ *
+ * A `Zip` has a `left` and a `right` input port and one `out` port
+ *
+ * '''Emits when''' all of the inputs have at least an element available, and then each time an element becomes
+ *                  available on either of the inputs
+ *
+ * '''Backpressures when''' downstream backpressures
+ *
+ * '''Completes when''' any upstream completes
+ *
+ * '''Cancels when''' downstream cancels
+ */
+object ZipLatest {
+  import akka.japi.function.Function2
+  import akka.japi.Pair
+
+  /**
+   * Create a new `ZipLatest` operator with the specified input types and zipping-function
+   * which creates `akka.japi.Pair`s.
+   */
+  def create[A, B]: Graph[FanInShape2[A, B, A Pair B], NotUsed] =
+    ZipLatestWith.create(_toPair.asInstanceOf[Function2[A, B, A Pair B]])
 
   private[this] final val _toPair: Function2[Any, Any, Any Pair Any] =
     new Function2[Any, Any, Any Pair Any] { override def apply(a: Any, b: Any): Any Pair Any = new Pair(a, b) }
@@ -277,8 +457,8 @@ object ZipN {
  */
 object ZipWithN {
   def create[A, O](zipper: function.Function[java.util.List[A], O], n: Int): Graph[UniformFanInShape[A, O], NotUsed] = {
-    import scala.collection.JavaConverters._
-    scaladsl.ZipWithN[A, O](seq ⇒ zipper.apply(seq.asJava))(n)
+    import akka.util.ccompat.JavaConverters._
+    scaladsl.ZipWithN[A, O](seq => zipper.apply(seq.asJava))(n)
   }
 }
 
@@ -298,15 +478,16 @@ object ZipWithN {
 object Unzip {
 
   /**
-   * Creates a new `Unzip` stage with the specified output types.
+   * Creates a new `Unzip` operator with the specified output types.
    */
   def create[A, B](): Graph[FanOutShape2[A Pair B, A, B], NotUsed] =
     UnzipWith.create(ConstantFun.javaIdentityFunction[Pair[A, B]])
 
   /**
-   * Creates a new `Unzip` stage with the specified output types.
+   * Creates a new `Unzip` operator with the specified output types.
    */
-  def create[A, B](left: Class[A], right: Class[B]): Graph[FanOutShape2[A Pair B, A, B], NotUsed] = create[A, B]()
+  def create[A, B](@unused left: Class[A], @unused right: Class[B]): Graph[FanOutShape2[A Pair B, A, B], NotUsed] =
+    create[A, B]()
 
 }
 
@@ -324,20 +505,21 @@ object Unzip {
  * '''Cancels when''' downstream cancels
  */
 object Concat {
+
   /**
-   * Create a new anonymous `Concat` stage with the specified input types.
+   * Create a new anonymous `Concat` operator with the specified input types.
    */
   def create[T](): Graph[UniformFanInShape[T, T], NotUsed] = scaladsl.Concat[T]()
 
   /**
-   * Create a new anonymous `Concat` stage with the specified input types.
+   * Create a new anonymous `Concat` operator with the specified input types.
    */
   def create[T](inputCount: Int): Graph[UniformFanInShape[T, T], NotUsed] = scaladsl.Concat[T](inputCount)
 
   /**
-   * Create a new anonymous `Concat` stage with the specified input types.
+   * Create a new anonymous `Concat` operator with the specified input types.
    */
-  def create[T](clazz: Class[T]): Graph[UniformFanInShape[T, T], NotUsed] = create()
+  def create[T](@unused clazz: Class[T]): Graph[UniformFanInShape[T, T], NotUsed] = create()
 
 }
 
@@ -351,7 +533,34 @@ object GraphDSL extends GraphCreate {
    */
   def builder[M](): Builder[M] = new Builder()(new scaladsl.GraphDSL.Builder[M])
 
-  final class Builder[+Mat]()(private implicit val delegate: scaladsl.GraphDSL.Builder[Mat]) { self ⇒
+  /**
+   * Creates a new [[Graph]] by importing the given graph list `graphs` and passing their [[Shape]]s
+   * along with the [[GraphDSL.Builder]] to the given create function.
+   */
+  def create[IS <: Shape, S <: Shape, M, G <: Graph[IS, M]](
+      graphs: java.util.List[G],
+      buildBlock: function.Function2[GraphDSL.Builder[java.util.List[M]], java.util.List[IS], S])
+      : Graph[S, java.util.List[M]] = {
+    require(!graphs.isEmpty, "The input list must have one or more Graph elements")
+    val gbuilder = builder[java.util.List[M]]()
+    val toList = (m1: M) => new util.ArrayList(util.Arrays.asList(m1))
+    val combine = (s: java.util.List[M], m2: M) => {
+      val newList = new util.ArrayList(s)
+      newList.add(m2)
+      newList
+    }
+    val sListH = gbuilder.delegate.add(graphs.get(0), toList)
+    val sListT = graphs.subList(1, graphs.size()).asScala.map(g => gbuilder.delegate.add(g, combine)).asJava
+    val s = buildBlock(gbuilder, {
+      val newList = new util.ArrayList[IS]
+      newList.add(sListH)
+      newList.addAll(sListT)
+      newList
+    })
+    new GenericGraph(s, gbuilder.delegate.result(s))
+  }
+
+  final class Builder[+Mat]()(private[stream] implicit val delegate: scaladsl.GraphDSL.Builder[Mat]) { self =>
     import akka.stream.scaladsl.GraphDSL.Implicits._
 
     /**
@@ -369,7 +578,7 @@ object GraphDSL extends GraphCreate {
      * It is possible to call this method multiple times to get multiple [[Outlet]] instances if necessary. All of
      * the outlets will emit the materialized value.
      *
-     * Be careful to not to feed the result of this outlet to a stage that produces the materialized value itself (for
+     * Be careful to not to feed the result of this outlet to a operator that produces the materialized value itself (for
      * example to a [[Sink#fold]] that contributes to the materialized value) since that might lead to an unresolvable
      * dependency cycle.
      *

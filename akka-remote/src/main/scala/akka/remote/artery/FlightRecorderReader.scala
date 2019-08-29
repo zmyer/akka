@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.remote.artery
 
 import java.io.{ IOException, RandomAccessFile }
@@ -7,7 +11,7 @@ import java.time.Instant
 
 import org.agrona.concurrent.MappedResizeableBuffer
 
-import scala.collection.{ SortedSet, immutable }
+import scala.collection.{ immutable, SortedSet }
 
 /**
  * Internal API
@@ -32,12 +36,12 @@ private[akka] object FlightRecorderReader {
   case object Snapshot extends LogState
 
   case class SectionParameters(
-    offset:           Long,
-    sectionSize:      Long,
-    logSize:          Long,
-    window:           Long,
-    recordSize:       Long,
-    entriesPerRecord: Long) {
+      offset: Long,
+      sectionSize: Long,
+      logSize: Long,
+      window: Long,
+      recordSize: Long,
+      entriesPerRecord: Long) {
     override def toString: String =
       s"""
          |  offset             = $offset
@@ -87,7 +91,8 @@ private[akka] object FlightRecorderReader {
       val hiFreq: Seq[FlightRecorderReader#Entry] = reader.structure.hiFreqLog.logs.flatMap(_.compactEntries)
       val loFreq: Seq[FlightRecorderReader#Entry] = reader.structure.loFreqLog.logs.flatMap(_.richEntries)
 
-      implicit val ordering = Ordering.fromLessThan[FlightRecorderReader#Entry]((a, b) ⇒ a.timeStamp.isBefore(b.timeStamp))
+      implicit val ordering =
+        Ordering.fromLessThan[FlightRecorderReader#Entry]((a, b) => a.timeStamp.isBefore(b.timeStamp))
       val sorted = SortedSet[FlightRecorderReader#Entry](alerts: _*) ++ hiFreq ++ loFreq
 
       println("--- FLIGHT RECORDER LOG")
@@ -147,11 +152,13 @@ private[akka] final class FlightRecorderReader(fileChannel: FileChannel) {
           val recordStartOffset = recordOffset + RollingEventLogSection.CommitEntrySize
 
           // FIXME: extract magic numbers
-          val metadata = Array.ofDim[Byte](fileBuffer.getByte(recordStartOffset + 20))
+          val metadata = new Array[Byte](fileBuffer.getByte(recordStartOffset + 20))
           fileBuffer.getBytes(recordStartOffset + 21, metadata)
 
           val entry = RichEntry(
-            timeStamp = Instant.ofEpochMilli(fileBuffer.getLong(recordStartOffset)).plusNanos(fileBuffer.getLong(recordStartOffset + 8)),
+            timeStamp = Instant
+              .ofEpochMilli(fileBuffer.getLong(recordStartOffset))
+              .plusNanos(fileBuffer.getLong(recordStartOffset + 8)),
             dirty = fileBuffer.getLong(recordOffset) == RollingEventLogSection.Dirty,
             code = fileBuffer.getInt(recordStartOffset + 16),
             metadata = metadata)
@@ -175,7 +182,8 @@ private[akka] final class FlightRecorderReader(fileChannel: FileChannel) {
           dirty = fileBuffer.getLong(recordOffset) == RollingEventLogSection.Dirty
           val entiresHeaderOffset = recordOffset + RollingEventLogSection.CommitEntrySize
           entriesLeft = fileBuffer.getLong(entiresHeaderOffset + HiFreqEntryCountFieldOffset)
-          timeStamp = Instant.ofEpochMilli(fileBuffer.getLong(entiresHeaderOffset))
+          timeStamp = Instant
+            .ofEpochMilli(fileBuffer.getLong(entiresHeaderOffset))
             .plusNanos(fileBuffer.getLong(entiresHeaderOffset + 8))
           entryOffset = entiresHeaderOffset + 32
         }
@@ -243,7 +251,7 @@ private[akka] final class FlightRecorderReader(fileChannel: FileChannel) {
   }
 
   private def readRollingLog(sectionParameters: SectionParameters): RollingLog = {
-    val logs = Vector.tabulate(SnapshotCount) { idx ⇒
+    val logs = Vector.tabulate(SnapshotCount) { idx =>
       readLog(idx, sectionParameters.offset + (idx * sectionParameters.logSize), sectionParameters)
     }
     RollingLog(sectionParameters, logs)
@@ -251,10 +259,10 @@ private[akka] final class FlightRecorderReader(fileChannel: FileChannel) {
 
   private def readLog(id: Int, offset: Long, sectionParameters: SectionParameters): Log = {
     val state = fileBuffer.getLong(offset + RollingEventLogSection.LogStateOffset) match {
-      case RollingEventLogSection.Empty    ⇒ Empty
-      case RollingEventLogSection.Live     ⇒ Live
-      case RollingEventLogSection.Snapshot ⇒ Snapshot
-      case other                           ⇒ throw new IOException(s"Unrecognized log state: $other in log at offset $offset")
+      case RollingEventLogSection.Empty    => Empty
+      case RollingEventLogSection.Live     => Live
+      case RollingEventLogSection.Snapshot => Snapshot
+      case other                           => throw new IOException(s"Unrecognized log state: $other in log at offset $offset")
     }
     Log(sectionParameters, offset, id, state, fileBuffer.getLong(offset + RollingEventLogSection.HeadPointerOffset))
   }

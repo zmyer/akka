@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import org.agrona.concurrent.ManyToManyConcurrentArrayQueue
@@ -8,7 +9,7 @@ import org.agrona.concurrent.ManyToManyConcurrentArrayQueue
 /**
  * INTERNAL API
  */
-private[remote] class ObjectPool[A <: AnyRef](capacity: Int, create: () ⇒ A, clear: A ⇒ Unit) {
+private[remote] class ObjectPool[A <: AnyRef](capacity: Int, create: () => A, clear: A => Unit) {
   private val pool = new ManyToManyConcurrentArrayQueue[A](capacity)
 
   def acquire(): A = {

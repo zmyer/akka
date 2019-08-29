@@ -1,6 +1,8 @@
-/**
- * Copyright (C) 2009-2015 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
+syntax = "proto2";
 
 option java_package = "akka.cluster.protobuf.msg";
 option optimize_for = SPEED;
@@ -41,13 +43,29 @@ message Welcome {
 
 /**
  * InitJoin
- * Sends Empty
  */
+message InitJoin {
+  optional string currentConfig = 1;
+}
 
 /**
  * InitJoinAck
- * Sends an Address
  */
+message InitJoinAck {
+  required Address address = 1;
+  required ConfigCheck configCheck = 2;
+}
+
+message ConfigCheck {
+  enum Type {
+    UncheckedConfig = 1;
+    IncompatibleConfig = 2;
+    CompatibleConfig = 3;
+  }
+  required Type type = 1;
+
+  optional string clusterConfig = 2;
+}
 
 /**
  * InitJoinNack
@@ -60,14 +78,26 @@ message Welcome {
  ****************************************/
 
 /**
- * Heartbeat
- * Sends an Address
+ * Prior to version 2.5.24
+ * Heartbeat sends an Address
+ * Version 2.5.24 can deserialize this message but does not send it.
  */
+message Heartbeat {
+  required Address from = 1;
+  optional int64 sequenceNr = 2;
+  optional sint64 creationTime = 3;
+}
 
 /**
- * HeartbeatRsp
- * Sends an UniqueAddress
+ * Prior to version 2.5.24
+ * HeartbeatRsp Sends an UniqueAddress
+ * Version 2.5.24 can deserialize this message but does not send it.
  */
+message HeartBeatResponse {
+  required UniqueAddress from = 1;
+  optional int64 sequenceNr = 2;
+  optional int64 creationTime = 3;
+}
 
 /****************************************
  * Cluster Gossip Messages
@@ -101,6 +131,7 @@ message Gossip {
   repeated Member members = 4;
   required GossipOverview overview = 5;
   required VectorClock version = 6;
+  repeated Tombstone tombstones = 7;
 }
 
 /**
@@ -125,6 +156,11 @@ message SubjectReachability {
   required int32 addressIndex = 1;
   required ReachabilityStatus status = 3;
   required int64 version = 4;
+}
+
+message Tombstone {
+  required int32 addressIndex = 1;
+  required int64 timestamp = 2;
 }
 
 /**
@@ -174,66 +210,13 @@ message VectorClock {
 }
 
 /****************************************
- * Metrics Gossip Messages
- ****************************************/
-
-/**
- * Metrics Gossip Envelope
- */
-message MetricsGossipEnvelope {
-  required Address from = 1;
-  required MetricsGossip gossip = 2;
-  required bool reply = 3;
-}
-
-/**
- * Metrics Gossip
- */
-message MetricsGossip {
-  repeated Address allAddresses = 1;
-  repeated string allMetricNames = 2;
-  repeated NodeMetrics nodeMetrics = 3;
-}
-
-/**
- * Node Metrics
- */
-message NodeMetrics {
-  enum NumberType {
-    Serialized = 0;
-    Double = 1;
-    Float = 2;
-    Integer = 3;
-    Long = 4;
-  }
-  message Number {
-    required NumberType type = 1;
-    optional uint32 value32 = 2;
-    optional uint64 value64 = 3;
-    optional bytes serialized = 4;
-  }
-  message EWMA {
-    required double value = 1;
-    required double alpha = 2;
-  }
-  message Metric {
-    required int32 nameIndex = 1;
-    required Number number = 2;
-    optional EWMA ewma = 3;
-  }
-  required int32 addressIndex = 1;
-  required int64 timestamp = 2;
-  repeated Metric metrics = 3;
-}
-
-/****************************************
  * Common Datatypes and Messages
  ****************************************/
 
 /**
  * An empty message
  */
- message Empty {
+message Empty {
  }
 
 /**
@@ -255,3 +238,26 @@ message UniqueAddress {
   // 64 bit uids but with backward wire compatibility
   optional uint32 uid2 = 3;
 }
+
+/****************************************
+ * Cluster routing
+ ****************************************/
+
+message ClusterRouterPool {
+   required Pool pool = 1;
+   required ClusterRouterPoolSettings settings = 2;
+ }
+
+message Pool {
+   required uint32 serializerId = 1;
+   required string manifest = 2;
+   required bytes data = 3;
+ }
+
+message ClusterRouterPoolSettings {
+   required uint32 totalInstances = 1;
+   required uint32 maxInstancesPerNode = 2;
+   required bool allowLocalRoutees = 3;
+   optional string useRole = 4;
+   repeated string useRoles = 5;
+ }

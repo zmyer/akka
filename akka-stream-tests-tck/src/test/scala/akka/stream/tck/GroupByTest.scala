@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.tck
 
 import scala.concurrent.Await
@@ -17,12 +18,7 @@ class GroupByTest extends AkkaPublisherVerification[Int] {
     if (elements == 0) EmptyPublisher[Int]
     else {
       val futureGroupSource =
-        Source(iterable(elements))
-          .groupBy(1, elem ⇒ "all")
-          .prefixAndTail(0)
-          .map(_._2)
-          .concatSubstreams
-          .runWith(Sink.head)
+        Source(iterable(elements)).groupBy(1, _ => "all").prefixAndTail(0).map(_._2).concatSubstreams.runWith(Sink.head)
       val groupSource = Await.result(futureGroupSource, 3.seconds)
       groupSource.runWith(Sink.asPublisher(false))
 

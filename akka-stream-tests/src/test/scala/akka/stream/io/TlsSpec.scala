@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.stream.io
 
 import java.security.KeyStore
@@ -12,18 +16,17 @@ import scala.concurrent.Await
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Random
-
-import akka.actor.ActorSystem
-import akka.pattern.{ after ⇒ later }
+import akka.pattern.{ after => later }
 import akka.stream._
 import akka.stream.TLSProtocol._
 import akka.stream.scaladsl._
 import akka.stream.stage._
 import akka.stream.testkit._
-import akka.stream.testkit.Utils._
-import akka.testkit.EventFilter
-import akka.util.ByteString
+import akka.stream.testkit.scaladsl.StreamTestKit._
+import akka.util.{ ByteString, JavaVersion }
 import javax.net.ssl._
+import akka.stream.impl.fusing.GraphStages.SimpleLinearGraphStage
+import akka.testkit.WithLogCapturing
 
 object TlsSpec {
 
@@ -52,11 +55,11 @@ object TlsSpec {
   def initSslContext(): SSLContext = initWithTrust("/truststore")
 
   /**
-   * This is a stage that fires a TimeoutException failure 2 seconds after it was started,
+   * This is an operator that fires a TimeoutException failure 2 seconds after it was started,
    * independent of the traffic going through. The purpose is to include the last seen
    * element in the exception message to help in figuring out what went wrong.
    */
-  class Timeout(duration: FiniteDuration)(implicit system: ActorSystem) extends GraphStage[FlowShape[ByteString, ByteString]] {
+  class Timeout(duration: FiniteDuration) extends GraphStage[FlowShape[ByteString, ByteString]] {
 
     private val in = Inlet[ByteString]("in")
     private val out = Outlet[ByteString]("out")
@@ -81,13 +84,18 @@ object TlsSpec {
     }
   }
 
+  val configOverrides =
+    """
+      akka.loglevel = DEBUG # issue 21660
+      akka.loggers = ["akka.testkit.SilenceAllTestEventListener"]
+      akka.actor.debug.receive=off
+    """
 }
 
-class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=off") {
+class TlsSpec extends StreamSpec(TlsSpec.configOverrides) with WithLogCapturing {
   import TlsSpec._
 
   import system.dispatcher
-  implicit val materializer = ActorMaterializer()
 
   import GraphDSL.Implicits._
 
@@ -97,102 +105,101 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
 
     val sslContext = initSslContext()
 
-    val debug = Flow[SslTlsInbound].map { x ⇒
+    val debug = Flow[SslTlsInbound].map { x =>
       x match {
-        case SessionTruncated   ⇒ system.log.debug(s" ----------- truncated ")
-        case SessionBytes(_, b) ⇒ system.log.debug(s" ----------- (${b.size}) ${b.take(32).utf8String}")
+        case SessionTruncated   => system.log.debug(s" ----------- truncated ")
+        case SessionBytes(_, b) => system.log.debug(s" ----------- (${b.size}) ${b.take(32).utf8String}")
       }
       x
     }
 
-    val cipherSuites = NegotiateNewSession.withCipherSuites("TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", "TLS_RSA_WITH_AES_128_CBC_SHA")
+    val cipherSuites =
+      NegotiateNewSession.withCipherSuites("TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", "TLS_RSA_WITH_AES_128_CBC_SHA")
     def clientTls(closing: TLSClosing) = TLS(sslContext, None, cipherSuites, Client, closing)
     def badClientTls(closing: TLSClosing) = TLS(initWithTrust("/badtruststore"), None, cipherSuites, Client, closing)
     def serverTls(closing: TLSClosing) = TLS(sslContext, None, cipherSuites, Server, closing)
 
     trait Named {
       def name: String =
-        getClass.getName
-          .reverse
-          .dropWhile(c ⇒ "$0123456789".indexOf(c) != -1)
-          .takeWhile(_ != '$')
-          .reverse
+        getClass.getName.reverse.dropWhile(c => "$0123456789".indexOf(c) != -1).takeWhile(_ != '$').reverse
     }
 
     trait CommunicationSetup extends Named {
-      def decorateFlow(leftClosing: TLSClosing, rightClosing: TLSClosing,
-                       rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]): Flow[SslTlsOutbound, SslTlsInbound, NotUsed]
+      def decorateFlow(
+          leftClosing: TLSClosing,
+          rightClosing: TLSClosing,
+          rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]): Flow[SslTlsOutbound, SslTlsInbound, NotUsed]
       def cleanup(): Unit = ()
     }
 
     object ClientInitiates extends CommunicationSetup {
-      def decorateFlow(leftClosing: TLSClosing, rightClosing: TLSClosing,
-                       rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) =
-        clientTls(leftClosing) atop serverTls(rightClosing).reversed join rhs
+      def decorateFlow(
+          leftClosing: TLSClosing,
+          rightClosing: TLSClosing,
+          rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) =
+        clientTls(leftClosing).atop(serverTls(rightClosing).reversed).join(rhs)
     }
 
     object ServerInitiates extends CommunicationSetup {
-      def decorateFlow(leftClosing: TLSClosing, rightClosing: TLSClosing,
-                       rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) =
-        serverTls(leftClosing) atop clientTls(rightClosing).reversed join rhs
+      def decorateFlow(
+          leftClosing: TLSClosing,
+          rightClosing: TLSClosing,
+          rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) =
+        serverTls(leftClosing).atop(clientTls(rightClosing).reversed).join(rhs)
     }
 
     def server(flow: Flow[ByteString, ByteString, Any]) = {
-      val server = Tcp()
-        .bind("localhost", 0)
-        .to(Sink.foreach(c ⇒ c.flow.join(flow).run()))
-        .run()
+      val server = Tcp().bind("localhost", 0).to(Sink.foreach(c => c.flow.join(flow).run())).run()
       Await.result(server, 2.seconds)
     }
 
     object ClientInitiatesViaTcp extends CommunicationSetup {
       var binding: Tcp.ServerBinding = null
-      def decorateFlow(leftClosing: TLSClosing, rightClosing: TLSClosing,
-                       rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) = {
-        binding = server(serverTls(rightClosing).reversed join rhs)
-        clientTls(leftClosing) join Tcp().outgoingConnection(binding.localAddress)
+      def decorateFlow(
+          leftClosing: TLSClosing,
+          rightClosing: TLSClosing,
+          rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) = {
+        binding = server(serverTls(rightClosing).reversed.join(rhs))
+        clientTls(leftClosing).join(Tcp().outgoingConnection(binding.localAddress))
       }
       override def cleanup(): Unit = binding.unbind()
     }
 
     object ServerInitiatesViaTcp extends CommunicationSetup {
       var binding: Tcp.ServerBinding = null
-      def decorateFlow(leftClosing: TLSClosing, rightClosing: TLSClosing,
-                       rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) = {
-        binding = server(clientTls(rightClosing).reversed join rhs)
-        serverTls(leftClosing) join Tcp().outgoingConnection(binding.localAddress)
+      def decorateFlow(
+          leftClosing: TLSClosing,
+          rightClosing: TLSClosing,
+          rhs: Flow[SslTlsInbound, SslTlsOutbound, Any]) = {
+        binding = server(clientTls(rightClosing).reversed.join(rhs))
+        serverTls(leftClosing).join(Tcp().outgoingConnection(binding.localAddress))
       }
       override def cleanup(): Unit = binding.unbind()
     }
 
     val communicationPatterns =
-      Seq(
-        ClientInitiates,
-        ServerInitiates,
-        ClientInitiatesViaTcp,
-        ServerInitiatesViaTcp)
+      Seq(ClientInitiates, ServerInitiates, ClientInitiatesViaTcp, ServerInitiatesViaTcp)
 
     trait PayloadScenario extends Named {
       def flow: Flow[SslTlsInbound, SslTlsOutbound, Any] =
-        Flow[SslTlsInbound]
-          .map {
-            var session: SSLSession = null
-            def setSession(s: SSLSession) = {
-              session = s
-              system.log.debug(s"new session: $session (${session.getId mkString ","})")
-            }
-
-            {
-              case SessionTruncated ⇒ SendBytes(ByteString("TRUNCATED"))
-              case SessionBytes(s, b) if session == null ⇒
-                setSession(s)
-                SendBytes(b)
-              case SessionBytes(s, b) if s != session ⇒
-                setSession(s)
-                SendBytes(ByteString("NEWSESSION") ++ b)
-              case SessionBytes(s, b) ⇒ SendBytes(b)
-            }
+        Flow[SslTlsInbound].map {
+          var session: SSLSession = null
+          def setSession(s: SSLSession) = {
+            session = s
+            system.log.debug(s"new session: $session (${session.getId.mkString(",")})")
           }
+
+          {
+            case SessionTruncated => SendBytes(ByteString("TRUNCATED"))
+            case SessionBytes(s, b) if session == null =>
+              setSession(s)
+              SendBytes(b)
+            case SessionBytes(s, b) if s != session =>
+              setSession(s)
+              SendBytes(ByteString("NEWSESSION") ++ b)
+            case SessionBytes(_, b) => SendBytes(b)
+          }
+        }
       def leftClosing: TLSClosing = IgnoreComplete
       def rightClosing: TLSClosing = IgnoreComplete
 
@@ -205,21 +212,21 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
 
     object SingleBytes extends PayloadScenario {
       val str = "0123456789"
-      def inputs = str.map(ch ⇒ SendBytes(ByteString(ch.toByte)))
+      def inputs = str.map(ch => SendBytes(ByteString(ch.toByte)))
       def output = ByteString(str)
     }
 
     object MediumMessages extends PayloadScenario {
-      val strs = "0123456789" map (d ⇒ d.toString * (rnd.nextInt(9000) + 1000))
-      def inputs = strs map (s ⇒ SendBytes(ByteString(s)))
-      def output = ByteString((strs :\ "")(_ ++ _))
+      val strs = "0123456789".map(d => d.toString * (rnd.nextInt(9000) + 1000))
+      def inputs = strs.map(s => SendBytes(ByteString(s)))
+      def output = ByteString(strs.foldRight("")(_ ++ _))
     }
 
     object LargeMessages extends PayloadScenario {
       // TLS max packet size is 16384 bytes
-      val strs = "0123456789" map (d ⇒ d.toString * (rnd.nextInt(9000) + 17000))
-      def inputs = strs map (s ⇒ SendBytes(ByteString(s)))
-      def output = ByteString((strs :\ "")(_ ++ _))
+      val strs = "0123456789".map(d => d.toString * (rnd.nextInt(9000) + 17000))
+      def inputs = strs.map(s => SendBytes(ByteString(s)))
+      def output = ByteString(strs.foldRight("")(_ ++ _))
     }
 
     object EmptyBytesFirst extends PayloadScenario {
@@ -237,16 +244,24 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
       def output = ByteString("hello")
     }
 
+    object CompletedImmediately extends PayloadScenario {
+      override def inputs: immutable.Seq[SslTlsOutbound] = Nil
+      override def output = ByteString.empty
+
+      override def leftClosing: TLSClosing = EagerClose
+      override def rightClosing: TLSClosing = EagerClose
+    }
+
     // this demonstrates that cancellation is ignored so that the five results make it back
     object CancellingRHS extends PayloadScenario {
       override def flow =
         Flow[SslTlsInbound]
           .mapConcat {
-            case SessionTruncated       ⇒ SessionTruncated :: Nil
-            case SessionBytes(s, bytes) ⇒ bytes.map(b ⇒ SessionBytes(s, ByteString(b)))
+            case SessionTruncated       => SessionTruncated :: Nil
+            case SessionBytes(s, bytes) => bytes.map(b => SessionBytes(s, ByteString(b)))
           }
           .take(5)
-          .mapAsync(5)(x ⇒ later(500.millis, system.scheduler)(Future.successful(x)))
+          .mapAsync(5)(x => later(500.millis, system.scheduler)(Future.successful(x)))
           .via(super.flow)
       override def rightClosing = IgnoreCancel
 
@@ -259,11 +274,11 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
       override def flow =
         Flow[SslTlsInbound]
           .mapConcat {
-            case SessionTruncated       ⇒ SessionTruncated :: Nil
-            case SessionBytes(s, bytes) ⇒ bytes.map(b ⇒ SessionBytes(s, ByteString(b)))
+            case SessionTruncated       => SessionTruncated :: Nil
+            case SessionBytes(s, bytes) => bytes.map(b => SessionBytes(s, ByteString(b)))
           }
           .take(5)
-          .mapAsync(5)(x ⇒ later(500.millis, system.scheduler)(Future.successful(x)))
+          .mapAsync(5)(x => later(500.millis, system.scheduler)(Future.successful(x)))
           .via(super.flow)
       override def rightClosing = IgnoreBoth
 
@@ -275,7 +290,7 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
     object LHSIgnoresBoth extends PayloadScenario {
       override def leftClosing = IgnoreBoth
       val str = "0123456789"
-      def inputs = str.map(ch ⇒ SendBytes(ByteString(ch.toByte)))
+      def inputs = str.map(ch => SendBytes(ByteString(ch.toByte)))
       def output = ByteString(str)
     }
 
@@ -283,7 +298,7 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
       override def leftClosing = IgnoreBoth
       override def rightClosing = IgnoreBoth
       val str = "0123456789"
-      def inputs = str.map(ch ⇒ SendBytes(ByteString(ch.toByte)))
+      def inputs = str.map(ch => SendBytes(ByteString(ch.toByte)))
       def output = ByteString(str)
     }
 
@@ -299,22 +314,21 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
       def output = ByteString(str + "NEWSESSIONhello world")
     }
 
-    val logCipherSuite = Flow[SslTlsInbound]
-      .map {
-        var session: SSLSession = null
-        def setSession(s: SSLSession) = {
-          session = s
-          system.log.debug(s"new session: $session (${session.getId mkString ","})")
-        }
-
-        {
-          case SessionTruncated ⇒ SendBytes(ByteString("TRUNCATED"))
-          case SessionBytes(s, b) if s != session ⇒
-            setSession(s)
-            SendBytes(ByteString(s.getCipherSuite) ++ b)
-          case SessionBytes(s, b) ⇒ SendBytes(b)
-        }
+    val logCipherSuite = Flow[SslTlsInbound].map {
+      var session: SSLSession = null
+      def setSession(s: SSLSession) = {
+        session = s
+        system.log.debug(s"new session: $session (${session.getId.mkString(",")})")
       }
+
+      {
+        case SessionTruncated => SendBytes(ByteString("TRUNCATED"))
+        case SessionBytes(s, b) if s != session =>
+          setSession(s)
+          SendBytes(ByteString(s.getCipherSuite) ++ b)
+        case SessionBytes(_, b) => SendBytes(b)
+      }
+    }
 
     object SessionRenegotiationFirstOne extends PayloadScenario {
       override def flow = logCipherSuite
@@ -336,53 +350,59 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
         EmptyBytesFirst,
         EmptyBytesInTheMiddle,
         EmptyBytesLast,
+        CompletedImmediately,
         CancellingRHS,
+        CancellingRHSIgnoresBoth,
+        LHSIgnoresBoth,
+        BothSidesIgnoreBoth,
         SessionRenegotiationBySender,
         SessionRenegotiationByReceiver,
         SessionRenegotiationFirstOne,
         SessionRenegotiationFirstTwo)
 
     for {
-      commPattern ← communicationPatterns
-      scenario ← scenarios
+      commPattern <- communicationPatterns
+      scenario <- scenarios
     } {
       s"work in mode ${commPattern.name} while sending ${scenario.name}" in assertAllStagesStopped {
         val onRHS = debug.via(scenario.flow)
-        val f =
+        val output =
           Source(scenario.inputs)
             .via(commPattern.decorateFlow(scenario.leftClosing, scenario.rightClosing, onRHS))
-            .transform(() ⇒ new PushStage[SslTlsInbound, SslTlsInbound] {
-              override def onPush(elem: SslTlsInbound, ctx: Context[SslTlsInbound]) =
-                ctx.push(elem)
-              override def onDownstreamFinish(ctx: Context[SslTlsInbound]) = {
-                system.log.debug("me cancelled")
-                ctx.finish()
-              }
+            .via(new SimpleLinearGraphStage[SslTlsInbound] {
+              override def createLogic(inheritedAttributes: Attributes) =
+                new GraphStageLogic(shape) with InHandler with OutHandler {
+                  setHandlers(in, out, this)
+
+                  override def onPush() = push(out, grab(in))
+                  override def onPull() = pull(in)
+
+                  override def onDownstreamFinish() = {
+                    system.log.debug("me cancelled")
+                    completeStage()
+                  }
+                }
             })
             .via(debug)
-            .collect { case SessionBytes(_, b) ⇒ b }
+            .collect { case SessionBytes(_, b) => b }
             .scan(ByteString.empty)(_ ++ _)
+            .filter(_.nonEmpty)
             .via(new Timeout(6.seconds))
             .dropWhile(_.size < scenario.output.size)
-            .runWith(Sink.head)
+            .runWith(Sink.headOption)
 
-        Await.result(f, 8.seconds).utf8String should be(scenario.output.utf8String)
+        Await.result(output, 8.seconds).getOrElse(ByteString.empty).utf8String should be(scenario.output.utf8String)
 
         commPattern.cleanup()
-
-        // flush log so as to not mix up logs of different test cases
-        if (log.isDebugEnabled)
-          EventFilter.debug("stopgap", occurrences = 1) intercept {
-            log.debug("stopgap")
-          }
       }
     }
 
     "emit an error if the TLS handshake fails certificate checks" in assertAllStagesStopped {
       val getError = Flow[SslTlsInbound]
-        .map[Either[SslTlsInbound, SSLException]](i ⇒ Left(i))
-        .recover { case e: SSLException ⇒ Right(e) }
-        .collect { case Right(e) ⇒ e }.toMat(Sink.head)(Keep.right)
+        .map[Either[SslTlsInbound, SSLException]](i => Left(i))
+        .recover { case e: SSLException => Right(e) }
+        .collect { case Right(e) => e }
+        .toMat(Sink.head)(Keep.right)
 
       val simple = Flow.fromSinkAndSourceMat(getError, Source.maybe[SslTlsOutbound])(Keep.left)
 
@@ -390,27 +410,36 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
       // under error conditions, and has the bonus of matching most actual SSL deployments.
       val (server, serverErr) = Tcp()
         .bind("localhost", 0)
-        .map(c ⇒ {
-          c.flow.joinMat(serverTls(IgnoreBoth).reversed.joinMat(simple)(Keep.right))(Keep.right).run()
-        })
-        .toMat(Sink.head)(Keep.both).run()
+        .mapAsync(1)(c => c.flow.joinMat(serverTls(IgnoreBoth).reversed.joinMat(simple)(Keep.right))(Keep.right).run())
+        .toMat(Sink.head)(Keep.both)
+        .run()
 
-      val clientErr = simple.join(badClientTls(IgnoreBoth))
-        .join(Tcp().outgoingConnection(Await.result(server, 1.second).localAddress)).run()
+      val clientErr = simple
+        .join(badClientTls(IgnoreBoth))
+        .join(Tcp().outgoingConnection(Await.result(server, 1.second).localAddress))
+        .run()
 
-      Await.result(serverErr.flatMap(identity), 1.second).getMessage should include("certificate_unknown")
-      Await.result(clientErr, 1.second).getMessage should equal("General SSLEngine problem")
+      Await.result(serverErr, 1.second).getMessage should include("certificate_unknown")
+      val clientErrText = Await.result(clientErr, 1.second).getMessage
+      if (JavaVersion.majorVersion >= 11)
+        clientErrText should include("unable to find valid certification path to requested target")
+      else
+        clientErrText should equal("General SSLEngine problem")
     }
 
     "reliably cancel subscriptions when TransportIn fails early" in assertAllStagesStopped {
       val ex = new Exception("hello")
       val (sub, out1, out2) =
-        RunnableGraph.fromGraph(GraphDSL.create(Source.asSubscriber[SslTlsOutbound], Sink.head[ByteString], Sink.head[SslTlsInbound])((_, _, _)) { implicit b ⇒ (s, o1, o2) ⇒
-          val tls = b.add(clientTls(EagerClose))
-          s ~> tls.in1; tls.out1 ~> o1
-          o2 <~ tls.out2; tls.in2 <~ Source.failed(ex)
-          ClosedShape
-        }).run()
+        RunnableGraph
+          .fromGraph(
+            GraphDSL.create(Source.asSubscriber[SslTlsOutbound], Sink.head[ByteString], Sink.head[SslTlsInbound])(
+              (_, _, _)) { implicit b => (s, o1, o2) =>
+              val tls = b.add(clientTls(EagerClose))
+              s ~> tls.in1; tls.out1 ~> o1
+              o2 <~ tls.out2; tls.in2 <~ Source.failed(ex)
+              ClosedShape
+            })
+          .run()
       the[Exception] thrownBy Await.result(out1, 1.second) should be(ex)
       the[Exception] thrownBy Await.result(out2, 1.second) should be(ex)
       Thread.sleep(500)
@@ -422,12 +451,15 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
     "reliably cancel subscriptions when UserIn fails early" in assertAllStagesStopped {
       val ex = new Exception("hello")
       val (sub, out1, out2) =
-        RunnableGraph.fromGraph(GraphDSL.create(Source.asSubscriber[ByteString], Sink.head[ByteString], Sink.head[SslTlsInbound])((_, _, _)) { implicit b ⇒ (s, o1, o2) ⇒
-          val tls = b.add(clientTls(EagerClose))
-          Source.failed[SslTlsOutbound](ex) ~> tls.in1; tls.out1 ~> o1
-          o2 <~ tls.out2; tls.in2 <~ s
-          ClosedShape
-        }).run()
+        RunnableGraph
+          .fromGraph(GraphDSL.create(Source.asSubscriber[ByteString], Sink.head[ByteString], Sink.head[SslTlsInbound])(
+            (_, _, _)) { implicit b => (s, o1, o2) =>
+            val tls = b.add(clientTls(EagerClose))
+            Source.failed[SslTlsOutbound](ex) ~> tls.in1; tls.out1 ~> o1
+            o2 <~ tls.out2; tls.in2 <~ s
+            ClosedShape
+          })
+          .run()
       the[Exception] thrownBy Await.result(out1, 1.second) should be(ex)
       the[Exception] thrownBy Await.result(out2, 1.second) should be(ex)
       Thread.sleep(500)
@@ -436,19 +468,70 @@ class TlsSpec extends StreamSpec("akka.loglevel=INFO\nakka.actor.debug.receive=o
       pub.expectSubscription().expectCancellation()
     }
 
+    "complete if TLS connection is truncated" in assertAllStagesStopped {
+
+      val ks = KillSwitches.shared("ks")
+
+      val scenario = SingleBytes
+
+      val outFlow = {
+        val terminator = BidiFlow.fromFlows(Flow[ByteString], ks.flow[ByteString])
+        clientTls(scenario.leftClosing)
+          .atop(terminator)
+          .atop(serverTls(scenario.rightClosing).reversed)
+          .join(debug.via(scenario.flow))
+          .via(debug)
+      }
+
+      val inFlow = Flow[SslTlsInbound]
+        .collect { case SessionBytes(_, b) => b }
+        .scan(ByteString.empty)(_ ++ _)
+        .via(new Timeout(6.seconds))
+        .dropWhile(_.size < scenario.output.size)
+
+      val f =
+        Source(scenario.inputs)
+          .via(outFlow)
+          .via(inFlow)
+          .map(result => {
+            ks.shutdown(); result
+          })
+          .runWith(Sink.last)
+
+      Await.result(f, 8.second).utf8String should be(scenario.output.utf8String)
+    }
+
+    "verify hostname" in assertAllStagesStopped {
+      def run(hostName: String): Future[akka.Done] = {
+        val rhs = Flow[SslTlsInbound].map {
+          case SessionTruncated   => SendBytes(ByteString.empty)
+          case SessionBytes(_, b) => SendBytes(b)
+        }
+        val clientTls = TLS(sslContext, None, cipherSuites, Client, EagerClose, Some((hostName, 80)))
+        val flow = clientTls.atop(serverTls(EagerClose).reversed).join(rhs)
+
+        Source.single(SendBytes(ByteString.empty)).via(flow).runWith(Sink.ignore)
+      }
+      Await.result(run("akka-remote"), 3.seconds) // CN=akka-remote
+      val cause = intercept[Exception] {
+        Await.result(run("unknown.example.org"), 3.seconds)
+      }
+      cause.getMessage should ===("Hostname verification failed! Expected session to be for unknown.example.org")
+    }
+
   }
 
   "A SslTlsPlacebo" must {
 
     "pass through data" in {
       val f = Source(1 to 3)
-        .map(b ⇒ SendBytes(ByteString(b.toByte)))
-        .via(TLSPlacebo() join Flow.apply)
+        .map(b => SendBytes(ByteString(b.toByte)))
+        .via(TLSPlacebo().join(Flow.apply))
         .grouped(10)
         .runWith(Sink.head)
       val result = Await.result(f, 3.seconds)
-      result.map(_.bytes) should be((1 to 3).map(b ⇒ ByteString(b.toByte)))
-      result.map(_.session).foreach(s ⇒ s.getCipherSuite should be("SSL_NULL_WITH_NULL_NULL"))
+      result.map(_.bytes) should be((1 to 3).map(b => ByteString(b.toByte)))
+      result.map(_.session).foreach(s => s.getCipherSuite should be("SSL_NULL_WITH_NULL_NULL"))
     }
 
   }

@@ -1,26 +1,23 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.testconductor
 
 import language.postfixOps
-import com.typesafe.config.ConfigFactory
 import akka.actor.{ Actor, ActorIdentity, Deploy, Identify, Props }
 
-import scala.concurrent.Await
-import scala.concurrent.Awaitable
 import scala.concurrent.duration._
-import akka.testkit.ImplicitSender
 import akka.testkit.LongRunningTest
-import java.net.InetSocketAddress
-import java.net.InetAddress
-
 import akka.remote.RemotingMultiNodeSpec
-import akka.remote.testkit.{ MultiNodeConfig, MultiNodeSpec, STMultiNodeSpec }
+import akka.remote.testkit.MultiNodeConfig
 import akka.remote.transport.ThrottlerTransportAdapter.Direction
+import com.typesafe.config.ConfigFactory
 
 object TestConductorMultiJvmSpec extends MultiNodeConfig {
-  commonConfig(debugConfig(on = false).withFallback(RemotingMultiNodeSpec.arteryFlightRecordingConf))
+  commonConfig(debugConfig(on = false).withFallback(ConfigFactory.parseString("""
+      akka.remote.artery.enabled = false 
+    """)).withFallback(RemotingMultiNodeSpec.commonConfig))
 
   val master = role("master")
   val slave = role("slave")
@@ -48,7 +45,7 @@ class TestConductorSpec extends RemotingMultiNodeSpec(TestConductorMultiJvmSpec)
       runOn(master) {
         system.actorOf(Props(new Actor {
           def receive = {
-            case x ⇒ testActor ! x; sender() ! x
+            case x => testActor ! x; sender() ! x
           }
         }).withDeploy(Deploy.local), "echo")
       }
@@ -72,10 +69,10 @@ class TestConductorSpec extends RemotingMultiNodeSpec(TestConductorMultiJvmSpec)
       enterBarrier("throttled_send")
 
       runOn(slave) {
-        for (i ← 0 to 9) echo ! i
+        for (i <- 0 to 9) echo ! i
       }
 
-      within(0.6 seconds, 2 seconds) {
+      within(0.5 seconds, 2 seconds) {
         expectMsg(500 millis, 0)
         receiveN(9) should ===(1 to 9)
       }
@@ -90,7 +87,7 @@ class TestConductorSpec extends RemotingMultiNodeSpec(TestConductorMultiJvmSpec)
       enterBarrier("throttled_recv")
 
       runOn(slave) {
-        for (i ← 10 to 19) echo ! i
+        for (i <- 10 to 19) echo ! i
       }
 
       val (min, max) =

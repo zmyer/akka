@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.cluster
@@ -13,15 +13,13 @@ import akka.cluster.MemberStatus._
 import akka.cluster.ClusterEvent._
 import akka.remote.RARP
 import akka.testkit.AkkaSpec
+import akka.testkit.TimingTest
 
 object AutoDownSpec {
   final case class DownCalled(address: Address)
 
-  class AutoDownTestActor(
-    memberA:                  Member,
-    autoDownUnreachableAfter: FiniteDuration,
-    probe:                    ActorRef)
-    extends AutoDownBase(autoDownUnreachableAfter) {
+  class AutoDownTestActor(memberA: Member, autoDownUnreachableAfter: FiniteDuration, probe: ActorRef)
+      extends AutoDownBase(autoDownUnreachableAfter) {
 
     override def selfAddress = memberA.address
     override def scheduler: Scheduler = context.system.scheduler
@@ -37,7 +35,10 @@ object AutoDownSpec {
 
 }
 
-class AutoDownSpec extends AkkaSpec("akka.actor.provider=remote") {
+class AutoDownSpec extends AkkaSpec("""
+    |akka.actor.provider=remote
+    |akka.remote.warn-about-direct-use=off
+    |""".stripMargin) {
   import AutoDownSpec._
 
   val protocol =
@@ -64,7 +65,7 @@ class AutoDownSpec extends AkkaSpec("akka.actor.provider=remote") {
       val a = autoDownActor(Duration.Zero)
       a ! LeaderChanged(Some(memberB.address))
       a ! UnreachableMember(memberC)
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
     }
 
     "down unreachable when becoming leader" in {
@@ -79,48 +80,48 @@ class AutoDownSpec extends AkkaSpec("akka.actor.provider=remote") {
       val a = autoDownActor(2.seconds)
       a ! LeaderChanged(Some(memberA.address))
       a ! UnreachableMember(memberB)
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
       expectMsg(DownCalled(memberB.address))
     }
 
-    "down unreachable when becoming leader inbetween detection and specified duration" in {
+    "down unreachable when becoming leader in-between detection and specified duration" in {
       val a = autoDownActor(2.seconds)
       a ! LeaderChanged(Some(memberB.address))
       a ! UnreachableMember(memberC)
       a ! LeaderChanged(Some(memberA.address))
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
       expectMsg(DownCalled(memberC.address))
     }
 
-    "not down unreachable when losing leadership inbetween detection and specified duration" in {
+    "not down unreachable when losing leadership in-between detection and specified duration" taggedAs TimingTest in {
       val a = autoDownActor(2.seconds)
       a ! LeaderChanged(Some(memberA.address))
       a ! UnreachableMember(memberC)
       a ! LeaderChanged(Some(memberB.address))
-      expectNoMsg(3.second)
+      expectNoMessage(3.second)
     }
 
-    "not down when unreachable become reachable inbetween detection and specified duration" in {
+    "not down when unreachable become reachable in-between detection and specified duration" taggedAs TimingTest in {
       val a = autoDownActor(2.seconds)
       a ! LeaderChanged(Some(memberA.address))
       a ! UnreachableMember(memberB)
       a ! ReachableMember(memberB)
-      expectNoMsg(3.second)
+      expectNoMessage(3.second)
     }
 
-    "not down when unreachable is removed inbetween detection and specified duration" in {
+    "not down when unreachable is removed in-between detection and specified duration" taggedAs TimingTest in {
       val a = autoDownActor(2.seconds)
       a ! LeaderChanged(Some(memberA.address))
       a ! UnreachableMember(memberB)
       a ! MemberRemoved(memberB.copy(Removed), previousStatus = Exiting)
-      expectNoMsg(3.second)
+      expectNoMessage(3.second)
     }
 
     "not down when unreachable is already Down" in {
       val a = autoDownActor(Duration.Zero)
       a ! LeaderChanged(Some(memberA.address))
       a ! UnreachableMember(memberB.copy(Down))
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
     }
 
   }

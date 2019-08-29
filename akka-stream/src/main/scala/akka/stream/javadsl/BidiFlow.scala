@@ -1,11 +1,13 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.javadsl
 
 import akka.NotUsed
 import akka.japi.function
 import akka.stream._
+import com.github.ghik.silencer.silent
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -22,8 +24,8 @@ object BidiFlow {
    */
   def fromGraph[I1, O1, I2, O2, M](g: Graph[BidiShape[I1, O1, I2, O2], M]): BidiFlow[I1, O1, I2, O2, M] =
     g match {
-      case bidi: BidiFlow[I1, O1, I2, O2, M] ⇒ bidi
-      case other                             ⇒ new BidiFlow(scaladsl.BidiFlow.fromGraph(other))
+      case bidi: BidiFlow[I1, O1, I2, O2, M] => bidi
+      case other                             => new BidiFlow(scaladsl.BidiFlow.fromGraph(other))
     }
 
   /**
@@ -46,9 +48,9 @@ object BidiFlow {
    *
    */
   def fromFlowsMat[I1, O1, I2, O2, M1, M2, M](
-    flow1:   Graph[FlowShape[I1, O1], M1],
-    flow2:   Graph[FlowShape[I2, O2], M2],
-    combine: function.Function2[M1, M2, M]): BidiFlow[I1, O1, I2, O2, M] = {
+      flow1: Graph[FlowShape[I1, O1], M1],
+      flow2: Graph[FlowShape[I2, O2], M2],
+      combine: function.Function2[M1, M2, M]): BidiFlow[I1, O1, I2, O2, M] = {
     new BidiFlow(scaladsl.BidiFlow.fromFlowsMat(flow1, flow2)(combinerToScala(combine)))
   }
 
@@ -71,32 +73,52 @@ object BidiFlow {
    *
    */
   def fromFlows[I1, O1, I2, O2, M1, M2](
-    flow1: Graph[FlowShape[I1, O1], M1],
-    flow2: Graph[FlowShape[I2, O2], M2]): BidiFlow[I1, O1, I2, O2, NotUsed] =
+      flow1: Graph[FlowShape[I1, O1], M1],
+      flow2: Graph[FlowShape[I2, O2], M2]): BidiFlow[I1, O1, I2, O2, NotUsed] =
     new BidiFlow(scaladsl.BidiFlow.fromFlows(flow1, flow2))
 
   /**
    * Create a BidiFlow where the top and bottom flows are just one simple mapping
-   * stage each, expressed by the two functions.
+   * operator each, expressed by the two functions.
    */
-  def fromFunctions[I1, O1, I2, O2](top: function.Function[I1, O1], bottom: function.Function[I2, O2]): BidiFlow[I1, O1, I2, O2, NotUsed] =
+  def fromFunctions[I1, O1, I2, O2](
+      top: function.Function[I1, O1],
+      bottom: function.Function[I2, O2]): BidiFlow[I1, O1, I2, O2, NotUsed] =
     new BidiFlow(scaladsl.BidiFlow.fromFunctions(top.apply _, bottom.apply _))
 
   /**
    * If the time between two processed elements *in any direction* exceed the provided timeout, the stream is failed
    * with a [[java.util.concurrent.TimeoutException]].
    *
-   * There is a difference between this stage and having two idleTimeout Flows assembled into a BidiStage.
-   * If the timeout is configured to be 1 seconds, then this stage will not fail even though there are elements flowing
-   * every second in one direction, but no elements are flowing in the other direction. I.e. this stage considers
+   * There is a difference between this operator and having two idleTimeout Flows assembled into a BidiStage.
+   * If the timeout is configured to be 1 seconds, then this operator will not fail even though there are elements flowing
+   * every second in one direction, but no elements are flowing in the other direction. I.e. this operator considers
    * the *joint* frequencies of the elements in both directions.
    */
+  @Deprecated
+  @deprecated("Use the overloaded one which accepts java.time.Duration instead.", since = "2.5.12")
   def bidirectionalIdleTimeout[I, O](timeout: FiniteDuration): BidiFlow[I, I, O, O, NotUsed] =
     new BidiFlow(scaladsl.BidiFlow.bidirectionalIdleTimeout(timeout))
+
+  /**
+   * If the time between two processed elements *in any direction* exceed the provided timeout, the stream is failed
+   * with a [[java.util.concurrent.TimeoutException]].
+   *
+   * There is a difference between this operator and having two idleTimeout Flows assembled into a BidiStage.
+   * If the timeout is configured to be 1 seconds, then this operator will not fail even though there are elements flowing
+   * every second in one direction, but no elements are flowing in the other direction. I.e. this operator considers
+   * the *joint* frequencies of the elements in both directions.
+   */
+  @silent("deprecated")
+  def bidirectionalIdleTimeout[I, O](timeout: java.time.Duration): BidiFlow[I, I, O, O, NotUsed] = {
+    import akka.util.JavaDurationConverters._
+    bidirectionalIdleTimeout(timeout.asScala)
+  }
 }
 
-final class BidiFlow[-I1, +O1, -I2, +O2, +Mat](delegate: scaladsl.BidiFlow[I1, O1, I2, O2, Mat]) extends Graph[BidiShape[I1, O1, I2, O2], Mat] {
-  override def module = delegate.module
+final class BidiFlow[I1, O1, I2, O2, Mat](delegate: scaladsl.BidiFlow[I1, O1, I2, O2, Mat])
+    extends Graph[BidiShape[I1, O1, I2, O2], Mat] {
+  override def traversalBuilder = delegate.traversalBuilder
   override def shape = delegate.shape
 
   def asScala: scaladsl.BidiFlow[I1, O1, I2, O2, Mat] = delegate
@@ -142,7 +164,9 @@ final class BidiFlow[-I1, +O1, -I2, +O2, +Mat](delegate: scaladsl.BidiFlow[I1, O
    * The `combine` function is used to compose the materialized values of this flow and that
    * flow into the materialized value of the resulting BidiFlow.
    */
-  def atop[OO1, II2, Mat2, M](bidi: BidiFlow[O1, OO1, II2, I2, Mat2], combine: function.Function2[Mat, Mat2, M]): BidiFlow[I1, OO1, II2, O2, M] =
+  def atop[OO1, II2, Mat2, M](
+      bidi: BidiFlow[O1, OO1, II2, I2, Mat2],
+      combine: function.Function2[Mat, Mat2, M]): BidiFlow[I1, OO1, II2, O2, M] =
     new BidiFlow(delegate.atopMat(bidi.asScala)(combinerToScala(combine)))
 
   /**
@@ -204,7 +228,7 @@ final class BidiFlow[-I1, +O1, -I2, +O2, +Mat](delegate: scaladsl.BidiFlow[I1, O
    * of attributes. This means that further calls will not be able to remove these
    * attributes, but instead add new ones. Note that this
    * operation has no effect on an empty Flow (because the attributes apply
-   * only to the contained processing stages).
+   * only to the contained processing operators).
    */
   override def withAttributes(attr: Attributes): BidiFlow[I1, O1, I2, O2, Mat] =
     new BidiFlow(delegate.withAttributes(attr))
@@ -213,7 +237,7 @@ final class BidiFlow[-I1, +O1, -I2, +O2, +Mat](delegate: scaladsl.BidiFlow[I1, O
    * Add the given attributes to this Source. Further calls to `withAttributes`
    * will not remove these attributes. Note that this
    * operation has no effect on an empty Flow (because the attributes apply
-   * only to the contained processing stages).
+   * only to the contained processing operators).
    */
   override def addAttributes(attr: Attributes): BidiFlow[I1, O1, I2, O2, Mat] =
     new BidiFlow(delegate.addAttributes(attr))
@@ -223,4 +247,27 @@ final class BidiFlow[-I1, +O1, -I2, +O2, +Mat](delegate: scaladsl.BidiFlow[I1, O
    */
   override def named(name: String): BidiFlow[I1, O1, I2, O2, Mat] =
     new BidiFlow(delegate.named(name))
+
+  /**
+   * Put an asynchronous boundary around this `Flow`
+   */
+  override def async: BidiFlow[I1, O1, I2, O2, Mat] =
+    new BidiFlow(delegate.async)
+
+  /**
+   * Put an asynchronous boundary around this `Flow`
+   *
+   * @param dispatcher Run the graph on this dispatcher
+   */
+  override def async(dispatcher: String): BidiFlow[I1, O1, I2, O2, Mat] =
+    new BidiFlow(delegate.async(dispatcher))
+
+  /**
+   * Put an asynchronous boundary around this `Flow`
+   *
+   * @param dispatcher      Run the graph on this dispatcher
+   * @param inputBufferSize Set the input buffer to this size for the graph
+   */
+  override def async(dispatcher: String, inputBufferSize: Int): BidiFlow[I1, O1, I2, O2, Mat] =
+    new BidiFlow(delegate.async(dispatcher, inputBufferSize))
 }

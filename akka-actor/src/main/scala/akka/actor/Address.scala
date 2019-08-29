@@ -1,12 +1,16 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.MalformedURLException
+
 import scala.annotation.tailrec
 import scala.collection.immutable
+
+import akka.annotation.InternalApi
 
 /**
  * The address specifies the physical location under which an Actor can be
@@ -64,9 +68,27 @@ final case class Address private (protocol: String, system: String, host: Option
    * `system@host:port`
    */
   def hostPort: String = toString.substring(protocol.length + 3)
+
+  /** INTERNAL API
+   * Check if the address is not created through `AddressFromURIString`, if there
+   * are any unusual characters in the host string.
+   */
+  @InternalApi
+  private[akka] def hasInvalidHostCharacters: Boolean =
+    host.exists(Address.InvalidHostRegex.findFirstIn(_).nonEmpty)
+
+  /** INTERNAL API */
+  @InternalApi
+  private[akka] def checkHostCharacters(): Unit =
+    require(!hasInvalidHostCharacters, s"Using invalid host characters '$host' in the Address is not allowed.")
+
 }
 
 object Address {
+
+  // if underscore and no dot after, then invalid
+  val InvalidHostRegex = "_[^.]*$".r
+
   /**
    * Constructs a new Address with the specified protocol and system name
    */
@@ -75,12 +97,13 @@ object Address {
   /**
    * Constructs a new Address with the specified protocol, system name, host and port
    */
-  def apply(protocol: String, system: String, host: String, port: Int) = new Address(protocol, system, Some(host), Some(port))
+  def apply(protocol: String, system: String, host: String, port: Int) =
+    new Address(protocol, system, Some(host), Some(port))
 
   /**
    * `Address` ordering type class, sorts addresses by protocol, name, host and port.
    */
-  implicit val addressOrdering: Ordering[Address] = Ordering.fromLessThan[Address] { (a, b) ⇒
+  implicit val addressOrdering: Ordering[Address] = Ordering.fromLessThan[Address] { (a, b) =>
     if (a eq b) false
     else if (a.protocol != b.protocol) a.system.compareTo(b.protocol) < 0
     else if (a.system != b.system) a.system.compareTo(b.system) < 0
@@ -119,7 +142,7 @@ object RelativeActorPath extends PathUtils {
       if (uri.isAbsolute) None
       else Some(split(uri.getRawPath, uri.getRawFragment))
     } catch {
-      case _: URISyntaxException ⇒ None
+      case _: URISyntaxException => None
     }
   }
 }
@@ -128,7 +151,9 @@ object RelativeActorPath extends PathUtils {
  * This object serves as extractor for Scala and as address parser for Java.
  */
 object AddressFromURIString {
-  def unapply(addr: String): Option[Address] = try unapply(new URI(addr)) catch { case _: URISyntaxException ⇒ None }
+  def unapply(addr: String): Option[Address] =
+    try unapply(new URI(addr))
+    catch { case _: URISyntaxException => None }
 
   def unapply(uri: URI): Option[Address] =
     if (uri eq null) None
@@ -138,17 +163,18 @@ object AddressFromURIString {
       else Some(Address(uri.getScheme, uri.getHost))
     } else { // case 2: “akka://system@host:port”
       if (uri.getHost == null || uri.getPort == -1) None
-      else Some(
-        if (uri.getUserInfo == null) Address(uri.getScheme, uri.getHost)
-        else Address(uri.getScheme, uri.getUserInfo, uri.getHost, uri.getPort))
+      else
+        Some(
+          if (uri.getUserInfo == null) Address(uri.getScheme, uri.getHost)
+          else Address(uri.getScheme, uri.getUserInfo, uri.getHost, uri.getPort))
     }
 
   /**
    * Try to construct an Address from the given String or throw a java.net.MalformedURLException.
    */
   def apply(addr: String): Address = addr match {
-    case AddressFromURIString(address) ⇒ address
-    case _                             ⇒ throw new MalformedURLException(addr)
+    case AddressFromURIString(address) => address
+    case _                             => throw new MalformedURLException(addr)
   }
 
   /**
@@ -165,10 +191,10 @@ object ActorPathExtractor extends PathUtils {
     try {
       val uri = new URI(addr)
       uri.getRawPath match {
-        case null ⇒ None
-        case path ⇒ AddressFromURIString.unapply(uri).map((_, split(path, uri.getRawFragment).drop(1)))
+        case null => None
+        case path => AddressFromURIString.unapply(uri).map((_, split(path, uri.getRawFragment).drop(1)))
       }
     } catch {
-      case _: URISyntaxException ⇒ None
+      case _: URISyntaxException => None
     }
 }

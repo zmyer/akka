@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.routing
 
 import scala.collection.immutable
@@ -17,6 +18,7 @@ import akka.actor.NoSerializationVerificationNeeded
  * The implementation must be thread safe.
  */
 trait RoutingLogic extends NoSerializationVerificationNeeded {
+
   /**
    * Pick the destination for a given message. Normally it picks one of the
    * passed `routees`, but in the end it is up to the implementation to
@@ -76,7 +78,7 @@ final case class SeveralRoutees(routees: immutable.IndexedSeq[Routee]) extends R
    * Java API
    */
   def getRoutees(): java.util.List[Routee] = {
-    import scala.collection.JavaConverters._
+    import akka.util.ccompat.JavaConverters._
     routees.asJava
   }
 
@@ -92,7 +94,7 @@ final case class SeveralRoutees(routees: immutable.IndexedSeq[Routee]) extends R
  *
  * A `Router` is immutable and the [[RoutingLogic]] must be thread safe.
  */
-final case class Router(val logic: RoutingLogic, val routees: immutable.IndexedSeq[Routee] = Vector.empty) {
+final case class Router(logic: RoutingLogic, routees: immutable.IndexedSeq[Routee] = Vector.empty) {
 
   /**
    * Java API
@@ -112,8 +114,8 @@ final case class Router(val logic: RoutingLogic, val routees: immutable.IndexedS
    */
   def route(message: Any, sender: ActorRef): Unit =
     message match {
-      case akka.routing.Broadcast(msg) ⇒ SeveralRoutees(routees).send(msg, sender)
-      case msg                         ⇒ send(logic.select(msg, routees), message, sender)
+      case akka.routing.Broadcast(msg) => SeveralRoutees(routees).send(msg, sender)
+      case msg                         => send(logic.select(msg, routees), message, sender)
     }
 
   private def send(routee: Routee, msg: Any, sender: ActorRef): Unit = {
@@ -124,8 +126,8 @@ final case class Router(val logic: RoutingLogic, val routees: immutable.IndexedS
   }
 
   private def unwrap(msg: Any): Any = msg match {
-    case env: RouterEnvelope ⇒ env.message
-    case _                   ⇒ msg
+    case env: RouterEnvelope => env.message
+    case _                   => msg
   }
 
   /**
@@ -184,4 +186,3 @@ final case class Broadcast(message: Any) extends RouterEnvelope
 trait RouterEnvelope {
   def message: Any
 }
-

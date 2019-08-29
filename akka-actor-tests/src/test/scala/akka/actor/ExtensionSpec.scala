@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -13,6 +14,8 @@ import org.scalatest.junit.JUnitSuiteLike
 
 import scala.util.control.NoStackTrace
 
+import com.github.ghik.silencer.silent
+@silent
 class JavaExtensionSpec extends JavaExtension with JUnitSuiteLike
 
 object TestExtension extends ExtensionId[TestExtension] with ExtensionIdProvider {
@@ -83,8 +86,9 @@ class ExtensionSpec extends WordSpec with Matchers {
 
     "fail the actor system if an extension listed in akka.extensions fails to start" in {
       intercept[RuntimeException] {
-        val system = ActorSystem("failing", ConfigFactory.parseString(
-          """
+        val system = ActorSystem(
+          "failing",
+          ConfigFactory.parseString("""
             akka.extensions = ["akka.actor.FailingTestExtension"]
           """))
 
@@ -93,20 +97,20 @@ class ExtensionSpec extends WordSpec with Matchers {
     }
 
     "log an error if an extension listed in akka.extensions cannot be loaded" in {
-      val system = ActorSystem("failing", ConfigFactory.parseString(
-        """
+      val system = ActorSystem(
+        "failing",
+        ConfigFactory.parseString("""
           akka.extensions = ["akka.actor.MissingExtension"]
         """))
-      EventFilter.error("While trying to load extension [akka.actor.MissingExtension], skipping...").intercept()(system)
+      EventFilter.error("While trying to load extension [akka.actor.MissingExtension], skipping.").intercept(())(system)
       shutdownActorSystem(system)
-
     }
 
     "allow for auto-loading of library-extensions" in {
       val system = ActorSystem("extensions")
       val listedExtensions = system.settings.config.getStringList("akka.library-extensions")
       listedExtensions.size should be > 0
-      // could be initalized by other tests, so at least once
+      // could be initialized by other tests, so at least once
       InstanceCountingExtension.createCount.get() should be > 0
 
       shutdownActorSystem(system)
@@ -114,8 +118,9 @@ class ExtensionSpec extends WordSpec with Matchers {
 
     "fail the actor system if a library-extension fails to start" in {
       intercept[FailingTestExtension.TestException] {
-        ActorSystem("failing", ConfigFactory.parseString(
-          """
+        ActorSystem(
+          "failing",
+          ConfigFactory.parseString("""
             akka.library-extensions += "akka.actor.FailingTestExtension"
           """).withFallback(ConfigFactory.load()).resolve())
       }
@@ -124,8 +129,9 @@ class ExtensionSpec extends WordSpec with Matchers {
 
     "fail the actor system if a library-extension cannot be loaded" in {
       intercept[RuntimeException] {
-        ActorSystem("failing", ConfigFactory.parseString(
-          """
+        ActorSystem(
+          "failing",
+          ConfigFactory.parseString("""
             akka.library-extensions += "akka.actor.MissingExtension"
           """).withFallback(ConfigFactory.load()))
       }

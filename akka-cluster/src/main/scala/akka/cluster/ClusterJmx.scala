@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.cluster
@@ -24,13 +24,13 @@ trait ClusterNodeMBean {
 
   /**
    * Comma separated addresses of member nodes, sorted in the cluster ring order.
-   * The address format is `akka.tcp://actor-system-name@hostname:port`
+   * The address format is `akka://actor-system-name@hostname:port`
    */
   def getMembers: String
 
   /**
    * Comma separated addresses of unreachable member nodes.
-   * The address format is `akka.tcp://actor-system-name@hostname:port`
+   * The address format is `akka://actor-system-name@hostname:port`
    */
   def getUnreachable: String
 
@@ -38,31 +38,31 @@ trait ClusterNodeMBean {
    * JSON format of the status of all nodes in the cluster as follows:
    * {{{
    * {
-   *   "self-address": "akka.tcp://system@host1:2552",
+   *   "self-address": "akka://system@host1:2552",
    *   "members": [
    *     {
-   *       "address": "akka.tcp://system@host1:2552",
+   *       "address": "akka://system@host1:2552",
    *       "status": "Up",
    *       "roles": [
    *         "frontend"
    *       ]
    *     },
    *     {
-   *       "address": "akka.tcp://system@host2:2552",
+   *       "address": "akka://system@host2:2552",
    *       "status": "Up",
    *       "roles": [
    *         "frontend"
    *       ]
    *     },
    *     {
-   *       "address": "akka.tcp://system@host3:2552",
+   *       "address": "akka://system@host3:2552",
    *       "status": "Down",
    *       "roles": [
    *         "backend"
    *       ]
    *     },
    *     {
-   *       "address": "akka.tcp://system@host4:2552",
+   *       "address": "akka://system@host4:2552",
    *       "status": "Joining",
    *       "roles": [
    *         "backend"
@@ -71,17 +71,17 @@ trait ClusterNodeMBean {
    *   ],
    *   "unreachable": [
    *     {
-   *       "node": "akka.tcp://system@host2:2552",
+   *       "node": "akka://system@host2:2552",
    *       "observed-by": [
-   *         "akka.tcp://system@host1:2552",
-   *         "akka.tcp://system@host3:2552"
+   *         "akka://system@host1:2552",
+   *         "akka://system@host3:2552"
    *       ]
    *     },
    *     {
-   *       "node": "akka.tcp://system@host3:2552",
+   *       "node": "akka://system@host3:2552",
    *       "observed-by": [
-   *         "akka.tcp://system@host1:2552",
-   *         "akka.tcp://system@host2:2552"
+   *         "akka://system@host1:2552",
+   *         "akka://system@host2:2552"
    *       ]
    *     }
    *   ]
@@ -92,7 +92,7 @@ trait ClusterNodeMBean {
 
   /**
    * Get the address of the current leader.
-   * The address format is `akka.tcp://actor-system-name@hostname:port`
+   * The address format is `akka://actor-system-name@hostname:port`
    */
   def getLeader: String
 
@@ -109,22 +109,22 @@ trait ClusterNodeMBean {
 
   /**
    * Try to join this cluster node with the node specified by 'address'.
-   * The address format is `akka.tcp://actor-system-name@hostname:port`.
+   * The address format is `akka://actor-system-name@hostname:port`.
    * A 'Join(thisNodeAddress)' command is sent to the node to join.
    */
-  def join(address: String)
+  def join(address: String): Unit
 
   /**
    * Send command to issue state transition to LEAVING for the node specified by 'address'.
-   * The address format is `akka.tcp://actor-system-name@hostname:port`
+   * The address format is `akka://actor-system-name@hostname:port`
    */
-  def leave(address: String)
+  def leave(address: String): Unit
 
   /**
    * Send command to DOWN the node specified by 'address'.
-   * The address format is `akka.tcp://actor-system-name@hostname:port`
+   * The address format is `akka://actor-system-name@hostname:port`
    */
-  def down(address: String)
+  def down(address: String): Unit
 }
 
 /**
@@ -133,9 +133,14 @@ trait ClusterNodeMBean {
 private[akka] class ClusterJmx(cluster: Cluster, log: LoggingAdapter) {
 
   private val mBeanServer = ManagementFactory.getPlatformMBeanServer
-  private val clusterMBeanName = new ObjectName("akka:type=Cluster")
+  private val clusterMBeanName =
+    if (cluster.settings.JmxMultiMbeansInSameEnabled)
+      new ObjectName("akka:type=Cluster,port=" + cluster.selfUniqueAddress.address.port.getOrElse(""))
+    else
+      new ObjectName("akka:type=Cluster")
+
   private def clusterView = cluster.readView
-  import cluster.InfoLogger._
+  import cluster.ClusterLogger._
 
   /**
    * Creates the cluster JMX MBean and registers it in the MBean server.
@@ -146,34 +151,37 @@ private[akka] class ClusterJmx(cluster: Cluster, log: LoggingAdapter) {
       // JMX attributes (bean-style)
 
       def getClusterStatus: String = {
-        val members = clusterView.members.toSeq.sorted(Member.ordering).map { m ⇒
-          s"""{
-              |      "address": "${m.address}",
-              |      "status": "${m.status}",
-              |      "roles": [
-              |        ${m.roles.map("\"" + _ + "\"").mkString(",\n        ")}
-              |      ]
-              |    }""".stripMargin
-        } mkString (",\n    ")
-
-        val unreachable = clusterView.reachability.observersGroupedByUnreachable.toSeq.sortBy(_._1).map {
-          case (subject, observers) ⇒
+        val members = clusterView.members.toSeq
+          .sorted(Member.ordering)
+          .map { m =>
             s"""{
-              |      "node": "${subject.address}",
-              |      "observed-by": [
-              |        ${observers.toSeq.sorted.map(_.address).mkString("\"", "\",\n        \"", "\"")}
-              |      ]
+              |      "address": "${m.address}",
+              |      "roles": [${if (m.roles.isEmpty) ""
+               else m.roles.toList.sorted.map("\"" + _ + "\"").mkString("\n        ", ",\n        ", "\n      ")}],
+              |      "status": "${m.status}"
               |    }""".stripMargin
-        } mkString (",\n")
+          }
+          .mkString(",\n    ")
+
+        val unreachable = clusterView.reachability.observersGroupedByUnreachable.toSeq
+          .sortBy(_._1)
+          .map {
+            case (subject, observers) => {
+              val observerAddresses = observers.toSeq.sorted.map("\"" + _.address + "\"")
+              s"""{
+              |      "node": "${subject.address}",
+              |      "observed-by": [${if (observerAddresses.isEmpty) ""
+                 else observerAddresses.mkString("\n        ", ",\n        ", "\n      ")}]
+              |    }""".stripMargin
+            }
+
+          }
+          .mkString(",\n    ")
 
         s"""{
+        |  "members": [${if (members.isEmpty) "" else "\n    " + members + "\n  "}],
         |  "self-address": "${clusterView.selfAddress}",
-        |  "members": [
-        |    ${members}
-        |  ],
-        |  "unreachable": [
-        |    ${unreachable}
-        |  ]
+        |  "unreachable": [${if (unreachable.isEmpty) "" else "\n    " + unreachable + "\n  "}]
         |}
         |""".stripMargin
       }
@@ -204,7 +212,15 @@ private[akka] class ClusterJmx(cluster: Cluster, log: LoggingAdapter) {
       mBeanServer.registerMBean(mbean, clusterMBeanName)
       logInfo("Registered cluster JMX MBean [{}]", clusterMBeanName)
     } catch {
-      case e: InstanceAlreadyExistsException ⇒ // ignore - we are running multiple cluster nodes in the same JVM (probably for testing)
+      case e: InstanceAlreadyExistsException => {
+        if (cluster.settings.JmxMultiMbeansInSameEnabled) {
+          log.error(e, s"Failed to register Cluster JMX MBean with name=$clusterMBeanName")
+        } else {
+          log.warning(
+            s"Could not register Cluster JMX MBean with name=$clusterMBeanName as it is already registered. " +
+            "If you are running multiple clusters in the same JVM, set 'akka.cluster.jmx.multi-mbeans-in-same-jvm = on' in config")
+        }
+      }
     }
   }
 
@@ -215,7 +231,15 @@ private[akka] class ClusterJmx(cluster: Cluster, log: LoggingAdapter) {
     try {
       mBeanServer.unregisterMBean(clusterMBeanName)
     } catch {
-      case e: InstanceNotFoundException ⇒ // ignore - we are running multiple cluster nodes in the same JVM (probably for testing)
+      case e: InstanceNotFoundException => {
+        if (cluster.settings.JmxMultiMbeansInSameEnabled) {
+          log.error(e, s"Failed to unregister Cluster JMX MBean with name=$clusterMBeanName")
+        } else {
+          log.warning(
+            s"Could not unregister Cluster JMX MBean with name=$clusterMBeanName as it was not found. " +
+            "If you are running multiple clusters in the same JVM, set 'akka.cluster.jmx.multi-mbeans-in-same-jvm = on' in config")
+        }
+      }
     }
   }
 

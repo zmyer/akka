@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.routing
 
 import scala.collection.immutable
@@ -9,6 +10,7 @@ import com.typesafe.config.Config
 import akka.actor.SupervisorStrategy
 import akka.japi.Util.immutableSeq
 import akka.actor.ActorSystem
+import com.github.ghik.silencer.silent
 
 object BroadcastRoutingLogic {
   def apply(): BroadcastRoutingLogic = new BroadcastRoutingLogic
@@ -17,6 +19,7 @@ object BroadcastRoutingLogic {
 /**
  * Broadcasts a message to all its routees.
  */
+@silent("@SerialVersionUID has no effect")
 @SerialVersionUID(1L)
 final class BroadcastRoutingLogic extends RoutingLogic {
   override def select(message: Any, routees: immutable.IndexedSeq[Routee]): Routee =
@@ -56,11 +59,13 @@ final class BroadcastRoutingLogic extends RoutingLogic {
  */
 @SerialVersionUID(1L)
 final case class BroadcastPool(
-  override val nrOfInstances: Int, override val resizer: Option[Resizer] = None,
-  override val supervisorStrategy: SupervisorStrategy = Pool.defaultSupervisorStrategy,
-  override val routerDispatcher:   String             = Dispatchers.DefaultDispatcherId,
-  override val usePoolDispatcher:  Boolean            = false)
-  extends Pool with PoolOverrideUnsetConfig[BroadcastPool] {
+    nrOfInstances: Int,
+    override val resizer: Option[Resizer] = None,
+    override val supervisorStrategy: SupervisorStrategy = Pool.defaultSupervisorStrategy,
+    override val routerDispatcher: String = Dispatchers.DefaultDispatcherId,
+    override val usePoolDispatcher: Boolean = false)
+    extends Pool
+    with PoolOverrideUnsetConfig[BroadcastPool] {
 
   def this(config: Config) =
     this(
@@ -118,9 +123,9 @@ final case class BroadcastPool(
  */
 @SerialVersionUID(1L)
 final case class BroadcastGroup(
-  override val paths:            immutable.Iterable[String],
-  override val routerDispatcher: String                     = Dispatchers.DefaultDispatcherId)
-  extends Group {
+    paths: immutable.Iterable[String],
+    override val routerDispatcher: String = Dispatchers.DefaultDispatcherId)
+    extends Group {
 
   def this(config: Config) =
     this(paths = immutableSeq(config.getStringList("routees.paths")))

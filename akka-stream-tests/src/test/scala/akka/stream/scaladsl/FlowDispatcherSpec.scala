@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import akka.stream.testkit.StreamSpec
@@ -12,16 +13,16 @@ class FlowDispatcherSpec extends StreamSpec(s"my-dispatcher = $${akka.test.strea
 
   val defaultSettings = ActorMaterializerSettings(system)
 
-  def testDispatcher(settings: ActorMaterializerSettings = defaultSettings, dispatcher: String = "akka.test.stream-dispatcher") = {
+  def testDispatcher(
+      settings: ActorMaterializerSettings = defaultSettings,
+      dispatcher: String = "akka.test.stream-dispatcher") = {
 
     implicit val materializer = ActorMaterializer(settings)
 
     val probe = TestProbe()
-    val p = Source(List(1, 2, 3)).map(i ⇒
-      { probe.ref ! Thread.currentThread().getName(); i }).
-      to(Sink.ignore).run()
-    probe.receiveN(3) foreach {
-      case s: String ⇒ s should startWith(system.name + "-" + dispatcher)
+    Source(List(1, 2, 3)).map(i => { probe.ref ! Thread.currentThread().getName(); i }).to(Sink.ignore).run()
+    probe.receiveN(3).foreach {
+      case s: String => s should startWith(system.name + "-" + dispatcher)
     }
   }
 

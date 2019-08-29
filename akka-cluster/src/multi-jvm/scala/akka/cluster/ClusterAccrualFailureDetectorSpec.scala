@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster
 
 import com.typesafe.config.ConfigFactory
@@ -15,9 +16,10 @@ object ClusterAccrualFailureDetectorMultiJvmSpec extends MultiNodeConfig {
   val second = role("second")
   val third = role("third")
 
-  commonConfig(debugConfig(on = false).
-    withFallback(ConfigFactory.parseString("akka.cluster.failure-detector.threshold = 4")).
-    withFallback(MultiNodeClusterSpec.clusterConfig))
+  commonConfig(
+    debugConfig(on = false)
+      .withFallback(ConfigFactory.parseString("akka.cluster.failure-detector.threshold = 4"))
+      .withFallback(MultiNodeClusterSpec.clusterConfig))
 
   testTransport(on = true)
 }
@@ -27,8 +29,8 @@ class ClusterAccrualFailureDetectorMultiJvmNode2 extends ClusterAccrualFailureDe
 class ClusterAccrualFailureDetectorMultiJvmNode3 extends ClusterAccrualFailureDetectorSpec
 
 abstract class ClusterAccrualFailureDetectorSpec
-  extends MultiNodeSpec(ClusterAccrualFailureDetectorMultiJvmSpec)
-  with MultiNodeClusterSpec {
+    extends MultiNodeSpec(ClusterAccrualFailureDetectorMultiJvmSpec)
+    with MultiNodeClusterSpec {
 
   import ClusterAccrualFailureDetectorMultiJvmSpec._
 
@@ -48,45 +50,45 @@ abstract class ClusterAccrualFailureDetectorSpec
     }
 
     "mark node as 'unavailable' when network partition and then back to 'available' when partition is healed" taggedAs
-      LongRunningTest in {
-        runOn(first) {
-          testConductor.blackhole(first, second, Direction.Both).await
-        }
-
-        enterBarrier("broken")
-
-        runOn(first) {
-          // detect failure...
-          awaitCond(!cluster.failureDetector.isAvailable(second), 15.seconds)
-          // other connections still ok
-          cluster.failureDetector.isAvailable(third) should ===(true)
-        }
-
-        runOn(second) {
-          // detect failure...
-          awaitCond(!cluster.failureDetector.isAvailable(first), 15.seconds)
-          // other connections still ok
-          cluster.failureDetector.isAvailable(third) should ===(true)
-        }
-
-        enterBarrier("partitioned")
-
-        runOn(first) {
-          testConductor.passThrough(first, second, Direction.Both).await
-        }
-
-        enterBarrier("repaired")
-
-        runOn(first, third) {
-          awaitCond(cluster.failureDetector.isAvailable(second), 15.seconds)
-        }
-
-        runOn(second) {
-          awaitCond(cluster.failureDetector.isAvailable(first), 15.seconds)
-        }
-
-        enterBarrier("after-2")
+    LongRunningTest in {
+      runOn(first) {
+        testConductor.blackhole(first, second, Direction.Both).await
       }
+
+      enterBarrier("broken")
+
+      runOn(first) {
+        // detect failure...
+        awaitCond(!cluster.failureDetector.isAvailable(second), 15.seconds)
+        // other connections still ok
+        cluster.failureDetector.isAvailable(third) should ===(true)
+      }
+
+      runOn(second) {
+        // detect failure...
+        awaitCond(!cluster.failureDetector.isAvailable(first), 15.seconds)
+        // other connections still ok
+        cluster.failureDetector.isAvailable(third) should ===(true)
+      }
+
+      enterBarrier("partitioned")
+
+      runOn(first) {
+        testConductor.passThrough(first, second, Direction.Both).await
+      }
+
+      enterBarrier("repaired")
+
+      runOn(first, third) {
+        awaitCond(cluster.failureDetector.isAvailable(second), 15.seconds)
+      }
+
+      runOn(second) {
+        awaitCond(cluster.failureDetector.isAvailable(first), 15.seconds)
+      }
+
+      enterBarrier("after-2")
+    }
 
     "mark node as 'unavailable' if a node in the cluster is shut down (and its heartbeats stops)" taggedAs LongRunningTest in {
       runOn(first) {

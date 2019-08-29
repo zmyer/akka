@@ -1,12 +1,13 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.util
 
-import java.util.concurrent.locks.ReentrantLock
-import java.util.concurrent.{ TimeUnit, BlockingQueue }
-import java.util.{ AbstractQueue, Queue, Collection, Iterator }
+import java.util.concurrent.locks.{ Condition, ReentrantLock }
+import java.util.concurrent.{ BlockingQueue, TimeUnit }
+import java.util.{ AbstractQueue, Collection, Iterator, Queue }
+
 import annotation.tailrec
 
 /**
@@ -14,30 +15,35 @@ import annotation.tailrec
  * @param maxCapacity - the maximum capacity of this Queue, needs to be &gt; 0
  * @param backing - the backing Queue
  */
-class BoundedBlockingQueue[E <: AnyRef](
-  val maxCapacity: Int, private val backing: Queue[E]) extends AbstractQueue[E] with BlockingQueue[E] {
+class BoundedBlockingQueue[E <: AnyRef](val maxCapacity: Int, private val backing: Queue[E])
+    extends AbstractQueue[E]
+    with BlockingQueue[E] {
 
   backing match {
-    case null ⇒ throw new IllegalArgumentException("Backing Queue may not be null")
-    case b: BlockingQueue[_] ⇒
+    case null => throw new IllegalArgumentException("Backing Queue may not be null")
+    case b: BlockingQueue[_] =>
       require(maxCapacity > 0)
       require(b.size() == 0)
       require(b.remainingCapacity >= maxCapacity)
-    case b: Queue[_] ⇒
+    case b: Queue[_] =>
       require(b.size() == 0)
       require(maxCapacity > 0)
   }
 
-  protected val lock = new ReentrantLock(false)
+  protected val lock = createLock()
+  protected val notEmpty = createNotEmptyCondition()
+  protected val notFull = createNotFullCondition()
 
-  private val notEmpty = lock.newCondition()
-  private val notFull = lock.newCondition()
+  protected def createLock(): ReentrantLock = new ReentrantLock(false)
+  protected def createNotEmptyCondition(): Condition = lock.newCondition()
+  protected def createNotFullCondition(): Condition = lock.newCondition()
 
-  def put(e: E) { //Blocks until not full
+  def put(e: E): Unit = { //Blocks until not full
     if (e eq null) throw new NullPointerException
     lock.lockInterruptibly()
+
     try {
-      @tailrec def putElement() {
+      @tailrec def putElement(): Unit = {
         if (backing.size() < maxCapacity) {
           require(backing.offer(e))
           notEmpty.signal()
@@ -102,9 +108,9 @@ class BoundedBlockingQueue[E <: AnyRef](
     try {
       @tailrec def pollElement(remainingNanos: Long): E = {
         backing.poll() match {
-          case null if remainingNanos <= 0 ⇒ null.asInstanceOf[E]
-          case null                        ⇒ pollElement(notEmpty.awaitNanos(remainingNanos))
-          case e ⇒ {
+          case null if remainingNanos <= 0 => null.asInstanceOf[E]
+          case null                        => pollElement(notEmpty.awaitNanos(remainingNanos))
+          case e => {
             notFull.signal()
             e
           }
@@ -118,8 +124,8 @@ class BoundedBlockingQueue[E <: AnyRef](
     lock.lock()
     try {
       backing.poll() match {
-        case null ⇒ null.asInstanceOf[E]
-        case e ⇒
+        case null => null.asInstanceOf[E]
+        case e =>
           notFull.signal()
           e
       }
@@ -130,7 +136,7 @@ class BoundedBlockingQueue[E <: AnyRef](
     if (e eq null) throw new NullPointerException
     lock.lock()
     try {
-      if (backing remove e) {
+      if (backing.remove(e)) {
         notFull.signal()
         true
       } else false
@@ -140,10 +146,11 @@ class BoundedBlockingQueue[E <: AnyRef](
   override def contains(e: AnyRef): Boolean = {
     if (e eq null) throw new NullPointerException
     lock.lock()
-    try backing.contains(e) finally lock.unlock()
+    try backing.contains(e)
+    finally lock.unlock()
   }
 
-  override def clear() {
+  override def clear(): Unit = {
     lock.lock()
     try {
       backing.clear()
@@ -160,12 +167,14 @@ class BoundedBlockingQueue[E <: AnyRef](
 
   def size(): Int = {
     lock.lock()
-    try backing.size() finally lock.unlock()
+    try backing.size()
+    finally lock.unlock()
   }
 
   def peek(): E = {
     lock.lock()
-    try backing.peek() finally lock.unlock()
+    try backing.peek()
+    finally lock.unlock()
   }
 
   def drainTo(c: Collection[_ >: E]): Int = drainTo(c, Int.MaxValue)
@@ -181,8 +190,8 @@ class BoundedBlockingQueue[E <: AnyRef](
         @tailrec def drainOne(n: Int = 0): Int = {
           if (n < maxElements) {
             backing.poll() match {
-              case null ⇒ n
-              case e    ⇒ c add e; drainOne(n + 1)
+              case null => n
+              case e    => c.add(e); drainOne(n + 1)
             }
           } else n
         }
@@ -195,7 +204,8 @@ class BoundedBlockingQueue[E <: AnyRef](
 
   override def containsAll(c: Collection[_]): Boolean = {
     lock.lock()
-    try backing.containsAll(c) finally lock.unlock()
+    try backing.containsAll(c)
+    finally lock.unlock()
   }
 
   override def removeAll(c: Collection[_]): Boolean = {
@@ -239,7 +249,7 @@ class BoundedBlockingQueue[E <: AnyRef](
           elements(last).asInstanceOf[E]
         }
 
-        override def remove() {
+        override def remove(): Unit = {
           if (last < 0) throw new IllegalStateException
           val target = elements(last)
           last = -1 //To avoid 2 subsequent removes without a next in between
@@ -262,16 +272,19 @@ class BoundedBlockingQueue[E <: AnyRef](
 
   override def toArray(): Array[AnyRef] = {
     lock.lock()
-    try backing.toArray finally lock.unlock()
+    try backing.toArray
+    finally lock.unlock()
   }
 
   override def isEmpty(): Boolean = {
     lock.lock()
-    try backing.isEmpty() finally lock.unlock()
+    try backing.isEmpty()
+    finally lock.unlock()
   }
 
   override def toArray[X](a: Array[X with AnyRef]) = {
     lock.lock()
-    try backing.toArray[X](a) finally lock.unlock()
+    try backing.toArray[X](a)
+    finally lock.unlock()
   }
 }

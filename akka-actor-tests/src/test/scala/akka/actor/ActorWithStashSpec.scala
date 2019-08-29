@@ -1,15 +1,18 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
 
 import language.postfixOps
-
 import akka.testkit._
 import akka.testkit.DefaultTimeout
 import akka.testkit.TestEvent._
+
 import scala.concurrent.Await
 import akka.pattern.ask
+import com.github.ghik.silencer.silent
+
 import scala.concurrent.duration._
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.junit.JUnitSuiteLike
@@ -19,49 +22,49 @@ object ActorWithStashSpec {
   class StashingActor extends Actor with Stash {
     import context.system
     def greeted: Receive = {
-      case "bye" ⇒
+      case "bye" =>
         state.s = "bye"
         state.finished.await
-      case _ ⇒ // do nothing
+      case _ => // do nothing
     }
 
     def receive = {
-      case "hello" ⇒
+      case "hello" =>
         state.s = "hello"
         unstashAll()
         context.become(greeted)
-      case msg ⇒ stash()
+      case _ => stash()
     }
   }
 
   class StashingTwiceActor extends Actor with Stash {
     def receive = {
-      case "hello" ⇒
+      case "hello" =>
         try {
           stash()
           stash()
         } catch {
-          case e: IllegalStateException ⇒
+          case _: IllegalStateException =>
             state.expectedException.open()
         }
-      case msg ⇒ // do nothing
+      case _ => // do nothing
     }
   }
 
   class ActorWithProtocol extends Actor with Stash {
     import context.system
     def receive = {
-      case "open" ⇒
+      case "open" =>
         unstashAll()
         context.become {
-          case "write" ⇒ // do writing...
-          case "close" ⇒
+          case "write" => // do writing...
+          case "close" =>
             unstashAll()
             context.unbecome()
-          case msg ⇒ stash()
+          case _ => stash()
         }
-      case "done" ⇒ state.finished.await
-      case msg    ⇒ stash()
+      case "done" => state.finished.await
+      case _      => stash()
     }
   }
 
@@ -76,7 +79,7 @@ object ActorWithStashSpec {
     context.stop(watched)
 
     def receive = {
-      case Terminated(`watched`) ⇒
+      case Terminated(`watched`) =>
         if (!stashed) {
           stash()
           stashed = true
@@ -99,12 +102,14 @@ object ActorWithStashSpec {
 
 }
 
+@silent
 class JavaActorWithStashSpec extends StashJavaAPI with JUnitSuiteLike
 
+@silent
 class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with DefaultTimeout with BeforeAndAfterEach {
   import ActorWithStashSpec._
 
-  override def atStartup {
+  override def atStartup: Unit = {
     system.eventStream.publish(Mute(EventFilter[Exception]("Crashing...")))
   }
 
@@ -141,23 +146,24 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
     }
 
     "process stashed messages after restart" in {
-      val boss = system.actorOf(Props(new Supervisor(
-        OneForOneStrategy(maxNrOfRetries = 2, withinTimeRange = 1 second)(List(classOf[Throwable])))))
+      val boss = system.actorOf(
+        Props(
+          new Supervisor(OneForOneStrategy(maxNrOfRetries = 2, withinTimeRange = 1 second)(List(classOf[Throwable])))))
 
       val restartLatch = new TestLatch
       val hasMsgLatch = new TestLatch
 
       val slaveProps = Props(new Actor with Stash {
         def receive = {
-          case "crash" ⇒
+          case "crash" =>
             throw new Exception("Crashing...")
 
           // when restartLatch is not yet open, stash all messages != "crash"
-          case msg if !restartLatch.isOpen ⇒
+          case _ if !restartLatch.isOpen =>
             stash()
 
           // when restartLatch is open, must receive "hello"
-          case "hello" ⇒
+          case "hello" =>
             hasMsgLatch.open()
         }
 
@@ -181,36 +187,5 @@ class ActorWithStashSpec extends AkkaSpec(ActorWithStashSpec.testConf) with Defa
       expectMsg("terminated")
       expectMsg("terminated")
     }
-  }
-
-  "An ActWithStash" must {
-
-    "allow using whenRestarted" in {
-      import ActorDSL._
-      val a = actor(new ActWithStash {
-        become {
-          case "die" ⇒ throw new RuntimeException("dying")
-        }
-        whenRestarted { thr ⇒
-          testActor ! "restarted"
-        }
-      })
-      EventFilter[RuntimeException]("dying", occurrences = 1) intercept {
-        a ! "die"
-      }
-      expectMsg("restarted")
-    }
-
-    "allow using whenStopping" in {
-      import ActorDSL._
-      val a = actor(new ActWithStash {
-        whenStopping {
-          testActor ! "stopping"
-        }
-      })
-      a ! PoisonPill
-      expectMsg("stopping")
-    }
-
   }
 }

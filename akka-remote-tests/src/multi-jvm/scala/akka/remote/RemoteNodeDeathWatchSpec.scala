@@ -1,11 +1,12 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import language.postfixOps
 import scala.concurrent.duration._
-import com.typesafe.config.{ Config, ConfigFactory }
+import com.typesafe.config.ConfigFactory
 import akka.actor.Actor
 import akka.actor.ActorIdentity
 import akka.actor.ActorRef
@@ -15,8 +16,6 @@ import akka.actor.Props
 import akka.actor.Terminated
 import akka.remote.testconductor.RoleName
 import akka.remote.testkit.MultiNodeConfig
-import akka.remote.testkit.MultiNodeSpec
-import akka.remote.testkit.STMultiNodeSpec
 import akka.testkit._
 
 class RemoteNodeDeathWatchConfig(artery: Boolean) extends MultiNodeConfig {
@@ -24,14 +23,14 @@ class RemoteNodeDeathWatchConfig(artery: Boolean) extends MultiNodeConfig {
   val second = role("second")
   val third = role("third")
 
-  commonConfig(debugConfig(on = false).withFallback(
-    ConfigFactory.parseString(s"""
+  commonConfig(debugConfig(on = false).withFallback(ConfigFactory.parseString(s"""
       akka.loglevel = INFO
       akka.remote.log-remote-lifecycle-events = off
       ## Use a tighter setting than the default, otherwise it takes 20s for DeathWatch to trigger
       akka.remote.watch-failure-detector.acceptable-heartbeat-pause = 3 s
       akka.remote.artery.enabled = $artery
-      """)).withFallback(RemotingMultiNodeSpec.arteryFlightRecordingConf))
+      akka.remote.use-unsafe-remote-features-outside-cluster = on
+      """)).withFallback(RemotingMultiNodeSpec.commonConfig))
 
 }
 
@@ -45,8 +44,8 @@ class ArteryRemoteNodeDeathWatchFastMultiJvmNode1 extends RemoteNodeDeathWatchFa
 class ArteryRemoteNodeDeathWatchFastMultiJvmNode2 extends RemoteNodeDeathWatchFastSpec(artery = true)
 class ArteryRemoteNodeDeathWatchFastMultiJvmNode3 extends RemoteNodeDeathWatchFastSpec(artery = true)
 
-abstract class RemoteNodeDeathWatchFastSpec(artery: Boolean) extends RemoteNodeDeathWatchSpec(
-  new RemoteNodeDeathWatchConfig(artery)) {
+abstract class RemoteNodeDeathWatchFastSpec(artery: Boolean)
+    extends RemoteNodeDeathWatchSpec(new RemoteNodeDeathWatchConfig(artery)) {
   override def scenario = "fast"
 }
 
@@ -58,15 +57,16 @@ class ArteryRemoteNodeDeathWatchSlowMultiJvmNode1 extends RemoteNodeDeathWatchSl
 class ArteryRemoteNodeDeathWatchSlowMultiJvmNode2 extends RemoteNodeDeathWatchSlowSpec(artery = true)
 class ArteryRemoteNodeDeathWatchSlowMultiJvmNode3 extends RemoteNodeDeathWatchSlowSpec(artery = true)
 
-abstract class RemoteNodeDeathWatchSlowSpec(artery: Boolean) extends RemoteNodeDeathWatchSpec(
-  new RemoteNodeDeathWatchConfig(artery)) {
+abstract class RemoteNodeDeathWatchSlowSpec(artery: Boolean)
+    extends RemoteNodeDeathWatchSpec(new RemoteNodeDeathWatchConfig(artery)) {
   override def scenario = "slow"
   override def sleep(): Unit = Thread.sleep(3000)
 }
 
 object RemoteNodeDeathWatchSpec {
-  final case class WatchIt(watchee: ActorRef)
-  final case class UnwatchIt(watchee: ActorRef)
+  sealed trait DeathWatchIt
+  final case class WatchIt(watchee: ActorRef) extends DeathWatchIt
+  final case class UnwatchIt(watchee: ActorRef) extends DeathWatchIt
   case object Ack
 
   /**
@@ -77,22 +77,21 @@ object RemoteNodeDeathWatchSpec {
 
   class ProbeActor(testActor: ActorRef) extends Actor {
     def receive = {
-      case WatchIt(watchee) ⇒
-        context watch watchee
+      case WatchIt(watchee) =>
+        context.watch(watchee)
         sender() ! Ack
-      case UnwatchIt(watchee) ⇒
-        context unwatch watchee
+      case UnwatchIt(watchee) =>
+        context.unwatch(watchee)
         sender() ! Ack
-      case t: Terminated ⇒
-        testActor forward WrappedTerminated(t)
-      case msg ⇒ testActor forward msg
+      case t: Terminated =>
+        testActor.forward(WrappedTerminated(t))
+      case msg => testActor.forward(msg)
     }
   }
-
 }
 
 abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchConfig)
-  extends RemotingMultiNodeSpec(multiNodeConfig) {
+    extends RemotingMultiNodeSpec(multiNodeConfig) {
   import multiNodeConfig._
   import RemoteNodeDeathWatchSpec._
   import RemoteWatcher._
@@ -112,7 +111,9 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
   def identify(role: RoleName, actorName: String): ActorRef = {
     system.actorSelection(node(role) / "user" / actorName) ! Identify(actorName)
-    expectMsgType[ActorIdentity].ref.get
+    val actorIdentity = expectMsgType[ActorIdentity]
+    assert(actorIdentity.ref.isDefined, s"Unable to Identify actor: $actorName on node: $role")
+    actorIdentity.ref.get
   }
 
   def assertCleanup(timeout: FiniteDuration = 5.seconds): Unit = {
@@ -164,7 +165,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
       // verify that things are cleaned up, and heartbeating is stopped
       assertCleanup()
-      expectNoMsg(2.seconds)
+      expectNoMessage(2.seconds)
       assertCleanup()
 
       enterBarrier("after-1")
@@ -197,7 +198,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
       // verify that things are cleaned up, and heartbeating is stopped
       assertCleanup()
-      expectNoMsg(2.seconds)
+      expectNoMessage(2.seconds)
       assertCleanup()
 
       enterBarrier("after-2")
@@ -229,7 +230,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
       // verify that things are cleaned up, and heartbeating is stopped
       assertCleanup()
-      expectNoMsg(2.seconds)
+      expectNoMessage(2.seconds)
       assertCleanup()
 
       enterBarrier("after-3")
@@ -257,7 +258,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
         expectMsg(1 second, Ack)
         enterBarrier("unwatch-s1-4")
         system.stop(s1)
-        expectNoMsg(2 seconds)
+        expectNoMessage(2 seconds)
         enterBarrier("stop-s1-4")
 
         system.stop(s2)
@@ -276,7 +277,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
       // verify that things are cleaned up, and heartbeating is stopped
       assertCleanup()
-      expectNoMsg(2.seconds)
+      expectNoMessage(2.seconds)
       assertCleanup()
 
       enterBarrier("after-4")
@@ -318,7 +319,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
         // verify that things are cleaned up, and heartbeating is stopped
         assertCleanup()
-        expectNoMsg(2.seconds)
+        expectNoMessage(2.seconds)
         assertCleanup()
       }
 
@@ -350,17 +351,17 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
         enterBarrier("watch-established-5")
         enterBarrier("stopped-5")
 
-        p1.receiveN(2, 5 seconds).collect { case WrappedTerminated(t) ⇒ t.actor }.toSet should ===(Set(a1, a2))
+        p1.receiveN(2, 5 seconds).collect { case WrappedTerminated(t) => t.actor }.toSet should ===(Set(a1, a2))
         p3.expectMsgType[WrappedTerminated](5 seconds).t.actor should ===(a3)
-        p2.expectNoMsg(2 seconds)
+        p2.expectNoMessage(2 seconds)
         enterBarrier("terminated-verified-5")
 
         // verify that things are cleaned up, and heartbeating is stopped
         assertCleanup()
-        expectNoMsg(2.seconds)
-        p1.expectNoMsg(100 millis)
-        p2.expectNoMsg(100 millis)
-        p3.expectNoMsg(100 millis)
+        expectNoMessage(2.seconds)
+        p1.expectNoMessage(100 millis)
+        p2.expectNoMessage(100 millis)
+        p3.expectNoMessage(100 millis)
         assertCleanup()
       }
 
@@ -402,7 +403,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
         // verify that things are cleaned up, and heartbeating is stopped
         assertCleanup()
-        expectNoMsg(2.seconds)
+        expectNoMessage(2.seconds)
         assertCleanup()
       }
 
@@ -447,7 +448,7 @@ abstract class RemoteNodeDeathWatchSpec(multiNodeConfig: RemoteNodeDeathWatchCon
 
         // verify that things are cleaned up, and heartbeating is stopped
         assertCleanup(20 seconds)
-        expectNoMsg(2.seconds)
+        expectNoMessage(2.seconds)
         assertCleanup()
       }
 

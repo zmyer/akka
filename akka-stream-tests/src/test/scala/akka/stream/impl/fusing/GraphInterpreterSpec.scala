@@ -1,14 +1,12 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl.fusing
 
-import akka.NotUsed
+import akka.stream.OverflowStrategy
+import akka.stream.scaladsl.{ Balance, Broadcast, Merge, Zip }
 import akka.stream.testkit.StreamSpec
-import akka.stream.{ OverflowStrategy, Attributes }
-import akka.stream.stage.AbstractStage.PushPullGraphStage
-import akka.stream.scaladsl.{ Merge, Broadcast, Balance, Zip }
-import GraphInterpreter._
 
 class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
   import GraphStages._
@@ -27,10 +25,7 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       val source = new UpstreamProbe[Int]("source")
       val sink = new DownstreamProbe[Int]("sink")
 
-      builder(identity)
-        .connect(source, identity.in)
-        .connect(identity.out, sink)
-        .init()
+      builder(identity).connect(source, identity.in).connect(identity.out, sink).init()
 
       lastEvents() should ===(Set.empty)
 
@@ -46,18 +41,10 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       val sink = new DownstreamProbe[Int]("sink")
 
       // Constructing an assembly by hand and resolving ambiguities
-      val assembly = new GraphAssembly(
-        stages = Array(identity, identity),
-        originalAttributes = Array(Attributes.none, Attributes.none),
-        ins = Array(identity.in, identity.in, null),
-        inOwners = Array(0, 1, -1),
-        outs = Array(null, identity.out, identity.out),
-        outOwners = Array(-1, 0, 1))
+      val (logics, _, _) = GraphInterpreterSpecKit.createLogics(Array(identity), Array(source), Array(sink))
+      val connections = GraphInterpreterSpecKit.createLinearFlowConnections(logics.toIndexedSeq)
 
-      manualInit(assembly)
-      interpreter.attachDownstreamBoundary(2, sink)
-      interpreter.attachUpstreamBoundary(0, source)
-      interpreter.init(null)
+      manualInit(logics, connections)
 
       lastEvents() should ===(Set.empty)
 
@@ -67,15 +54,11 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       source.onNext(1)
       lastEvents() should ===(Set(OnNext(sink, 1)))
     }
-
     "implement detacher stage" in new TestSetup {
       val source = new UpstreamProbe[Int]("source")
       val sink = new DownstreamProbe[Int]("sink")
 
-      builder(detach)
-        .connect(source, detach.shape.in)
-        .connect(detach.shape.out, sink)
-        .init()
+      builder(detach).connect(source, detach.shape.in).connect(detach.shape.out, sink).init()
 
       lastEvents() should ===(Set.empty)
 
@@ -107,11 +90,7 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       val source2 = new UpstreamProbe[String]("source2")
       val sink = new DownstreamProbe[(Int, String)]("sink")
 
-      builder(zip)
-        .connect(source1, zip.in0)
-        .connect(source2, zip.in1)
-        .connect(zip.out, sink)
-        .init()
+      builder(zip).connect(source1, zip.in0).connect(source2, zip.in1).connect(zip.out, sink).init()
 
       lastEvents() should ===(Set.empty)
 
@@ -130,11 +109,7 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       val sink1 = new DownstreamProbe[Int]("sink1")
       val sink2 = new DownstreamProbe[Int]("sink2")
 
-      builder(bcast)
-        .connect(source, bcast.in)
-        .connect(bcast.out(0), sink1)
-        .connect(bcast.out(1), sink2)
-        .init()
+      builder(bcast).connect(source, bcast.in).connect(bcast.out(0), sink1).connect(bcast.out(1), sink2).init()
 
       lastEvents() should ===(Set.empty)
 
@@ -202,7 +177,8 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       lastEvents() should ===(Set.empty)
 
       source2.onNext(2)
-      lastEvents() should ===(Set(OnNext(sink1, (1, 2)), OnNext(sink2, (1, 2)), RequestOne(source1), RequestOne(source2)))
+      lastEvents() should ===(
+        Set(OnNext(sink1, (1, 2)), OnNext(sink2, (1, 2)), RequestOne(source1), RequestOne(source2)))
 
     }
 
@@ -211,11 +187,7 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       val source2 = new UpstreamProbe[Int]("source2")
       val sink = new DownstreamProbe[Int]("sink")
 
-      builder(merge)
-        .connect(source1, merge.in(0))
-        .connect(source2, merge.in(1))
-        .connect(merge.out, sink)
-        .init()
+      builder(merge).connect(source1, merge.in(0)).connect(source2, merge.in(1)).connect(merge.out, sink).init()
 
       lastEvents() should ===(Set.empty)
 
@@ -250,11 +222,7 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
       val sink1 = new DownstreamProbe[Int]("sink1")
       val sink2 = new DownstreamProbe[Int]("sink2")
 
-      builder(balance)
-        .connect(source, balance.in)
-        .connect(balance.out(0), sink1)
-        .connect(balance.out(1), sink2)
-        .init()
+      builder(balance).connect(source, balance.in).connect(balance.out(0), sink1).connect(balance.out(1), sink2).init()
 
       lastEvents() should ===(Set.empty)
 
@@ -341,14 +309,9 @@ class GraphInterpreterSpec extends StreamSpec with GraphInterpreterSpecKit {
     "implement buffer" in new TestSetup {
       val source = new UpstreamProbe[String]("source")
       val sink = new DownstreamProbe[String]("sink")
-      val buffer = new PushPullGraphStage[String, String, NotUsed](
-        (_) ⇒ new Buffer[String](2, OverflowStrategy.backpressure),
-        Attributes.none)
+      val buffer = Buffer[String](2, OverflowStrategy.backpressure)
 
-      builder(buffer)
-        .connect(source, buffer.shape.in)
-        .connect(buffer.shape.out, sink)
-        .init()
+      builder(buffer).connect(source, buffer.in).connect(buffer.out, sink).init()
 
       stepAll()
       lastEvents() should ===(Set(RequestOne(source)))

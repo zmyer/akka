@@ -1,23 +1,18 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import java.util.concurrent.TimeUnit
-import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.stream.scaladsl._
 import com.typesafe.config.ConfigFactory
 import org.openjdk.jmh.annotations._
-import scala.concurrent.Lock
-import scala.util.Success
-import akka.stream.impl.fusing.GraphStages
-import org.reactivestreams._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import akka.stream.ActorMaterializer
 import akka.stream.ActorMaterializerSettings
-import java.util.concurrent.Semaphore
 import akka.stream.OverflowStrategy
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.CountDownLatch
@@ -32,10 +27,8 @@ import org.agrona.concurrent.ManyToOneConcurrentArrayQueue
 @Measurement(iterations = 10)
 class SendQueueBenchmark {
 
-  val config = ConfigFactory.parseString(
-    """
-    """
-  )
+  val config = ConfigFactory.parseString("""
+    """)
 
   implicit val system = ActorSystem("SendQueueBenchmark", config)
 
@@ -62,8 +55,10 @@ class SendQueueBenchmark {
 
     val source = Source.queue[Int](1024, OverflowStrategy.dropBuffer)
 
-    val (queue, killSwitch) = source.viaMat(KillSwitches.single)(Keep.both)
-      .toMat(new BarrierSink(N, latch, burstSize, barrier))(Keep.left).run()(materializer)
+    val (queue, killSwitch) = source
+      .viaMat(KillSwitches.single)(Keep.both)
+      .toMat(new BarrierSink(N, latch, burstSize, barrier))(Keep.left)
+      .run()(materializer)
 
     var n = 1
     while (n <= N) {
@@ -89,8 +84,10 @@ class SendQueueBenchmark {
 
     val source = Source.actorRef(1024, OverflowStrategy.dropBuffer)
 
-    val (ref, killSwitch) = source.viaMat(KillSwitches.single)(Keep.both)
-      .toMat(new BarrierSink(N, latch, burstSize, barrier))(Keep.left).run()(materializer)
+    val (ref, killSwitch) = source
+      .viaMat(KillSwitches.single)(Keep.both)
+      .toMat(new BarrierSink(N, latch, burstSize, barrier))(Keep.left)
+      .run()(materializer)
 
     var n = 1
     while (n <= N) {
@@ -115,10 +112,12 @@ class SendQueueBenchmark {
     val burstSize = 1000
 
     val queue = new ManyToOneConcurrentArrayQueue[Int](1024)
-    val source = Source.fromGraph(new SendQueue[Int])
+    val source = Source.fromGraph(new SendQueue[Int](_ => ()))
 
-    val (sendQueue, killSwitch) = source.viaMat(KillSwitches.single)(Keep.both)
-      .toMat(new BarrierSink(N, latch, burstSize, barrier))(Keep.left).run()(materializer)
+    val (sendQueue, killSwitch) = source
+      .viaMat(KillSwitches.single)(Keep.both)
+      .toMat(new BarrierSink(N, latch, burstSize, barrier))(Keep.left)
+      .run()(materializer)
     sendQueue.inject(queue)
 
     var n = 1

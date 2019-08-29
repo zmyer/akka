@@ -1,21 +1,17 @@
 /*
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.stream;
 
-import org.scalatest.junit.JUnitSuite;
-
 import akka.actor.ActorSystem;
 import akka.testkit.AkkaJUnitActorSystemResource;
+import org.scalatest.junit.JUnitSuite;
 
 public abstract class StreamTest extends JUnitSuite {
-    final protected ActorSystem system;
-    final protected ActorMaterializer materializer;
+  protected final ActorSystem system;
 
-    protected StreamTest(AkkaJUnitActorSystemResource actorSystemResource) {
-        system = actorSystemResource.getSystem();
-        ActorMaterializerSettings settings = ActorMaterializerSettings.create(system);
-        materializer = ActorMaterializer.create(settings, system);
-    }
+  protected StreamTest(AkkaJUnitActorSystemResource actorSystemResource) {
+    system = actorSystemResource.getSystem();
+  }
 }

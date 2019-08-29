@@ -1,20 +1,23 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl
 
 import java.util.concurrent.atomic.AtomicReference
+
 import scala.annotation.tailrec
 import scala.collection.immutable
-import scala.util.control.{ NoStackTrace }
+import scala.util.control.NoStackTrace
 import akka.actor.{ Actor, ActorRef, Terminated }
+import akka.annotation.InternalApi
 import org.reactivestreams.{ Publisher, Subscriber }
 import org.reactivestreams.Subscription
 
 /**
  * INTERNAL API
  */
-object ActorPublisher {
+@InternalApi private[akka] object ActorPublisher {
   val NormalShutdownReasonMessage = "Cannot subscribe to shut-down Publisher"
   class NormalShutdownException extends IllegalStateException(NormalShutdownReasonMessage) with NoStackTrace
   val NormalShutdownReason: Throwable = new NormalShutdownException
@@ -35,7 +38,7 @@ object ActorPublisher {
  * When you instantiate this class, or its subclasses, you MUST send an ExposedPublisher message to the wrapped
  * ActorRef! If you don't need to subclass, prefer the apply() method on the companion object which takes care of this.
  */
-class ActorPublisher[T](val impl: ActorRef) extends Publisher[T] {
+@InternalApi private[akka] class ActorPublisher[T](val impl: ActorRef) extends Publisher[T] {
   import ReactiveStreamsCompliance._
 
   // The subscriber of an subscription attempt is first placed in this list of pending subscribers.
@@ -72,8 +75,8 @@ class ActorPublisher[T](val impl: ActorRef) extends Publisher[T] {
   def shutdown(reason: Option[Throwable]): Unit = {
     shutdownReason = reason
     pendingSubscribers.getAndSet(null) match {
-      case null    ⇒ // already called earlier
-      case pending ⇒ pending foreach reportSubscribeFailure
+      case null    => // already called earlier
+      case pending => pending.foreach(reportSubscribeFailure)
     }
   }
 
@@ -81,15 +84,15 @@ class ActorPublisher[T](val impl: ActorRef) extends Publisher[T] {
 
   private def reportSubscribeFailure(subscriber: Subscriber[_ >: T]): Unit =
     try shutdownReason match {
-      case Some(e: SpecViolation) ⇒ // ok, not allowed to call onError
-      case Some(e) ⇒
+      case Some(_: SpecViolation) => // ok, not allowed to call onError
+      case Some(e) =>
         tryOnSubscribe(subscriber, CancelledSubscription)
         tryOnError(subscriber, e)
-      case None ⇒
+      case None =>
         tryOnSubscribe(subscriber, CancelledSubscription)
         tryOnComplete(subscriber)
     } catch {
-      case _: SpecViolation ⇒ // nothing to do
+      case _: SpecViolation => // nothing to do
     }
 
 }
@@ -97,7 +100,10 @@ class ActorPublisher[T](val impl: ActorRef) extends Publisher[T] {
 /**
  * INTERNAL API
  */
-private[akka] class ActorSubscription[T]( final val impl: ActorRef, final val subscriber: Subscriber[_ >: T]) extends Subscription {
+@InternalApi private[akka] class ActorSubscription[T](
+    final val impl: ActorRef,
+    final val subscriber: Subscriber[_ >: T])
+    extends Subscription {
   override def request(elements: Long): Unit = impl ! RequestMore(this, elements)
   override def cancel(): Unit = impl ! Cancel(this)
 }
@@ -105,24 +111,24 @@ private[akka] class ActorSubscription[T]( final val impl: ActorRef, final val su
 /**
  * INTERNAL API
  */
-private[akka] class ActorSubscriptionWithCursor[T](_impl: ActorRef, _subscriber: Subscriber[_ >: T])
-  extends ActorSubscription[T](_impl, _subscriber) with SubscriptionWithCursor[T]
+@InternalApi private[akka] class ActorSubscriptionWithCursor[T](_impl: ActorRef, _subscriber: Subscriber[_ >: T])
+    extends ActorSubscription[T](_impl, _subscriber)
+    with SubscriptionWithCursor[T]
 
 /**
  * INTERNAL API
  */
-private[akka] trait SoftShutdown { this: Actor ⇒
+@InternalApi private[akka] trait SoftShutdown { this: Actor =>
   def softShutdown(): Unit = {
     val children = context.children
     if (children.isEmpty) {
       context.stop(self)
     } else {
-      context.children foreach context.watch
+      context.children.foreach(context.watch)
       context.become {
-        case Terminated(_) ⇒ if (context.children.isEmpty) context.stop(self)
-        case _             ⇒ // ignore all the rest, we’re practically dead
+        case Terminated(_) => if (context.children.isEmpty) context.stop(self)
+        case _             => // ignore all the rest, we’re practically dead
       }
     }
   }
 }
-

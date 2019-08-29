@@ -1,18 +1,20 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.transport
 
-import TestTransport._
+import java.util.concurrent.{ ConcurrentHashMap, CopyOnWriteArrayList }
+
 import akka.actor._
 import akka.remote.transport.AssociationHandle._
 import akka.remote.transport.Transport._
 import akka.util.ByteString
 import com.typesafe.config.Config
-import java.util.concurrent.{ CopyOnWriteArrayList, ConcurrentHashMap }
+import TestTransport._
+
 import scala.concurrent.duration._
 import scala.concurrent.{ Await, Future, Promise }
-
 import scala.concurrent.ExecutionContext.Implicits.global
 
 /**
@@ -23,11 +25,13 @@ import scala.concurrent.ExecutionContext.Implicits.global
  * requested to do. This class is not optimized for performance and MUST not be used as an in-memory transport in
  * production systems.
  */
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 class TestTransport(
-  val localAddress:        Address,
-  final val registry:      AssociationRegistry,
-  val maximumPayloadBytes: Int                 = 32000,
-  val schemeIdentifier:    String              = "test") extends Transport {
+    val localAddress: Address,
+    final val registry: AssociationRegistry,
+    val maximumPayloadBytes: Int = 32000,
+    val schemeIdentifier: String = "test")
+    extends Transport {
 
   def this(system: ExtendedActorSystem, conf: Config) = {
     this(
@@ -36,8 +40,6 @@ class TestTransport(
       conf.getBytes("maximum-payload-bytes").toInt,
       conf.getString("scheme-identifier"))
   }
-
-  import akka.remote.transport.TestTransport._
 
   override def isResponsibleFor(address: Address): Boolean = true
 
@@ -51,36 +53,40 @@ class TestTransport(
   private def defaultAssociate(remoteAddress: Address): Future[AssociationHandle] = {
     registry.transportFor(remoteAddress) match {
 
-      case Some((remoteTransport, remoteListenerFuture)) ⇒
+      case Some((remoteTransport, remoteListenerFuture)) =>
         val (localHandle, remoteHandle) = createHandlePair(remoteTransport, remoteAddress)
         localHandle.writable = false
         remoteHandle.writable = false
 
         // Pass a non-writable handle to remote first
-        remoteListenerFuture flatMap {
-          case listener ⇒
-            listener notify InboundAssociation(remoteHandle)
+        remoteListenerFuture.flatMap {
+          case listener =>
+            listener.notify(InboundAssociation(remoteHandle))
             val remoteHandlerFuture = remoteHandle.readHandlerPromise.future
 
             // Registration of reader at local finishes the registration and enables communication
             for {
-              remoteListener ← remoteHandlerFuture
-              localListener ← localHandle.readHandlerPromise.future
+              remoteListener <- remoteHandlerFuture
+              localListener <- localHandle.readHandlerPromise.future
             } {
               registry.registerListenerPair(localHandle.key, (localListener, remoteListener))
               localHandle.writable = true
               remoteHandle.writable = true
             }
 
-            remoteHandlerFuture.map { _ ⇒ localHandle }
+            remoteHandlerFuture.map { _ =>
+              localHandle
+            }
         }
 
-      case None ⇒
+      case None =>
         Future.failed(new InvalidAssociationException(s"No registered transport: $remoteAddress", null))
     }
   }
 
-  private def createHandlePair(remoteTransport: TestTransport, remoteAddress: Address): (TestAssociationHandle, TestAssociationHandle) = {
+  private def createHandlePair(
+      remoteTransport: TestTransport,
+      remoteAddress: Address): (TestAssociationHandle, TestAssociationHandle) = {
     val localHandle = new TestAssociationHandle(localAddress, remoteAddress, this, inbound = false)
     val remoteHandle = new TestAssociationHandle(remoteAddress, localAddress, remoteTransport, inbound = true)
 
@@ -93,22 +99,22 @@ class TestTransport(
    * The [[akka.remote.transport.TestTransport.SwitchableLoggedBehavior]] for the listen() method.
    */
   val listenBehavior = new SwitchableLoggedBehavior[Unit, (Address, Promise[AssociationEventListener])](
-    (_) ⇒ defaultListen,
-    (_) ⇒ registry.logActivity(ListenAttempt(localAddress)))
+    (_) => defaultListen,
+    (_) => registry.logActivity(ListenAttempt(localAddress)))
 
   /**
    * The [[akka.remote.transport.TestTransport.SwitchableLoggedBehavior]] for the associate() method.
    */
   val associateBehavior = new SwitchableLoggedBehavior[Address, AssociationHandle](
     defaultAssociate _,
-    (remoteAddress) ⇒ registry.logActivity(AssociateAttempt(localAddress, remoteAddress)))
+    (remoteAddress) => registry.logActivity(AssociateAttempt(localAddress, remoteAddress)))
 
   /**
    * The [[akka.remote.transport.TestTransport.SwitchableLoggedBehavior]] for the shutdown() method.
    */
   val shutdownBehavior = new SwitchableLoggedBehavior[Unit, Boolean](
-    (_) ⇒ defaultShutdown,
-    (_) ⇒ registry.logActivity(ShutdownAttempt(localAddress)))
+    (_) => defaultShutdown,
+    (_) => registry.logActivity(ShutdownAttempt(localAddress)))
 
   override def listen: Future[(Address, Promise[AssociationEventListener])] = listenBehavior(())
   // Need to do like this for binary compatibility reasons
@@ -118,17 +124,17 @@ class TestTransport(
 
   private def defaultWrite(params: (TestAssociationHandle, ByteString)): Future[Boolean] = {
     registry.getRemoteReadHandlerFor(params._1) match {
-      case Some(listener) ⇒
-        listener notify InboundPayload(params._2)
+      case Some(listener) =>
+        listener.notify(InboundPayload(params._2))
         Future.successful(true)
-      case None ⇒
+      case None =>
         Future.failed(new IllegalStateException("No association present"))
     }
   }
 
   private def defaultDisassociate(handle: TestAssociationHandle): Future[Unit] = {
     registry.deregisterAssociation(handle.key).foreach {
-      registry.remoteListenerRelativeTo(handle, _) notify Disassociated(AssociationHandle.Unknown)
+      registry.remoteListenerRelativeTo(handle, _).notify(Disassociated(AssociationHandle.Unknown))
     }
     Future.successful(())
   }
@@ -139,12 +145,10 @@ class TestTransport(
    * altering the behavior via pushDelayed will turn write to a blocking operation -- use of pushDelayed therefore
    * is not recommended.
    */
-  val writeBehavior = new SwitchableLoggedBehavior[(TestAssociationHandle, ByteString), Boolean](
-    defaultBehavior = {
+  val writeBehavior = new SwitchableLoggedBehavior[(TestAssociationHandle, ByteString), Boolean](defaultBehavior = {
     defaultWrite _
-  },
-    logCallback = {
-    case (handle, payload) ⇒
+  }, logCallback = {
+    case (handle, payload) =>
       registry.logActivity(WriteAttempt(handle.localAddress, handle.remoteAddress, payload))
   })
 
@@ -152,13 +156,10 @@ class TestTransport(
    * The [[akka.remote.transport.TestTransport.SwitchableLoggedBehavior]] for the disassociate() method on handles. All
    * handle calls pass through this call.
    */
-  val disassociateBehavior = new SwitchableLoggedBehavior[TestAssociationHandle, Unit](
-    defaultBehavior = {
+  val disassociateBehavior = new SwitchableLoggedBehavior[TestAssociationHandle, Unit](defaultBehavior = {
     defaultDisassociate _
-  },
-    logCallback = {
-    (handle) ⇒
-      registry.logActivity(DisassociateAttempt(handle.localAddress, handle.remoteAddress))
+  }, logCallback = { (handle) =>
+    registry.logActivity(DisassociateAttempt(handle.localAddress, handle.remoteAddress))
   })
 
   private[akka] def write(handle: TestAssociationHandle, payload: ByteString): Boolean =
@@ -170,9 +171,10 @@ class TestTransport(
 
 }
 
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 object TestTransport {
 
-  type Behavior[A, B] = (A) ⇒ Future[B]
+  type Behavior[A, B] = (A) => Future[B]
 
   /**
    * Test utility to make behavior of functions that return some Future[B] controllable from tests. This tool is able
@@ -195,7 +197,8 @@ object TestTransport {
    * type parameter B:
    *  - Type parameter of the future that the original function returns.
    */
-  class SwitchableLoggedBehavior[A, B](defaultBehavior: Behavior[A, B], logCallback: (A) ⇒ Unit) extends Behavior[A, B] {
+  class SwitchableLoggedBehavior[A, B](defaultBehavior: Behavior[A, B], logCallback: (A) => Unit)
+      extends Behavior[A, B] {
 
     private val behaviorStack = new CopyOnWriteArrayList[Behavior[A, B]]()
     behaviorStack.add(0, defaultBehavior)
@@ -216,8 +219,8 @@ object TestTransport {
      * @param c
      *   The constant the future will be completed with.
      */
-    def pushConstant(c: B): Unit = push {
-      (x) ⇒ Future.successful(c)
+    def pushConstant(c: B): Unit = push { _ =>
+      Future.successful(c)
     }
 
     /**
@@ -226,8 +229,8 @@ object TestTransport {
      * @param e
      *   The throwable the failed future will contain.
      */
-    def pushError(e: Throwable): Unit = push {
-      (x) ⇒ Future.failed(e)
+    def pushError(e: Throwable): Unit = push { _ =>
+      Future.failed(e)
     }
 
     /**
@@ -241,8 +244,7 @@ object TestTransport {
       val controlPromise: Promise[Unit] = Promise()
       val originalBehavior = currentBehavior
 
-      push(
-        (params: A) ⇒ for (delayed ← controlPromise.future; original ← originalBehavior(params)) yield original)
+      push((params: A) => controlPromise.future.flatMap(_ => originalBehavior(params)))
 
       controlPromise
     }
@@ -300,10 +302,10 @@ object TestTransport {
      * @return
      */
     def remoteListenerRelativeTo(
-      handle:       TestAssociationHandle,
-      listenerPair: (HandleEventListener, HandleEventListener)): HandleEventListener = {
+        handle: TestAssociationHandle,
+        listenerPair: (HandleEventListener, HandleEventListener)): HandleEventListener = {
       listenerPair match {
-        case (initiator, receiver) ⇒ if (handle.inbound) initiator else receiver
+        case (initiator, receiver) => if (handle.inbound) initiator else receiver
       }
     }
 
@@ -345,7 +347,9 @@ object TestTransport {
      * @param associationEventListenerFuture
      *   The future that will be completed with the listener that will handle the events for the given transport.
      */
-    def registerTransport(transport: TestTransport, associationEventListenerFuture: Future[AssociationEventListener]): Unit = {
+    def registerTransport(
+        transport: TestTransport,
+        associationEventListenerFuture: Future[AssociationEventListener]): Unit = {
       transportTable.put(transport.localAddress, (transport, associationEventListenerFuture))
     }
 
@@ -359,7 +363,7 @@ object TestTransport {
      *   True if all transports are successfully registered.
      */
     def transportsReady(addresses: Address*): Boolean = {
-      addresses forall {
+      addresses.forall {
         transportTable.containsKey(_)
       }
     }
@@ -407,7 +411,7 @@ object TestTransport {
      * @return The option that contains the Future for the listener if exists.
      */
     def getRemoteReadHandlerFor(localHandle: TestAssociationHandle): Option[HandleEventListener] = {
-      Option(listenersTable.get(localHandle.key)) map { remoteListenerRelativeTo(localHandle, _) }
+      Option(listenersTable.get(localHandle.key)).map { remoteListenerRelativeTo(localHandle, _) }
     }
 
     /**
@@ -437,7 +441,8 @@ object TestTransport {
  of the shared instance must happen during the startup time of the actor system. Association registries are looked
  up via a string key. Until we find a better way to inject an AssociationRegistry to multiple actor systems it is
  strongly recommended to use long, randomly generated strings to key the registry to avoid interference between tests.
-*/
+ */
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 object AssociationRegistry {
   private final val registries = scala.collection.mutable.Map[String, AssociationRegistry]()
 
@@ -448,11 +453,13 @@ object AssociationRegistry {
   def clear(): Unit = this.synchronized { registries.clear() }
 }
 
+@deprecated("Classic remoting is deprecated, use Artery", "2.6.0")
 final case class TestAssociationHandle(
-  localAddress:  Address,
-  remoteAddress: Address,
-  transport:     TestTransport,
-  inbound:       Boolean) extends AssociationHandle {
+    localAddress: Address,
+    remoteAddress: Address,
+    transport: TestTransport,
+    inbound: Boolean)
+    extends AssociationHandle {
 
   @volatile var writable = true
 

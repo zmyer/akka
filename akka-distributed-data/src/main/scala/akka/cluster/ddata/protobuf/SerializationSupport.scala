@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.ddata.protobuf
 
 import java.io.ByteArrayInputStream
@@ -8,21 +9,23 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import scala.annotation.tailrec
+import scala.collection.immutable.TreeMap
+import akka.util.ccompat.JavaConverters._
 import akka.actor.ActorRef
 import akka.actor.Address
 import akka.actor.ExtendedActorSystem
 import akka.cluster.UniqueAddress
-import akka.cluster.ddata.protobuf.msg.{ ReplicatorMessages ⇒ dm }
-import akka.serialization.JSerializer
-import akka.serialization.Serialization
-import akka.serialization.SerializationExtension
-import akka.protobuf.ByteString
-import akka.protobuf.MessageLite
-import akka.serialization.SerializerWithStringManifest
+import akka.cluster.ddata.protobuf.msg.{ ReplicatorMessages => dm }
+import akka.serialization._
+import akka.protobufv3.internal.ByteString
+import akka.protobufv3.internal.MessageLite
+import akka.cluster.ddata.VersionVector
+import akka.util.ccompat._
 
 /**
  * Some useful serialization helper methods.
  */
+@ccompatUsedUntil213
 trait SerializationSupport {
 
   private final val BufferSize = 1024 * 4
@@ -67,8 +70,8 @@ trait SerializationSupport {
     val buffer = new Array[Byte](BufferSize)
 
     @tailrec def readChunk(): Unit = in.read(buffer) match {
-      case -1 ⇒ ()
-      case n ⇒
+      case -1 => ()
+      case n =>
         out.write(buffer, 0, n)
         readChunk()
     }
@@ -79,30 +82,55 @@ trait SerializationSupport {
   }
 
   def addressToProto(address: Address): dm.Address.Builder = address match {
-    case Address(_, _, Some(host), Some(port)) ⇒
+    case Address(_, _, Some(host), Some(port)) =>
       dm.Address.newBuilder().setHostname(host).setPort(port)
-    case _ ⇒ throw new IllegalArgumentException(s"Address [${address}] could not be serialized: host or port missing.")
+    case _ => throw new IllegalArgumentException(s"Address [${address}] could not be serialized: host or port missing.")
   }
 
   def addressFromProto(address: dm.Address): Address =
     Address(addressProtocol, system.name, address.getHostname, address.getPort)
 
   def uniqueAddressToProto(uniqueAddress: UniqueAddress): dm.UniqueAddress.Builder =
-    dm.UniqueAddress.newBuilder().setAddress(addressToProto(uniqueAddress.address))
+    dm.UniqueAddress
+      .newBuilder()
+      .setAddress(addressToProto(uniqueAddress.address))
       .setUid(uniqueAddress.longUid.toInt)
       .setUid2((uniqueAddress.longUid >> 32).toInt)
 
   def uniqueAddressFromProto(uniqueAddress: dm.UniqueAddress): UniqueAddress =
-    UniqueAddress(
-      addressFromProto(uniqueAddress.getAddress),
-      if (uniqueAddress.hasUid2) {
-        // new remote node join the two parts of the long uid back
-        (uniqueAddress.getUid2.toLong << 32) | (uniqueAddress.getUid & 0xFFFFFFFFL)
-      } else {
-        // old remote node
-        uniqueAddress.getUid.toLong
-      }
-    )
+    UniqueAddress(addressFromProto(uniqueAddress.getAddress), if (uniqueAddress.hasUid2) {
+      // new remote node join the two parts of the long uid back
+      (uniqueAddress.getUid2.toLong << 32) | (uniqueAddress.getUid & 0XFFFFFFFFL)
+    } else {
+      // old remote node
+      uniqueAddress.getUid.toLong
+    })
+
+  def versionVectorToProto(versionVector: VersionVector): dm.VersionVector = {
+    val b = dm.VersionVector.newBuilder()
+    versionVector.versionsIterator.foreach {
+      case (node, value) =>
+        b.addEntries(dm.VersionVector.Entry.newBuilder().setNode(uniqueAddressToProto(node)).setVersion(value))
+    }
+    b.build()
+  }
+
+  def versionVectorFromBinary(bytes: Array[Byte]): VersionVector =
+    versionVectorFromProto(dm.VersionVector.parseFrom(bytes))
+
+  def versionVectorFromProto(versionVector: dm.VersionVector): VersionVector = {
+    val entries = versionVector.getEntriesList
+    if (entries.isEmpty)
+      VersionVector.empty
+    else if (entries.size == 1)
+      VersionVector(uniqueAddressFromProto(entries.get(0).getNode), entries.get(0).getVersion)
+    else {
+      val versions: TreeMap[UniqueAddress, Long] =
+        scala.collection.immutable.TreeMap.from(versionVector.getEntriesList.asScala.iterator.map(entry =>
+          uniqueAddressFromProto(entry.getNode) -> entry.getVersion))
+      VersionVector(versions)
+    }
+  }
 
   def resolveActorRef(path: String): ActorRef =
     system.provider.resolveActorRef(path)
@@ -111,30 +139,27 @@ trait SerializationSupport {
     def buildOther(): dm.OtherMessage = {
       val m = msg.asInstanceOf[AnyRef]
       val msgSerializer = serialization.findSerializerFor(m)
-      val builder = dm.OtherMessage.newBuilder().
-        setEnclosedMessage(ByteString.copyFrom(msgSerializer.toBinary(m)))
+      val builder = dm.OtherMessage
+        .newBuilder()
+        .setEnclosedMessage(ByteString.copyFrom(msgSerializer.toBinary(m)))
         .setSerializerId(msgSerializer.identifier)
 
-      msgSerializer match {
-        case ser2: SerializerWithStringManifest ⇒
-          val manifest = ser2.manifest(m)
-          if (manifest != "")
-            builder.setMessageManifest(ByteString.copyFromUtf8(manifest))
-        case _ ⇒
-          if (msgSerializer.includeManifest)
-            builder.setMessageManifest(ByteString.copyFromUtf8(m.getClass.getName))
-      }
+      val ms = Serializers.manifestFor(msgSerializer, m)
+      if (ms.nonEmpty) builder.setMessageManifest(ByteString.copyFromUtf8(ms))
 
       builder.build()
     }
 
     // Serialize actor references with full address information (defaultAddress).
     // When sending remote messages currentTransportInformation is already set,
-    // but when serializing for digests it must be set here.
-    if (Serialization.currentTransportInformation.value == null)
-      Serialization.currentTransportInformation.withValue(transportInformation) { buildOther() }
-    else
+    // but when serializing for digests or DurableStore it must be set here.
+    val oldInfo = Serialization.currentTransportInformation.value
+    try {
+      if (oldInfo eq null)
+        Serialization.currentTransportInformation.value = system.provider.serializationInformation
       buildOther()
+    } finally Serialization.currentTransportInformation.value = oldInfo
+
   }
 
   def otherMessageFromBinary(bytes: Array[Byte]): AnyRef =
@@ -142,10 +167,7 @@ trait SerializationSupport {
 
   def otherMessageFromProto(other: dm.OtherMessage): AnyRef = {
     val manifest = if (other.hasMessageManifest) other.getMessageManifest.toStringUtf8 else ""
-    serialization.deserialize(
-      other.getEnclosedMessage.toByteArray,
-      other.getSerializerId,
-      manifest).get
+    serialization.deserialize(other.getEnclosedMessage.toByteArray, other.getSerializerId, manifest).get
   }
 
 }

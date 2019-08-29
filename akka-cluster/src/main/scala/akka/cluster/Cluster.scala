@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.cluster
@@ -10,18 +10,23 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import akka.ConfigurationException
 import akka.actor._
+import akka.annotation.InternalApi
+import akka.cluster.ClusterSettings.DataCenter
 import akka.dispatch.MonitorableThreadFactory
 import akka.event.{ Logging, LoggingAdapter }
 import akka.japi.Util
 import akka.pattern._
-import akka.remote.{ DefaultFailureDetectorRegistry, FailureDetector, _ }
+import akka.remote.{ UniqueAddress => _, _ }
 import com.typesafe.config.{ Config, ConfigFactory }
-
 import scala.annotation.varargs
 import scala.collection.immutable
 import scala.concurrent.duration._
 import scala.concurrent.{ Await, ExecutionContext }
 import scala.util.control.NonFatal
+
+import akka.event.Logging.LogLevel
+
+import com.github.ghik.silencer.silent
 
 /**
  * Cluster Extension Id and factory for creating Cluster extension.
@@ -38,8 +43,8 @@ object Cluster extends ExtensionId[Cluster] with ExtensionIdProvider {
    */
   private[cluster] final val isAssertInvariantsEnabled: Boolean =
     System.getProperty("akka.cluster.assert", "off").toLowerCase match {
-      case "on" | "true" ⇒ true
-      case _             ⇒ false
+      case "on" | "true" => true
+      case _             => false
     }
 }
 
@@ -57,8 +62,10 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
   import ClusterEvent._
 
   val settings = new ClusterSettings(system.settings.config, system.name)
-  import InfoLogger._
+  import ClusterLogger._
   import settings._
+
+  private val joinConfigCompatChecker: JoinConfigCompatChecker = JoinConfigCompatChecker.load(system, settings)
 
   /**
    * The address including a `uid` of this cluster member.
@@ -66,16 +73,20 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * incarnations of a member with same hostname and port.
    */
   val selfUniqueAddress: UniqueAddress = system.provider match {
-    case c: ClusterActorRefProvider ⇒
+    case c: ClusterActorRefProvider =>
       UniqueAddress(c.transport.defaultAddress, AddressUidExtension(system).longAddressUid)
-    case other ⇒ throw new ConfigurationException(
-      s"ActorSystem [${system}] needs to have a 'ClusterActorRefProvider' enabled in the configuration, currently uses [${other.getClass.getName}]")
+    case other =>
+      throw new ConfigurationException(
+        s"ActorSystem [${system}] needs to have 'akka.actor.provider' set to 'cluster' in the configuration, currently uses [${other.getClass.getName}]")
   }
 
   /**
    * The address of this cluster member.
    */
   def selfAddress: Address = selfUniqueAddress.address
+
+  /** Data center to which this node belongs to (defaults to "default" if not configured explicitly) */
+  def selfDataCenter: DataCenter = settings.SelfDataCenter
 
   /**
    * roles that this member has
@@ -85,6 +96,7 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
   /**
    * Java API: roles that this member has
    */
+  @silent("deprecated")
   def getSelfRoles: java.util.Set[String] =
     scala.collection.JavaConverters.setAsJavaSetConverter(selfRoles).asJava
 
@@ -93,13 +105,23 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
   // ClusterJmx is initialized as the last thing in the constructor
   private var clusterJmx: Option[ClusterJmx] = None
 
-  logInfo("Starting up...")
+  logInfo("Starting up, Akka version [{}] ...", system.settings.ConfigVersion)
 
   val failureDetector: FailureDetectorRegistry[Address] = {
-    def createFailureDetector(): FailureDetector =
+    val createFailureDetector = () =>
       FailureDetectorLoader.load(settings.FailureDetectorImplementationClass, settings.FailureDetectorConfig, system)
 
-    new DefaultFailureDetectorRegistry(() ⇒ createFailureDetector())
+    new DefaultFailureDetectorRegistry(createFailureDetector)
+  }
+
+  val crossDcFailureDetector: FailureDetectorRegistry[Address] = {
+    val createFailureDetector = () =>
+      FailureDetectorLoader.load(
+        settings.MultiDataCenter.CrossDcFailureDetectorSettings.ImplementationClass,
+        settings.MultiDataCenter.CrossDcFailureDetectorSettings.config,
+        system)
+
+    new DefaultFailureDetectorRegistry(createFailureDetector)
   }
 
   // needs to be lazy to allow downing provider impls to access Cluster (if not we get deadlock)
@@ -117,20 +139,23 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
     if (system.scheduler.maxFrequency < 1.second / SchedulerTickDuration) {
       logInfo(
         "Using a dedicated scheduler for cluster. Default scheduler can be used if configured " +
-          "with 'akka.scheduler.tick-duration' [{} ms] <=  'akka.cluster.scheduler.tick-duration' [{} ms].",
-        (1000 / system.scheduler.maxFrequency).toInt, SchedulerTickDuration.toMillis)
+        "with 'akka.scheduler.tick-duration' [{} ms] <=  'akka.cluster.scheduler.tick-duration' [{} ms].",
+        (1000 / system.scheduler.maxFrequency).toInt,
+        SchedulerTickDuration.toMillis)
 
-      val cfg = ConfigFactory.parseString(
-        s"akka.scheduler.tick-duration=${SchedulerTickDuration.toMillis}ms").withFallback(
-          system.settings.config)
+      val cfg = ConfigFactory
+        .parseString(s"akka.scheduler.tick-duration=${SchedulerTickDuration.toMillis}ms")
+        .withFallback(system.settings.config)
       val threadFactory = system.threadFactory match {
-        case tf: MonitorableThreadFactory ⇒ tf.withName(tf.name + "-cluster-scheduler")
-        case tf                           ⇒ tf
+        case tf: MonitorableThreadFactory => tf.withName(tf.name + "-cluster-scheduler")
+        case tf                           => tf
       }
-      system.dynamicAccess.createInstanceFor[Scheduler](system.settings.SchedulerClass, immutable.Seq(
-        classOf[Config] → cfg,
-        classOf[LoggingAdapter] → log,
-        classOf[ThreadFactory] → threadFactory)).get
+      system.dynamicAccess
+        .createInstanceFor[Scheduler](
+          system.settings.SchedulerClass,
+          immutable
+            .Seq(classOf[Config] -> cfg, classOf[LoggingAdapter] -> log, classOf[ThreadFactory] -> threadFactory))
+        .get
     } else {
       // delegate to system.scheduler, but don't close over system
       val systemScheduler = system.scheduler
@@ -139,13 +164,13 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
 
         override def maxFrequency: Double = systemScheduler.maxFrequency
 
-        override def schedule(initialDelay: FiniteDuration, interval: FiniteDuration,
-                              runnable: Runnable)(implicit executor: ExecutionContext): Cancellable =
+        @silent("deprecated")
+        override def schedule(initialDelay: FiniteDuration, interval: FiniteDuration, runnable: Runnable)(
+            implicit executor: ExecutionContext): Cancellable =
           systemScheduler.schedule(initialDelay, interval, runnable)
 
-        override def scheduleOnce(
-          delay:    FiniteDuration,
-          runnable: Runnable)(implicit executor: ExecutionContext): Cancellable =
+        override def scheduleOnce(delay: FiniteDuration, runnable: Runnable)(
+            implicit executor: ExecutionContext): Cancellable =
           systemScheduler.scheduleOnce(delay, runnable)
       }
     }
@@ -153,8 +178,9 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
 
   // create supervisor for daemons under path "/system/cluster"
   private val clusterDaemons: ActorRef = {
-    system.systemActorOf(Props(classOf[ClusterDaemon], settings).
-      withDispatcher(UseDispatcher).withDeploy(Deploy.local), name = "cluster")
+    system.systemActorOf(
+      Props(classOf[ClusterDaemon], joinConfigCompatChecker).withDispatcher(UseDispatcher).withDeploy(Deploy.local),
+      name = "cluster")
   }
 
   /**
@@ -165,7 +191,7 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
     try {
       Await.result((clusterDaemons ? InternalClusterAction.GetClusterCoreRef).mapTo[ActorRef], timeout.duration)
     } catch {
-      case NonFatal(e) ⇒
+      case NonFatal(e) =>
         log.error(e, "Failed to startup Cluster. You can try to increase 'akka.actor.creation-timeout'.")
         shutdown()
         // don't re-throw, that would cause the extension to be re-recreated
@@ -201,6 +227,11 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * Current snapshot state of the cluster.
    */
   def state: CurrentClusterState = readView.state
+
+  /**
+   * Current snapshot of the member itself
+   */
+  def selfMember: Member = readView.self
 
   /**
    * Subscribe to one or more cluster domain events.
@@ -269,8 +300,10 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * The name of the [[akka.actor.ActorSystem]] must be the same for all members of a
    * cluster.
    */
-  def join(address: Address): Unit =
+  def join(address: Address): Unit = {
+    address.checkHostCharacters()
     clusterCore ! ClusterUserAction.JoinTo(fillLocal(address))
+  }
 
   private def fillLocal(address: Address): Address = {
     // local address might be used if grabbed from actorRef.path.address
@@ -286,8 +319,10 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * When it has successfully joined it must be restarted to be able to join another
    * cluster or to join the same cluster again.
    */
-  def joinSeedNodes(seedNodes: immutable.Seq[Address]): Unit =
+  def joinSeedNodes(seedNodes: immutable.Seq[Address]): Unit = {
+    seedNodes.foreach(_.checkHostCharacters())
     clusterCore ! InternalClusterAction.JoinSeedNodes(seedNodes.toVector.map(fillLocal))
+  }
 
   /**
    * Java API
@@ -334,7 +369,7 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * to defer some action, such as starting actors, until the cluster has reached
    * a certain size.
    */
-  def registerOnMemberUp[T](code: ⇒ T): Unit =
+  def registerOnMemberUp[T](code: => T): Unit =
     registerOnMemberUp(new Runnable { def run() = code })
 
   /**
@@ -351,7 +386,7 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * If the cluster has already been shutdown the thunk will run on the caller thread immediately.
    * Typically used together `cluster.leave(cluster.selfAddress)` and then `system.terminate()`.
    */
-  def registerOnMemberRemoved[T](code: ⇒ T): Unit =
+  def registerOnMemberRemoved[T](code: => T): Unit =
     registerOnMemberRemoved(new Runnable { override def run(): Unit = code })
 
   /**
@@ -375,7 +410,7 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
     if (path.address.host.isDefined) {
       path
     } else {
-      path.root.copy(selfAddress) / path.elements withUid path.uid
+      (path.root.copy(selfAddress) / path.elements).withUid(path.uid)
     }
   }
 
@@ -391,7 +426,7 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
    * Should not called by the user. The user can issue a LEAVE command which will tell the node
    * to go through graceful handoff process `LEAVE -&gt; EXITING -&gt; REMOVED -&gt; SHUTDOWN`.
    */
-  private[cluster] def shutdown(): Unit = {
+  @InternalApi private[cluster] def shutdown(): Unit = {
     if (_isTerminated.compareAndSet(false, true)) {
       logInfo("Shutting down...")
 
@@ -403,30 +438,144 @@ class Cluster(val system: ExtendedActorSystem) extends Extension {
 
       closeScheduler()
 
-      clusterJmx foreach { _.unregisterMBean() }
+      clusterJmx.foreach { _.unregisterMBean() }
 
       logInfo("Successfully shut down")
     }
   }
 
   private def closeScheduler(): Unit = scheduler match {
-    case x: Closeable ⇒ x.close()
-    case _            ⇒
+    case x: Closeable => x.close()
+    case _            => // ignore, this is fine
   }
 
   /**
    * INTERNAL API
    */
-  private[cluster] object InfoLogger {
+  private[cluster] object ClusterLogger {
+    def isDebugEnabled: Boolean =
+      log.isDebugEnabled
+
+    def logDebug(message: String): Unit =
+      logAtLevel(Logging.DebugLevel, message)
+
+    def logDebug(template: String, arg1: Any): Unit =
+      logAtLevel(Logging.DebugLevel, template, arg1)
+
+    def logDebug(template: String, arg1: Any, arg2: Any): Unit =
+      logAtLevel(Logging.DebugLevel, template, arg1, arg2)
+
+    def logDebug(template: String, arg1: Any, arg2: Any, arg3: Any): Unit =
+      logAtLevel(Logging.DebugLevel, template, arg1, arg2, arg3)
 
     def logInfo(message: String): Unit =
-      if (LogInfo) log.info("Cluster Node [{}] - {}", selfAddress, message)
+      logAtLevel(Logging.InfoLevel, message)
 
     def logInfo(template: String, arg1: Any): Unit =
-      if (LogInfo) log.info("Cluster Node [{}] - " + template, selfAddress, arg1)
+      logAtLevel(Logging.InfoLevel, template, arg1)
 
     def logInfo(template: String, arg1: Any, arg2: Any): Unit =
-      if (LogInfo) log.info("Cluster Node [{}] - " + template, selfAddress, arg1, arg2)
+      logAtLevel(Logging.InfoLevel, template, arg1, arg2)
+
+    def logInfo(template: String, arg1: Any, arg2: Any, arg3: Any): Unit =
+      logAtLevel(Logging.InfoLevel, template, arg1, arg2, arg3)
+
+    def logWarning(message: String): Unit =
+      logAtLevel(Logging.WarningLevel, message)
+
+    def logWarning(template: String, arg1: Any): Unit =
+      logAtLevel(Logging.WarningLevel, template, arg1)
+
+    def logWarning(template: String, arg1: Any, arg2: Any): Unit =
+      logAtLevel(Logging.WarningLevel, template, arg1, arg2)
+
+    def logWarning(template: String, arg1: Any, arg2: Any, arg3: Any): Unit =
+      logAtLevel(Logging.WarningLevel, template, arg1, arg2, arg3)
+
+    def logError(message: String): Unit =
+      logAtLevel(Logging.ErrorLevel, message)
+
+    def logError(template: String, arg1: Any): Unit =
+      logAtLevel(Logging.ErrorLevel, template, arg1)
+
+    def logError(template: String, arg1: Any, arg2: Any): Unit =
+      logAtLevel(Logging.ErrorLevel, template, arg1, arg2)
+
+    def logError(template: String, arg1: Any, arg2: Any, arg3: Any): Unit =
+      logAtLevel(Logging.ErrorLevel, template, arg1, arg2, arg3)
+
+    def logError(cause: Throwable, message: String): Unit = {
+      if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+        log.error(cause, "Cluster Node [{}] - {}", selfAddress, message)
+      else
+        log.error(cause, "Cluster Node [{}] dc [{}] - {}", selfAddress, settings.SelfDataCenter, message)
+    }
+
+    def logError(cause: Throwable, template: String, arg1: Any): Unit = {
+      if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+        log.error(cause, "Cluster Node [{}] - " + template, selfAddress, arg1)
+      else
+        log.error(cause, "Cluster Node [{}] dc [{}] - " + template, selfAddress, settings.SelfDataCenter, arg1)
+    }
+
+    def logError(cause: Throwable, template: String, arg1: Any, arg2: Any): Unit = {
+      if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+        log.error(cause, "Cluster Node [{}] - " + template, selfAddress, arg1, arg2)
+      else
+        log.error(cause, "Cluster Node [{}] dc [{}] - " + template, selfAddress, settings.SelfDataCenter, arg1, arg2)
+    }
+
+    def logError(cause: Throwable, template: String, arg1: Any, arg2: Any, arg3: Any): Unit = {
+      if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+        log.error(cause, "Cluster Node [{}] - " + template, selfAddress, arg1, arg2, arg3)
+      else
+        log.error(
+          cause,
+          "Cluster Node [{}] dc [" + settings.SelfDataCenter + "] - " + template,
+          selfAddress,
+          arg1,
+          arg2,
+          arg3)
+    }
+
+    private def logAtLevel(logLevel: LogLevel, message: String): Unit = {
+      if (isLevelEnabled(logLevel))
+        if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+          log.log(logLevel, "Cluster Node [{}] - {}", selfAddress, message)
+        else
+          log.log(logLevel, "Cluster Node [{}] dc [{}] - {}", selfAddress, settings.SelfDataCenter, message)
+    }
+
+    private def logAtLevel(logLevel: LogLevel, template: String, arg1: Any): Unit = {
+      if (isLevelEnabled(logLevel))
+        if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+          log.log(logLevel, "Cluster Node [{}] - " + template, selfAddress, arg1)
+        else
+          log.log(logLevel, "Cluster Node [{}] dc [{}] - " + template, selfAddress, settings.SelfDataCenter, arg1)
+    }
+
+    private def logAtLevel(logLevel: LogLevel, template: String, arg1: Any, arg2: Any): Unit =
+      if (isLevelEnabled(logLevel))
+        if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+          log.log(logLevel, "Cluster Node [{}] - " + template, selfAddress, arg1, arg2)
+        else
+          log.log(logLevel, "Cluster Node [{}] dc [{}] - " + template, selfAddress, settings.SelfDataCenter, arg1, arg2)
+
+    private def logAtLevel(logLevel: LogLevel, template: String, arg1: Any, arg2: Any, arg3: Any): Unit =
+      if (isLevelEnabled(logLevel))
+        if (settings.SelfDataCenter == ClusterSettings.DefaultDataCenter)
+          log.log(logLevel, "Cluster Node [{}] - " + template, selfAddress, arg1, arg2, arg3)
+        else
+          log.log(
+            logLevel,
+            "Cluster Node [{}] dc [" + settings.SelfDataCenter + "] - " + template,
+            selfAddress,
+            arg1,
+            arg2,
+            arg3)
+
+    private def isLevelEnabled(logLevel: LogLevel): Boolean =
+      LogInfo || logLevel < Logging.InfoLevel
   }
 
 }

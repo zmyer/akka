@@ -1,14 +1,23 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.stream
 
-import akka.actor.{ ActorSystem, Props }
-import akka.stream.impl.{ StreamSupervisor, ActorMaterializerImpl }
+import akka.Done
+import akka.actor.{ Actor, ActorSystem, PoisonPill, Props }
+import akka.stream.ActorMaterializerSpec.ActorWithMaterializer
+import akka.stream.impl.{ PhasedFusingActorMaterializer, StreamSupervisor }
 import akka.stream.scaladsl.{ Sink, Source }
-import akka.stream.testkit.StreamSpec
-import akka.testkit.{ TestActor, ImplicitSender }
+import akka.stream.testkit.{ StreamSpec, TestPublisher }
+import akka.testkit.{ ImplicitSender, TestProbe }
+import com.github.ghik.silencer.silent
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.util.{ Failure, Try }
 
+@silent
 class ActorMaterializerSpec extends StreamSpec with ImplicitSender {
 
   "ActorMaterializer" must {
@@ -24,7 +33,7 @@ class ActorMaterializerSpec extends StreamSpec with ImplicitSender {
     "properly shut down actors associated with it" in {
       val m = ActorMaterializer.create(system)
 
-      val f = Source.maybe[Int].runFold(0)(_ + _)(m)
+      val f = Source.fromPublisher(TestPublisher.probe[Int]()(system)).runFold(0)(_ + _)(m)
 
       m.shutdown()
 
@@ -34,12 +43,27 @@ class ActorMaterializerSpec extends StreamSpec with ImplicitSender {
     "refuse materialization after shutdown" in {
       val m = ActorMaterializer.create(system)
       m.shutdown()
-      an[IllegalStateException] should be thrownBy
-        Source(1 to 5).runForeach(println)(m)
+      (the[IllegalStateException] thrownBy {
+        Source(1 to 5).runWith(Sink.ignore)(m)
+      } should have).message("Trying to materialize stream after materializer has been shutdown")
+    }
+
+    "refuse materialization when shutdown while materializing" in {
+      val m = ActorMaterializer.create(system)
+
+      (the[IllegalStateException] thrownBy {
+        Source(1 to 5)
+          .mapMaterializedValue { _ =>
+            // shutdown while materializing
+            m.shutdown()
+            Thread.sleep(100)
+          }
+          .runWith(Sink.ignore)(m)
+      } should have).message("Materializer shutdown while materializing stream")
     }
 
     "shut down the supervisor actor it encapsulates" in {
-      val m = ActorMaterializer.create(system).asInstanceOf[ActorMaterializerImpl]
+      val m = ActorMaterializer.create(system).asInstanceOf[PhasedFusingActorMaterializer]
 
       Source.maybe[Any].to(Sink.ignore).run()(m)
       m.supervisor ! StreamSupervisor.GetChildren
@@ -47,15 +71,17 @@ class ActorMaterializerSpec extends StreamSpec with ImplicitSender {
       m.shutdown()
 
       m.supervisor ! StreamSupervisor.GetChildren
-      expectNoMsg(1.second)
+      expectNoMessage(1.second)
     }
 
-    "handle properly broken Props" in {
-      val m = ActorMaterializer.create(system)
-      an[IllegalArgumentException] should be thrownBy
-        Await.result(
-          Source.actorPublisher(Props(classOf[TestActor], "wrong", "arguments")).runWith(Sink.head)(m),
-          3.seconds)
+    "terminate if ActorContext it was created from terminates" in {
+      val p = TestProbe()
+
+      val a = system.actorOf(Props(new ActorWithMaterializer(p)).withDispatcher("akka.test.stream-dispatcher"))
+
+      p.expectMsg("hello")
+      a ! PoisonPill
+      val Failure(_) = p.expectMsgType[Try[Done]]
     }
 
     "report correctly if it has been shut down from the side" in {
@@ -66,4 +92,23 @@ class ActorMaterializerSpec extends StreamSpec with ImplicitSender {
     }
   }
 
+}
+
+object ActorMaterializerSpec {
+  class ActorWithMaterializer(p: TestProbe) extends Actor {
+    private val settings: ActorMaterializerSettings =
+      ActorMaterializerSettings(context.system).withDispatcher("akka.test.stream-dispatcher")
+    implicit val mat = ActorMaterializer(settings)(context)
+
+    Source
+      .repeat("hello")
+      .take(1)
+      .concat(Source.maybe)
+      .map(p.ref ! _)
+      .runWith(Sink.onComplete(signal => {
+        p.ref ! signal
+      }))
+
+    def receive = Actor.emptyBehavior
+  }
 }

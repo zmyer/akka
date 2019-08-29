@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster
 
 import scala.collection.immutable
@@ -12,21 +13,29 @@ import akka.actor.Deploy
 import akka.actor.Props
 import akka.actor.RootActorPath
 import akka.cluster.MemberStatus._
-import akka.remote.RARP
 import akka.remote.testkit.MultiNodeConfig
 import akka.remote.testkit.MultiNodeSpec
 import akka.remote.transport.ThrottlerTransportAdapter.Direction
 import akka.testkit._
 import com.typesafe.config.ConfigFactory
+import akka.util.ccompat._
 
+@ccompatUsedUntil213
 object RestartNode3MultiJvmSpec extends MultiNodeConfig {
   val first = role("first")
   val second = role("second")
   val third = role("third")
 
-  commonConfig(debugConfig(on = false).
-    withFallback(ConfigFactory.parseString("akka.cluster.auto-down-unreachable-after = off")).
-    withFallback(MultiNodeClusterSpec.clusterConfig))
+  commonConfig(
+    debugConfig(on = false)
+      .withFallback(ConfigFactory.parseString("""
+      akka.cluster.auto-down-unreachable-after = off
+      akka.cluster.allow-weakly-up-members = off
+      # test is using Java serialization and not priority to rewrite
+      akka.actor.allow-java-serialization = on
+      akka.actor.warn-about-java-serializer-usage = off
+      """))
+      .withFallback(MultiNodeClusterSpec.clusterConfig))
 
   testTransport(on = true)
 }
@@ -36,8 +45,9 @@ class RestartNode3MultiJvmNode2 extends RestartNode3Spec
 class RestartNode3MultiJvmNode3 extends RestartNode3Spec
 
 abstract class RestartNode3Spec
-  extends MultiNodeSpec(RestartNode3MultiJvmSpec)
-  with MultiNodeClusterSpec with ImplicitSender {
+    extends MultiNodeSpec(RestartNode3MultiJvmSpec)
+    with MultiNodeClusterSpec
+    with ImplicitSender {
 
   import RestartNode3MultiJvmSpec._
 
@@ -50,12 +60,10 @@ abstract class RestartNode3Spec
 
   lazy val restartedSecondSystem = ActorSystem(
     system.name,
-    ConfigFactory.parseString(
-      if (RARP(system).provider.remoteSettings.Artery.Enabled)
-        "akka.remote.artery.canonical.port=" + secondUniqueAddress.address.port.get
-      else
-        "akka.remote.netty.tcp.port=" + secondUniqueAddress.address.port.get
-    ).withFallback(system.settings.config))
+    ConfigFactory.parseString(s"""
+        akka.remote.artery.canonical.port = ${secondUniqueAddress.address.port.get}
+        akka.remote.classic.netty.tcp.port = ${secondUniqueAddress.address.port.get}
+        """).withFallback(system.settings.config))
 
   override def afterAll(): Unit = {
     runOn(second) {
@@ -76,7 +84,7 @@ abstract class RestartNode3Spec
       runOn(first, third) {
         system.actorOf(Props(new Actor {
           def receive = {
-            case a: UniqueAddress ⇒
+            case a: UniqueAddress =>
               secondUniqueAddress = a
               sender() ! "ok"
           }
@@ -87,12 +95,12 @@ abstract class RestartNode3Spec
       runOn(second) {
         enterBarrier("second-address-receiver-ready")
         secondUniqueAddress = Cluster(secondSystem).selfUniqueAddress
-        List(first, third) foreach { r ⇒
+        List(first, third).foreach { r =>
           system.actorSelection(RootActorPath(r) / "user" / "address-receiver") ! secondUniqueAddress
           expectMsg(5.seconds, "ok")
         }
       }
-      enterBarrier("second-address-transfered")
+      enterBarrier("second-address-transferred")
 
       // now we can join first, third together
       runOn(first, third) {
@@ -113,7 +121,7 @@ abstract class RestartNode3Spec
         Cluster(secondSystem).joinSeedNodes(seedNodes)
         awaitAssert(Cluster(secondSystem).readView.members.size should ===(3))
         awaitAssert(Cluster(secondSystem).readView.members.collectFirst {
-          case m if m.address == Cluster(secondSystem).selfAddress ⇒ m.status
+          case m if m.address == Cluster(secondSystem).selfAddress => m.status
         } should ===(Some(Joining)))
       }
       enterBarrier("second-joined")
@@ -131,12 +139,12 @@ abstract class RestartNode3Spec
       runOn(second) {
         Cluster(restartedSecondSystem).joinSeedNodes(seedNodes)
         awaitAssert(Cluster(restartedSecondSystem).readView.members.size should ===(3))
-        awaitAssert(Cluster(restartedSecondSystem).readView.members.map(_.status) should ===(Set(Up)))
+        awaitAssert(Cluster(restartedSecondSystem).readView.members.unsorted.map(_.status) should ===(Set(Up)))
       }
       runOn(first, third) {
         awaitAssert {
           Cluster(system).readView.members.size should ===(3)
-          Cluster(system).readView.members.exists { m ⇒
+          Cluster(system).readView.members.exists { m =>
             m.address == secondUniqueAddress.address && m.uniqueAddress.longUid != secondUniqueAddress.longUid
           }
         }

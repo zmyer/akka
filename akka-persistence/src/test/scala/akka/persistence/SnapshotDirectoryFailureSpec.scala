@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.persistence
@@ -12,37 +12,41 @@ import akka.testkit.{ AkkaSpec, EventFilter, ImplicitSender }
 object SnapshotDirectoryFailureSpec {
   val inUseSnapshotPath = "target/inUseSnapshotPath"
 
-  class TestPersistentActor(name: String, probe: ActorRef) extends PersistentActor
-    with TurnOffRecoverOnStart {
+  class TestPersistentActor(name: String, probe: ActorRef) extends PersistentActor with TurnOffRecoverOnStart {
 
     override def persistenceId: String = name
 
     override def receiveRecover: Receive = {
-      case SnapshotOffer(md, s) ⇒ probe ! ((md, s))
+      case SnapshotOffer(md, s) => probe ! ((md, s))
     }
 
     override def receiveCommand = {
-      case s: String               ⇒ saveSnapshot(s)
-      case SaveSnapshotSuccess(md) ⇒ probe ! md.sequenceNr
-      case other                   ⇒ probe ! other
+      case s: String               => saveSnapshot(s)
+      case SaveSnapshotSuccess(md) => probe ! md.sequenceNr
+      case other                   => probe ! other
     }
   }
 }
 
-class SnapshotDirectoryFailureSpec extends AkkaSpec(PersistenceSpec.config("leveldb", "SnapshotDirectoryFailureSpec", extraConfig = Some(
-  s"""
+class SnapshotDirectoryFailureSpec
+    extends AkkaSpec(
+      PersistenceSpec.config(
+        "leveldb",
+        "SnapshotDirectoryFailureSpec",
+        extraConfig = Some(s"""
   akka.persistence.snapshot-store.local.dir = "${SnapshotDirectoryFailureSpec.inUseSnapshotPath}"
-  """))) with ImplicitSender {
+  """)))
+    with ImplicitSender {
 
   import SnapshotDirectoryFailureSpec._
 
   val file = new File(inUseSnapshotPath)
 
-  override protected def atStartup() {
+  override protected def atStartup(): Unit = {
     if (!file.createNewFile()) throw new IOException(s"Failed to create test file [${file.getCanonicalFile}]")
   }
 
-  override protected def afterTermination() {
+  override protected def afterTermination(): Unit = {
     if (!file.delete()) throw new IOException(s"Failed to delete test file [${file.getCanonicalFile}]")
   }
 

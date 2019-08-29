@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.cluster.ddata
 
 import scala.concurrent.Await
@@ -23,24 +24,31 @@ object PerformanceSpec extends MultiNodeConfig {
   val n4 = role("n4")
   val n5 = role("n5")
 
-  commonConfig(ConfigFactory.parseString("""
+  commonConfig(ConfigFactory.parseString(s"""
     akka.loglevel = ERROR
     akka.stdout-loglevel = ERROR
+    akka.loggers = ["akka.event.Logging$$DefaultLogger"]
     akka.actor.provider = "cluster"
     akka.log-dead-letters = off
     akka.log-dead-letters-during-shutdown = off
-    akka.remote.log-remote-lifecycle-events = ERROR
-    akka.remote.log-frame-size-exceeding=1000b
+    akka.remote.classic.log-remote-lifecycle-events = ERROR
+    akka.remote.classic.log-frame-size-exceeding=1000b
     akka.testconductor.barrier-timeout = 60 s
     akka.cluster.distributed-data.gossip-interval = 1 s
     akka.actor.serialize-messages = off
+
+    #akka.cluster.distributed-data.durable.keys = ["*"]
+    #akka.cluster.distributed-data.durable.lmdb.dir = target/PerformanceSpec-${System.currentTimeMillis}-ddata
+    #akka.cluster.distributed-data.durable.lmdb.write-behind-interval = 200ms
+
+    #akka.cluster.distributed-data.delta-crdt.enabled = off
     """))
 
   def countDownProps(latch: TestLatch): Props = Props(new CountDown(latch)).withDeploy(Deploy.local)
 
   class CountDown(latch: TestLatch) extends Actor {
     def receive = {
-      case _ ⇒
+      case _ =>
         latch.countDown()
         if (latch.isOpen)
           context.stop(self)
@@ -61,7 +69,8 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
 
   override def initialParticipants = roles.size
 
-  implicit val cluster = Cluster(system)
+  val cluster = Cluster(system)
+  implicit val selfUniqueAddress = DistributedData(system).selfUniqueAddress
   val replicator = DistributedData(system).replicator
   val timeout = 3.seconds.dilated
   val factor = 1 // use 3 here for serious tuning
@@ -69,28 +78,40 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
 
   def join(from: RoleName, to: RoleName): Unit = {
     runOn(from) {
-      cluster join node(to).address
+      cluster.join(node(to).address)
     }
     enterBarrier(from.name + "-joined")
   }
 
-  def repeat(description: String, keys: Iterable[ORSetKey[Int]], n: Int, expectedAfterReplication: Option[Set[Int]] = None)(
-    block: (ORSetKey[Int], Int, ActorRef) ⇒ Unit, afterEachKey: ORSetKey[Int] ⇒ Unit = _ ⇒ ()): Unit = {
+  def repeat(
+      description: String,
+      keys: Iterable[ORSetKey[Int]],
+      n: Int,
+      expectedAfterReplication: Option[Set[Int]] = None,
+      oneByOne: Boolean = false)(
+      block: (ORSetKey[Int], Int, ActorRef) => Unit,
+      afterEachKey: ORSetKey[Int] => Unit = _ => ()): Unit = {
 
-    keys.foreach { key ⇒
+    keys.foreach { key =>
       val startTime = System.nanoTime()
       runOn(n1) {
         val latch = TestLatch(n)
-        val replyTo = system.actorOf(countDownProps(latch))
+        val oneByOneProbe = TestProbe()
+        val replyTo =
+          if (oneByOne) oneByOneProbe.ref
+          else system.actorOf(countDownProps(latch))
 
         var i = 0
         while (i < n) {
           block(key, i, replyTo)
           i += 1
+          if (oneByOne)
+            oneByOneProbe.receiveOne(timeout)
         }
-        Await.ready(latch, 10.seconds + (2.second * factor))
+        if (!oneByOne)
+          Await.ready(latch, 10.seconds + (2.second * factor))
       }
-      expectedAfterReplication.foreach { expected ⇒
+      expectedAfterReplication.foreach { expected =>
         enterBarrier("repeat-" + key + "-before-awaitReplicated")
         awaitReplicated(key, expected)
         enterBarrier("repeat-" + key + "-after-awaitReplicated")
@@ -108,14 +129,16 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
   }
 
   def awaitReplicated(keys: Iterable[ORSetKey[Int]], expectedData: Set[Int]): Unit =
-    keys.foreach { key ⇒ awaitReplicated(key, expectedData) }
+    keys.foreach { key =>
+      awaitReplicated(key, expectedData)
+    }
 
   def awaitReplicated(key: ORSetKey[Int], expectedData: Set[Int]): Unit = {
     within(20.seconds) {
       awaitAssert {
         val readProbe = TestProbe()
         replicator.tell(Get(key, ReadLocal), readProbe.ref)
-        val result = readProbe.expectMsgPF() { case g @ GetSuccess(`key`, _) ⇒ g.get(key) }
+        val result = readProbe.expectMsgPF() { case g @ GetSuccess(`key`, _) => g.get(key) }
         result.elements should be(expectedData)
       }
     }
@@ -137,51 +160,51 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
     }
 
     "be great for ORSet Update WriteLocal" taggedAs PerformanceTest in {
-      val keys = (1 to repeatCount).map(n ⇒ ORSetKey[Int]("A" + n))
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("A" + n))
       val n = 1000 * factor
       val expectedData = (0 until n).toSet
-      repeat("ORSet Update WriteLocal", keys, n)({ (key, i, replyTo) ⇒
-        replicator.tell(Update(key, ORSet(), WriteLocal)(_ + i), replyTo)
-      }, key ⇒ awaitReplicated(key, expectedData))
+      repeat("ORSet Update WriteLocal", keys, n)({ (key, i, replyTo) =>
+        replicator.tell(Update(key, ORSet(), WriteLocal)(_ :+ i), replyTo)
+      }, key => awaitReplicated(key, expectedData))
 
       enterBarrier("after-1")
     }
 
     "be blazingly fast for ORSet Get ReadLocal" taggedAs PerformanceTest in {
-      val keys = (1 to repeatCount).map(n ⇒ ORSetKey[Int]("A" + n))
-      repeat("Get ReadLocal", keys, 100000 * factor) { (key, i, replyTo) ⇒
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("A" + n))
+      repeat("Get ReadLocal", keys, 100000 * factor) { (key, _, replyTo) =>
         replicator.tell(Get(key, ReadLocal), replyTo)
       }
       enterBarrier("after-2")
     }
 
     "be good for ORSet Update WriteLocal and gossip replication" taggedAs PerformanceTest in {
-      val keys = (1 to repeatCount).map(n ⇒ ORSetKey[Int]("B" + n))
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("B" + n))
       val n = 200 * factor
       val expected = Some((0 until n).toSet)
-      repeat("ORSet Update WriteLocal + gossip", keys, n, expected) { (key, i, replyTo) ⇒
-        replicator.tell(Update(key, ORSet(), WriteLocal)(_ + i), replyTo)
+      repeat("ORSet Update WriteLocal + gossip", keys, n, expected) { (key, i, replyTo) =>
+        replicator.tell(Update(key, ORSet(), WriteLocal)(_ :+ i), replyTo)
       }
       enterBarrier("after-3")
     }
 
     "be good for ORSet Update WriteLocal and gossip of existing keys" taggedAs PerformanceTest in {
-      val keys = (1 to repeatCount).map(n ⇒ ORSetKey[Int]("B" + n))
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("B" + n))
       val n = 200 * factor
       val expected = Some((0 until n).toSet ++ (0 until n).map(-_).toSet)
-      repeat("ORSet Update WriteLocal existing + gossip", keys, n, expected) { (key, i, replyTo) ⇒
-        replicator.tell(Update(key, ORSet(), WriteLocal)(_ + (-i)), replyTo)
+      repeat("ORSet Update WriteLocal existing + gossip", keys, n, expected) { (key, i, replyTo) =>
+        replicator.tell(Update(key, ORSet(), WriteLocal)(_ :+ (-i)), replyTo)
       }
       enterBarrier("after-4")
     }
 
     "be good for ORSet Update WriteTwo and gossip replication" taggedAs PerformanceTest in {
-      val keys = (1 to repeatCount).map(n ⇒ ORSetKey[Int]("C" + n))
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("C" + n))
       val n = 200 * factor
       val expected = Some((0 until n).toSet)
       val writeTwo = WriteTo(2, timeout)
-      repeat("ORSet Update WriteTwo + gossip", keys, n, expected) { (key, i, replyTo) ⇒
-        replicator.tell(Update(key, ORSet(), writeTwo)(_ + i), replyTo)
+      repeat("ORSet Update WriteTwo + gossip", keys, n, expected) { (key, i, replyTo) =>
+        replicator.tell(Update(key, ORSet(), writeTwo)(_ :+ i), replyTo)
       }
       enterBarrier("after-5")
     }
@@ -193,8 +216,8 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
       runOn(n1, n2, n3) {
         val latch = TestLatch(n)
         val replyTo = system.actorOf(countDownProps(latch))
-        for (_ ← 0 until n)
-          replicator.tell(Update(key, GCounter(), WriteLocal)(_ + 1), replyTo)
+        for (_ <- 0 until n)
+          replicator.tell(Update(key, GCounter(), WriteLocal)(_ :+ 1), replyTo)
         Await.ready(latch, 5.seconds + (1.second * factor))
         enterBarrier("update-done-6")
         runOn(n1) {
@@ -212,7 +235,7 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
         awaitAssert {
           val readProbe = TestProbe()
           replicator.tell(Get(key, ReadLocal), readProbe.ref)
-          val result = readProbe.expectMsgPF() { case g @ GetSuccess(`key`, _) ⇒ g.get(key) }
+          val result = readProbe.expectMsgPF() { case g @ GetSuccess(`key`, _) => g.get(key) }
           result.value should be(3 * n)
         }
       }
@@ -227,7 +250,26 @@ class PerformanceSpec extends MultiNodeSpec(PerformanceSpec) with STMultiNodeSpe
       enterBarrier("after-6")
     }
 
+    "be good for ORSet one-by-one deltas" taggedAs PerformanceTest in {
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("E" + n))
+      val n = 300 * factor
+      val writeMajority = WriteMajority(timeout)
+      repeat("ORSet Update one-by-one deltas", keys, n, oneByOne = true) { (key, i, replyTo) =>
+        replicator.tell(Update(key, ORSet(), writeMajority)(_ :+ i), replyTo)
+      }
+      enterBarrier("after-7")
+    }
+
+    "be good for ORSet deltas" taggedAs PerformanceTest in {
+      val keys = (1 to repeatCount).map(n => ORSetKey[Int]("F" + n))
+      val n = 200 * factor
+      val writeMajority = WriteMajority(timeout)
+      repeat("ORSet Update deltas", keys, n, oneByOne = false) { (key, i, replyTo) =>
+        replicator.tell(Update(key, ORSet(), writeMajority)(_ :+ i), replyTo)
+      }
+      enterBarrier("after-8")
+    }
+
   }
 
 }
-

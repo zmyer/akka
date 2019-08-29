@@ -1,9 +1,11 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote.artery
 
 import akka.actor.ActorRef
+import akka.actor.NoSerializationVerificationNeeded
 import akka.remote.RemoteActorRef
 import akka.util.OptionVal
 
@@ -11,10 +13,7 @@ import akka.util.OptionVal
  * INTERNAL API
  */
 private[remote] object OutboundEnvelope {
-  def apply(
-    recipient: OptionVal[RemoteActorRef],
-    message:   AnyRef,
-    sender:    OptionVal[ActorRef]): OutboundEnvelope = {
+  def apply(recipient: OptionVal[RemoteActorRef], message: AnyRef, sender: OptionVal[ActorRef]): OutboundEnvelope = {
     val env = new ReusableOutboundEnvelope
     env.init(recipient, message, sender)
   }
@@ -24,7 +23,7 @@ private[remote] object OutboundEnvelope {
 /**
  * INTERNAL API
  */
-private[remote] trait OutboundEnvelope {
+private[remote] trait OutboundEnvelope extends NoSerializationVerificationNeeded {
   def recipient: OptionVal[RemoteActorRef]
   def message: AnyRef
   def sender: OptionVal[ActorRef]
@@ -38,9 +37,11 @@ private[remote] trait OutboundEnvelope {
  * INTERNAL API
  */
 private[remote] object ReusableOutboundEnvelope {
-  def createObjectPool(capacity: Int) = new ObjectPool[ReusableOutboundEnvelope](
-    capacity,
-    create = () ⇒ new ReusableOutboundEnvelope, clear = outEnvelope ⇒ outEnvelope.clear())
+  def createObjectPool(capacity: Int) =
+    new ObjectPool[ReusableOutboundEnvelope](
+      capacity,
+      create = () => new ReusableOutboundEnvelope,
+      clear = outEnvelope => outEnvelope.clear())
 }
 
 /**
@@ -69,10 +70,7 @@ private[remote] final class ReusableOutboundEnvelope extends OutboundEnvelope {
     _sender = OptionVal.None
   }
 
-  def init(
-    recipient: OptionVal[RemoteActorRef],
-    message:   AnyRef,
-    sender:    OptionVal[ActorRef]): OutboundEnvelope = {
+  def init(recipient: OptionVal[RemoteActorRef], message: AnyRef, sender: OptionVal[ActorRef]): OutboundEnvelope = {
     _recipient = recipient
     _message = message
     _sender = sender

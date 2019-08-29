@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence.scalatest
 
 import org.scalactic.source.Position
@@ -18,9 +19,10 @@ trait MayVerb {
    */
   def mayVerbStacktraceContextFrames = 3
 
-  def optional(whenSkippedMessage: String)(body: ⇒ Unit): Unit =
-    try body catch {
-      case cause: Throwable ⇒
+  def optional(whenSkippedMessage: String)(body: => Unit): Unit =
+    try body
+    catch {
+      case cause: Throwable =>
         val shortTrace = cause.getStackTrace.take(mayVerbStacktraceContextFrames)
         throw new TestCanceledByFailure(whenSkippedMessage, shortTrace)
     }
@@ -38,7 +40,7 @@ trait MayVerb {
      *
      * @see <a href="https://www.rfc-editor.org/rfc/rfc2119.txt">RFC 2119</a>
      */
-    def may(right: ⇒ Unit)(implicit fun: StringVerbBlockRegistration, pos: Position) {
+    def may(right: => Unit)(implicit fun: StringVerbBlockRegistration, pos: Position): Unit = {
       fun(leftSideString, "may", pos, right _)
     }
   }
@@ -57,7 +59,8 @@ trait MayVerb {
 }
 
 object MayVerb {
-  case class TestCanceledByFailure(msg: String, specialStackTrace: Array[StackTraceElement]) extends TestCanceledException(Some(msg), None, 2) {
+  case class TestCanceledByFailure(msg: String, specialStackTrace: Array[StackTraceElement])
+      extends TestCanceledException(Some(msg), None, 2) {
     override def getStackTrace = specialStackTrace
   }
 }

@@ -1,29 +1,35 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.javadsl
 
 import java.io.{ InputStream, OutputStream }
 import java.util.stream.Collector
+
 import akka.japi.function
-import akka.stream.{ scaladsl, javadsl }
+import akka.stream.{ javadsl, scaladsl }
 import akka.stream.IOResult
 import akka.util.ByteString
+
 import scala.concurrent.duration.FiniteDuration
 import java.util.concurrent.CompletionStage
+
 import akka.NotUsed
+import com.github.ghik.silencer.silent
 
 /**
  * Converters for interacting with the blocking `java.io` streams APIs and Java 8 Streams
  */
 object StreamConverters {
+
   /**
    * Sink which writes incoming [[ByteString]]s to an [[OutputStream]] created by the given function.
    *
    * Materializes a [[CompletionStage]] of [[IOResult]] that will be completed with the size of the file (in bytes) at the streams completion,
    * and a possible exception if IO operation was not completed successfully.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * This method uses no auto flush for the [[java.io.OutputStream]] @see [[#fromOutputStream(function.Creator, Boolean)]] if you want to override it.
@@ -33,7 +39,8 @@ object StreamConverters {
    *
    * @param f A Creator which creates an OutputStream to write to
    */
-  def fromOutputStream(f: function.Creator[OutputStream]): javadsl.Sink[ByteString, CompletionStage[IOResult]] = fromOutputStream(f, autoFlush = false)
+  def fromOutputStream(f: function.Creator[OutputStream]): javadsl.Sink[ByteString, CompletionStage[IOResult]] =
+    fromOutputStream(f, autoFlush = false)
 
   /**
    * Sink which writes incoming [[ByteString]]s to an [[OutputStream]] created by the given function.
@@ -41,7 +48,7 @@ object StreamConverters {
    * Materializes a [[CompletionStage]] of [[IOResult]] that will be completed with the size of the file (in bytes) at the streams completion,
    * and a possible exception if IO operation was not completed successfully.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The [[OutputStream]] will be closed when the stream flowing into this [[Sink]] is completed. The [[Sink]]
@@ -50,19 +57,21 @@ object StreamConverters {
    * @param f A Creator which creates an OutputStream to write to
    * @param autoFlush If true the OutputStream will be flushed whenever a byte array is written
    */
-  def fromOutputStream(f: function.Creator[OutputStream], autoFlush: Boolean): javadsl.Sink[ByteString, CompletionStage[IOResult]] =
-    new Sink(scaladsl.StreamConverters.fromOutputStream(() ⇒ f.create(), autoFlush).toCompletionStage())
+  def fromOutputStream(
+      f: function.Creator[OutputStream],
+      autoFlush: Boolean): javadsl.Sink[ByteString, CompletionStage[IOResult]] =
+    new Sink(scaladsl.StreamConverters.fromOutputStream(() => f.create(), autoFlush).toCompletionStage())
 
   /**
    * Creates a Sink which when materialized will return an [[java.io.InputStream]] which it is possible
    * to read the values produced by the stream this Sink is attached to.
    *
-   * This method uses a default read timeout, use [[#inputStream(FiniteDuration)]] to explicitly
+   * This method uses a default read timeout, use [[#inputStream(FiniteDuration)]] or [[#inputStream(java.time.Duration)]] to explicitly
    * configure the timeout.
    *
    * This Sink is intended for inter-operation with legacy APIs since it is inherently blocking.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The [[InputStream]] will be closed when the stream flowing into this [[Sink]] completes, and
@@ -76,7 +85,7 @@ object StreamConverters {
    *
    * This Sink is intended for inter-operation with legacy APIs since it is inherently blocking.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The [[InputStream]] will be closed when the stream flowing into this [[Sink]] completes, and
@@ -84,30 +93,58 @@ object StreamConverters {
    *
    * @param readTimeout the max time the read operation on the materialized InputStream should block
    */
+  @Deprecated
+  @deprecated("Use the overloaded one which accepts java.time.Duration instead.", since = "2.5.12")
   def asInputStream(readTimeout: FiniteDuration): Sink[ByteString, InputStream] =
     new Sink(scaladsl.StreamConverters.asInputStream(readTimeout))
 
   /**
-   * Creates a Source from an [[java.io.InputStream]] created by the given function.
-   * Emitted elements are `chunkSize` sized [[akka.util.ByteString]] elements,
-   * except the final element, which will be up to `chunkSize` in size.
+   * Creates a Sink which when materialized will return an [[java.io.InputStream]] which it is possible
+   * to read the values produced by the stream this Sink is attached to.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * This Sink is intended for inter-operation with legacy APIs since it is inherently blocking.
+   *
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
+   * set it for a given Source by using [[akka.stream.ActorAttributes]].
+   *
+   * The [[InputStream]] will be closed when the stream flowing into this [[Sink]] completes, and
+   * closing the [[InputStream]] will cancel this [[Sink]].
+   *
+   * @param readTimeout the max time the read operation on the materialized InputStream should block
+   */
+  @silent("deprecated")
+  def asInputStream(readTimeout: java.time.Duration): Sink[ByteString, InputStream] = {
+    import akka.util.JavaDurationConverters._
+    asInputStream(readTimeout.asScala)
+  }
+
+  /**
+   * Creates a Source from an [[java.io.InputStream]] created by the given function.
+   * Emitted elements are up to `chunkSize` sized [[akka.util.ByteString]] elements.
+   * The actual size of emitted elements depends how much data the underlying
+   * [[java.io.InputStream]] returns on each read invocation. Such chunks will
+   * never be larger than chunkSize though.
+   *
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * It materializes a [[CompletionStage]] containing the number of bytes read from the source file upon completion.
    *
    * The created [[InputStream]] will be closed when the [[Source]] is cancelled.
    */
-  def fromInputStream(in: function.Creator[InputStream], chunkSize: Int): javadsl.Source[ByteString, CompletionStage[IOResult]] =
-    new Source(scaladsl.StreamConverters.fromInputStream(() ⇒ in.create(), chunkSize).toCompletionStage())
+  def fromInputStream(
+      in: function.Creator[InputStream],
+      chunkSize: Int): javadsl.Source[ByteString, CompletionStage[IOResult]] =
+    new Source(scaladsl.StreamConverters.fromInputStream(() => in.create(), chunkSize).toCompletionStage())
 
   /**
    * Creates a Source from an [[java.io.InputStream]] created by the given function.
-   * Emitted elements are [[ByteString]] elements, chunked by default by 8192 bytes,
-   * except the last element, which will be up to 8192 in size.
+   * Emitted elements are up to 8192 bytes sized [[akka.util.ByteString]] elements.
+   * The actual size of emitted elements depends how much data the underlying
+   * [[java.io.InputStream]] returns on each read invocation. Such chunks will
+   * never be larger than chunkSize though.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * It materializes a [[CompletionStage]] of [[IOResult]] containing the number of bytes read from the source file upon completion,
@@ -115,7 +152,8 @@ object StreamConverters {
    *
    * The created [[InputStream]] will be closed when the [[Source]] is cancelled.
    */
-  def fromInputStream(in: function.Creator[InputStream]): javadsl.Source[ByteString, CompletionStage[IOResult]] = fromInputStream(in, 8192)
+  def fromInputStream(in: function.Creator[InputStream]): javadsl.Source[ByteString, CompletionStage[IOResult]] =
+    fromInputStream(in, 8192)
 
   /**
    * Creates a Source which when materialized will return an [[java.io.OutputStream]] which it is possible
@@ -123,7 +161,7 @@ object StreamConverters {
    *
    * This Source is intended for inter-operation with legacy APIs since it is inherently blocking.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The created [[OutputStream]] will be closed when the [[Source]] is cancelled, and closing the [[OutputStream]]
@@ -131,17 +169,39 @@ object StreamConverters {
    *
    * @param writeTimeout the max time the write operation on the materialized OutputStream should block
    */
+  @Deprecated
+  @deprecated("Use the overloaded one which accepts java.time.Duration instead.", since = "2.5.12")
   def asOutputStream(writeTimeout: FiniteDuration): javadsl.Source[ByteString, OutputStream] =
     new Source(scaladsl.StreamConverters.asOutputStream(writeTimeout))
 
   /**
    * Creates a Source which when materialized will return an [[java.io.OutputStream]] which it is possible
-   * to write the ByteStrings to the stream this Source is attached to. The write timeout for OutputStreams
-   * materialized will default to 5 seconds, @see [[#outputStream(FiniteDuration)]] if you want to override it.
+   * to write the ByteStrings to the stream this Source is attached to.
    *
    * This Source is intended for inter-operation with legacy APIs since it is inherently blocking.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
+   * set it for a given Source by using [[akka.stream.ActorAttributes]].
+   *
+   * The created [[OutputStream]] will be closed when the [[Source]] is cancelled, and closing the [[OutputStream]]
+   * will complete this [[Source]].
+   *
+   * @param writeTimeout the max time the write operation on the materialized OutputStream should block
+   */
+  @silent("deprecated")
+  def asOutputStream(writeTimeout: java.time.Duration): javadsl.Source[ByteString, OutputStream] = {
+    import akka.util.JavaDurationConverters._
+    asOutputStream(writeTimeout.asScala)
+  }
+
+  /**
+   * Creates a Source which when materialized will return an [[java.io.OutputStream]] which it is possible
+   * to write the ByteStrings to the stream this Source is attached to. The write timeout for OutputStreams
+   * materialized will default to 5 seconds, @see [[#outputStream(FiniteDuration)]] or [[#outputStream(java.time.Duration)]] if you want to override it.
+   *
+   * This Source is intended for inter-operation with legacy APIs since it is inherently blocking.
+   *
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The created [[OutputStream]] will be closed when the [[Source]] is cancelled, and closing the [[OutputStream]]
@@ -174,8 +234,9 @@ object StreamConverters {
    * You can use [[Source.async]] to create asynchronous boundaries between synchronous java stream
    * and the rest of flow.
    */
-  def fromJavaStream[O, S <: java.util.stream.BaseStream[O, S]](stream: function.Creator[java.util.stream.BaseStream[O, S]]): javadsl.Source[O, NotUsed] =
-    new Source(scaladsl.StreamConverters.fromJavaStream(stream.create))
+  def fromJavaStream[O, S <: java.util.stream.BaseStream[O, S]](
+      stream: function.Creator[java.util.stream.BaseStream[O, S]]): javadsl.Source[O, NotUsed] =
+    new Source(scaladsl.StreamConverters.fromJavaStream(stream.create _))
 
   /**
    * Creates a sink which materializes into a ``CompletionStage`` which will be completed with a result of the Java 8 ``Collector``
@@ -188,7 +249,7 @@ object StreamConverters {
    * to handle multiple invocations.
    */
   def javaCollector[T, R](collector: function.Creator[Collector[T, _ <: Any, R]]): Sink[T, CompletionStage[R]] =
-    new Sink(scaladsl.StreamConverters.javaCollector[T, R](() ⇒ collector.create()).toCompletionStage())
+    new Sink(scaladsl.StreamConverters.javaCollector[T, R](() => collector.create()).toCompletionStage())
 
   /**
    * Creates a sink which materializes into a ``CompletionStage`` which will be completed with a result of the Java 8 ``Collector``
@@ -200,7 +261,11 @@ object StreamConverters {
    * Note that a flow can be materialized multiple times, so the function producing the ``Collector`` must be able
    * to handle multiple invocations.
    */
-  def javaCollectorParallelUnordered[T, R](parallelism: Int)(collector: function.Creator[Collector[T, _ <: Any, R]]): Sink[T, CompletionStage[R]] =
-    new Sink(scaladsl.StreamConverters.javaCollectorParallelUnordered[T, R](parallelism)(() ⇒ collector.create()).toCompletionStage())
+  def javaCollectorParallelUnordered[T, R](parallelism: Int)(
+      collector: function.Creator[Collector[T, _ <: Any, R]]): Sink[T, CompletionStage[R]] =
+    new Sink(
+      scaladsl.StreamConverters
+        .javaCollectorParallelUnordered[T, R](parallelism)(() => collector.create())
+        .toCompletionStage())
 
 }

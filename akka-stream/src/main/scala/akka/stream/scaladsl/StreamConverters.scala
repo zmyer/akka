@@ -1,17 +1,17 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import java.io.{ OutputStream, InputStream }
+import java.io.{ InputStream, OutputStream }
 import java.util.Spliterators
-import java.util.concurrent.atomic.AtomicReference
 import java.util.stream.{ Collector, StreamSupport }
 
-import akka.stream.{ Attributes, SinkShape, IOResult }
+import akka.stream.{ Attributes, IOResult, SinkShape }
 import akka.stream.impl._
 import akka.stream.impl.Stages.DefaultAttributes
-import akka.stream.impl.io.{ InputStreamSinkStage, OutputStreamSink, OutputStreamSourceStage, InputStreamSource }
+import akka.stream.impl.io.{ InputStreamSinkStage, InputStreamSource, OutputStreamGraphStage, OutputStreamSourceStage }
 import akka.util.ByteString
 
 import scala.concurrent.duration.Duration._
@@ -24,15 +24,14 @@ import akka.NotUsed
  */
 object StreamConverters {
 
-  import Source.{ shape ⇒ sourceShape }
-  import Sink.{ shape ⇒ sinkShape }
-
   /**
    * Creates a Source from an [[InputStream]] created by the given function.
-   * Emitted elements are `chunkSize` sized [[akka.util.ByteString]] elements,
-   * except the final element, which will be up to `chunkSize` in size.
+   * Emitted elements are up to `chunkSize` sized [[akka.util.ByteString]] elements.
+   * The actual size of emitted elements depends how much data the underlying
+   * [[java.io.InputStream]] returns on each read invocation. Such chunks will
+   * never be larger than chunkSize though.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * It materializes a [[Future]] of [[IOResult]] containing the number of bytes read from the source file upon completion,
@@ -43,8 +42,9 @@ object StreamConverters {
    * @param in a function which creates the InputStream to read from
    * @param chunkSize the size of each read operation, defaults to 8192
    */
-  def fromInputStream(in: () ⇒ InputStream, chunkSize: Int = 8192): Source[ByteString, Future[IOResult]] =
-    new Source(new InputStreamSource(in, chunkSize, DefaultAttributes.inputStreamSource, sourceShape("InputStreamSource")))
+  def fromInputStream(in: () => InputStream, chunkSize: Int = 8192): Source[ByteString, Future[IOResult]] = {
+    Source.fromGraph(new InputStreamSource(in, chunkSize))
+  }
 
   /**
    * Creates a Source which when materialized will return an [[OutputStream]] which it is possible
@@ -52,7 +52,7 @@ object StreamConverters {
    *
    * This Source is intended for inter-operation with legacy APIs since it is inherently blocking.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The created [[OutputStream]] will be closed when the [[Source]] is cancelled, and closing the [[OutputStream]]
@@ -69,15 +69,15 @@ object StreamConverters {
    * Materializes a [[Future]] of [[IOResult]] that will be completed with the size of the file (in bytes) at the streams completion,
    * and a possible exception if IO operation was not completed successfully.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    * If `autoFlush` is true the OutputStream will be flushed whenever a byte array is written, defaults to false.
    *
    * The [[OutputStream]] will be closed when the stream flowing into this [[Sink]] is completed. The [[Sink]]
    * will cancel the stream when the [[OutputStream]] is no longer writable.
    */
-  def fromOutputStream(out: () ⇒ OutputStream, autoFlush: Boolean = false): Sink[ByteString, Future[IOResult]] =
-    new Sink(new OutputStreamSink(out, DefaultAttributes.outputStreamSink, sinkShape("OutputStreamSink"), autoFlush))
+  def fromOutputStream(out: () => OutputStream, autoFlush: Boolean = false): Sink[ByteString, Future[IOResult]] =
+    Sink.fromGraph(new OutputStreamGraphStage(out, autoFlush))
 
   /**
    * Creates a Sink which when materialized will return an [[InputStream]] which it is possible
@@ -85,7 +85,7 @@ object StreamConverters {
    *
    * This Sink is intended for inter-operation with legacy APIs since it is inherently blocking.
    *
-   * You can configure the default dispatcher for this Source by changing the `akka.stream.blocking-io-dispatcher` or
+   * You can configure the default dispatcher for this Source by changing the `akka.stream.materializer.blocking-io-dispatcher` or
    * set it for a given Source by using [[akka.stream.ActorAttributes]].
    *
    * The [[InputStream]] will be closed when the stream flowing into this [[Sink]] completes, and
@@ -106,11 +106,18 @@ object StreamConverters {
    * Note that a flow can be materialized multiple times, so the function producing the ``Collector`` must be able
    * to handle multiple invocations.
    */
-  def javaCollector[T, R](collectorFactory: () ⇒ java.util.stream.Collector[T, _ <: Any, R]): Sink[T, Future[R]] =
-    Flow[T].fold(() ⇒
-      new CollectorState[T, R](collectorFactory().asInstanceOf[Collector[T, Any, R]])) { (state, elem) ⇒ () ⇒ state().update(elem) }
-      .map(state ⇒ state().finish())
-      .toMat(Sink.head)(Keep.right).withAttributes(DefaultAttributes.javaCollector)
+  def javaCollector[T, R](collectorFactory: () => java.util.stream.Collector[T, _ <: Any, R]): Sink[T, Future[R]] =
+    Flow[T]
+      .fold {
+        new FirstCollectorState[T, R](collectorFactory.asInstanceOf[() => java.util.stream.Collector[T, Any, R]]): CollectorState[
+          T,
+          R]
+      } { (state, elem) =>
+        state.update(elem)
+      }
+      .map(state => state.finish())
+      .toMat(Sink.head)(Keep.right)
+      .withAttributes(DefaultAttributes.javaCollector)
 
   /**
    * Creates a sink which materializes into a ``Future`` which will be completed with result of the Java 8 ``Collector`` transformation
@@ -122,29 +129,36 @@ object StreamConverters {
    * Note that a flow can be materialized multiple times, so the function producing the ``Collector`` must be able
    * to handle multiple invocations.
    */
-  def javaCollectorParallelUnordered[T, R](parallelism: Int)(collectorFactory: () ⇒ java.util.stream.Collector[T, _ <: Any, R]): Sink[T, Future[R]] = {
+  def javaCollectorParallelUnordered[T, R](parallelism: Int)(
+      collectorFactory: () => java.util.stream.Collector[T, _ <: Any, R]): Sink[T, Future[R]] = {
     if (parallelism == 1) javaCollector[T, R](collectorFactory)
     else {
-      Sink.fromGraph(GraphDSL.create(Sink.head[R]) { implicit b ⇒ sink ⇒
-        import GraphDSL.Implicits._
-        val collector = collectorFactory().asInstanceOf[Collector[T, Any, R]]
-        val balance = b.add(Balance[T](parallelism))
-        val merge = b.add(Merge[() ⇒ CollectorState[T, R]](parallelism))
+      Sink
+        .fromGraph(GraphDSL.create(Sink.head[R]) { implicit b => sink =>
+          import GraphDSL.Implicits._
+          val factory = collectorFactory.asInstanceOf[() => Collector[T, Any, R]]
+          val balance = b.add(Balance[T](parallelism))
+          val merge = b.add(Merge[CollectorState[T, R]](parallelism))
 
-        for (i ← 0 until parallelism) {
-          val worker = Flow[T]
-            .fold(() ⇒ new CollectorState(collector)) { (state, elem) ⇒ () ⇒ state().update(elem) }
-            .async
+          for (i <- 0 until parallelism) {
+            val worker = Flow[T]
+              .fold(new FirstCollectorState(factory): CollectorState[T, R]) { (state, elem) =>
+                state.update(elem)
+              }
+              .async
 
-          balance.out(i) ~> worker ~> merge.in(i)
-        }
+            balance.out(i) ~> worker ~> merge.in(i)
+          }
 
-        merge.out
-          .fold(() ⇒ new ReducerState(collector)) { (state, elem) ⇒ () ⇒ state().update(elem().accumulated) }
-          .map(state ⇒ state().finish()) ~> sink.in
+          merge.out
+            .fold(new FirstReducerState(factory): ReducerState[T, R]) { (state, elem) =>
+              state.update(elem.accumulated())
+            }
+            .map(state => state.finish()) ~> sink.in
 
-        SinkShape(balance.in)
-      }).withAttributes(DefaultAttributes.javaCollectorParallelUnordered)
+          SinkShape(balance.in)
+        })
+        .withAttributes(DefaultAttributes.javaCollectorParallelUnordered)
     }
   }
 
@@ -162,23 +176,32 @@ object StreamConverters {
    * configured through the ``akka.stream.blocking-io-dispatcher``.
    */
   def asJavaStream[T](): Sink[T, java.util.stream.Stream[T]] = {
-    Sink.fromGraph(new QueueSink[T]())
-      .mapMaterializedValue(queue ⇒ StreamSupport.stream(
-        Spliterators.spliteratorUnknownSize(new java.util.Iterator[T] {
-          var nextElementFuture: Future[Option[T]] = queue.pull()
-          var nextElement: Option[T] = null
+    // TODO removing the QueueSink name, see issue #22523
+    Sink
+      .fromGraph(new QueueSink[T]().withAttributes(Attributes.none))
+      .mapMaterializedValue(
+        queue =>
+          StreamSupport
+            .stream(
+              Spliterators.spliteratorUnknownSize(
+                new java.util.Iterator[T] {
+                  var nextElementFuture: Future[Option[T]] = queue.pull()
+                  var nextElement: Option[T] = _
 
-          override def hasNext: Boolean = {
-            nextElement = Await.result(nextElementFuture, Inf)
-            nextElement.isDefined
-          }
+                  override def hasNext: Boolean = {
+                    nextElement = Await.result(nextElementFuture, Inf)
+                    nextElement.isDefined
+                  }
 
-          override def next(): T = {
-            val next = nextElement.get
-            nextElementFuture = queue.pull()
-            next
-          }
-        }, 0), false).onClose(new Runnable { def run = queue.cancel() }))
+                  override def next(): T = {
+                    val next = nextElement.get
+                    nextElementFuture = queue.pull()
+                    next
+                  }
+                },
+                0),
+              false)
+            .onClose(new Runnable { def run = queue.cancel() }))
       .withAttributes(DefaultAttributes.asJavaStream)
   }
 
@@ -186,14 +209,12 @@ object StreamConverters {
    * Creates a source that wraps a Java 8 ``Stream``. ``Source`` uses a stream iterator to get all its
    * elements and send them downstream on demand.
    *
-   * Example usage: `Source.fromJavaStream(() ⇒ IntStream.rangeClosed(1, 10))`
+   * Example usage: `Source.fromJavaStream(() => IntStream.rangeClosed(1, 10))`
    *
    * You can use [[Source.async]] to create asynchronous boundaries between synchronous Java ``Stream``
    * and the rest of flow.
    */
-  def fromJavaStream[T, S <: java.util.stream.BaseStream[T, S]](stream: () ⇒ java.util.stream.BaseStream[T, S]): Source[T, NotUsed] = {
-    import scala.collection.JavaConverters._
-    Source.fromIterator(() ⇒ stream().iterator().asScala).withAttributes(DefaultAttributes.fromJavaStream)
-  }
-
+  def fromJavaStream[T, S <: java.util.stream.BaseStream[T, S]](
+      stream: () => java.util.stream.BaseStream[T, S]): Source[T, NotUsed] =
+    Source.fromGraph(new JavaStreamSource[T, S](stream)).withAttributes(DefaultAttributes.fromJavaStream)
 }

@@ -1,7 +1,10 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.actor
+
+import akka.annotation.DoNotInherit
 
 import scala.collection.immutable
 import scala.reflect.ClassTag
@@ -14,8 +17,11 @@ import scala.util.Try
  *
  * This is an internal facility and users are not expected to encounter it
  * unless they are extending Akka in ways which go beyond simple Extensions.
+ *
+ * Not for user extension
  */
-abstract class DynamicAccess {
+@DoNotInherit abstract class DynamicAccess {
+
   /**
    * Convenience method which given a `Class[_]` object and a constructor description
    * will create a new instance of that class.
@@ -31,6 +37,8 @@ abstract class DynamicAccess {
    * returned by `classLoader`).
    */
   def getClassFor[T: ClassTag](fqcn: String): Try[Class[_ <: T]]
+
+  def classIsOnClasspath(fqcn: String): Boolean
 
   /**
    * Obtain an object conforming to the type T, which is expected to be

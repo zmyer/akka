@@ -1,10 +1,11 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.util
 
 import akka.testkit.AkkaSpec
-import LineNumbers._
+import akka.util.LineNumbers._
 
 class LineNumberSpec extends AkkaSpec {
 
@@ -14,15 +15,21 @@ class LineNumberSpec extends AkkaSpec {
       import LineNumberSpecCodeForScala._
 
       "work for small functions" in {
-        LineNumbers(oneline) should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 12, 12))
+        LineNumbers(oneline) should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 13, 13))
       }
 
       "work for larger functions" in {
-        LineNumbers(twoline) should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 14, 16))
+        val result = LineNumbers(twoline)
+        result should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 15, 15))
       }
 
       "work for partial functions" in {
-        LineNumbers(partial) should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 19, 21))
+        LineNumbers(partial) should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 20, 22))
+      }
+
+      "work for `def`" in {
+        val result = LineNumbers(method("foo"))
+        result should ===(SourceFileLines("LineNumberSpecCodeForScala.scala", 26, 27))
       }
 
     }
@@ -30,17 +37,18 @@ class LineNumberSpec extends AkkaSpec {
     "writing Java" must {
       val l = new LineNumberSpecCodeForJava
 
-      // FIXME uncomment when compiling with '-source 1.8'
-      //      "work for small functions" in {
-      //        LineNumbers(l.f1()) should ===(SourceFileLines("LineNumberSpecCodeForJava.java", 20, 20))
-      //      }
+      "work for small functions" in {
+        // because how java Lambdas are implemented/designed
+        LineNumbers(l.f1()) should ===(SourceFileLines("LineNumberSpecCodeForJava.java", 20, 20))
+      }
 
-      //      "work for larger functions" in {
-      //        LineNumbers(l.f2()) should ===(SourceFileLines("LineNumberSpecCodeForJava.java", 25, 26))
-      //      }
+      "work for larger functions" in {
+        // because how java Lambdas are implemented/designed
+        LineNumbers(l.f2()) should ===(SourceFileLines("LineNumberSpecCodeForJava.java", 25, 26))
+      }
 
       "work for anonymous classes" in {
-        LineNumbers(l.f3()) should ===(SourceFileLines("LineNumberSpecCodeForJava.java", 31, 35))
+        LineNumbers(l.f3()) should ===(SourceFileLines("LineNumberSpecCodeForJava.java", 31, 36))
       }
 
     }

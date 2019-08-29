@@ -1,9 +1,10 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import akka.stream.testkit.Utils._
+import akka.stream.testkit.scaladsl.StreamTestKit._
 import akka.stream.testkit._
 import org.reactivestreams.Publisher
 
@@ -26,7 +27,7 @@ class FlowInterleaveSpec extends BaseTwoStreamsSetup {
       val subscription = probe.expectSubscription()
 
       var collected = Seq.empty[Int]
-      for (_ ← 1 to 12) {
+      for (_ <- 1 to 12) {
         subscription.request(1)
         collected :+= probe.expectNext()
       }
@@ -42,6 +43,103 @@ class FlowInterleaveSpec extends BaseTwoStreamsSetup {
       probe.expectSubscription().request(10)
       probe.expectNext(0, 1, 3, 4, 2, 5)
       probe.expectComplete()
+    }
+
+    "eagerClose = true, first stream closed" in assertAllStagesStopped {
+      val probe = TestSubscriber.manualProbe[Int]()
+
+      val source1 = TestPublisher.probe[Int]()
+      val source2 = TestPublisher.probe[Int]()
+
+      Source
+        .fromPublisher(source1)
+        .interleave(Source.fromPublisher(source2), 2, eagerClose = true)
+        .runWith(Sink.fromSubscriber(probe))
+      probe.expectSubscription().request(10)
+
+      // just to make it extra clear that it eagerly pulls all inputs
+      source1.expectRequest()
+      source2.expectRequest()
+
+      source1.sendNext(0)
+      source2.sendNext(10)
+
+      source1.expectRequest()
+      source1.sendNext(1)
+
+      source2.expectRequest()
+      source2.sendNext(11)
+
+      source1.expectRequest()
+      source1.sendNext(2)
+      source1.sendComplete()
+
+      probe.expectNext(0, 1, 10, 11, 2)
+      probe.expectComplete()
+      source2.expectCancellation()
+    }
+
+    "eagerClose = true, non-current-upstream closed" in assertAllStagesStopped {
+      val probe = TestSubscriber.manualProbe[Int]()
+
+      val source1 = TestPublisher.probe[Int]()
+      val source2 = TestPublisher.probe[Int]()
+
+      Source
+        .fromPublisher(source1)
+        .interleave(Source.fromPublisher(source2), 2, eagerClose = true)
+        .runWith(Sink.fromSubscriber(probe))
+      probe.expectSubscription().request(10)
+
+      // just to make it extra clear that it eagerly pulls all inputs
+      source1.expectRequest()
+      source2.expectRequest()
+
+      source1.sendNext(0)
+      source2.sendNext(10)
+
+      source1.expectRequest()
+      source1.sendNext(1)
+
+      source2.expectRequest()
+      // don't emit but cancel the other source
+      source1.sendComplete()
+
+      probe.expectNext(0, 1, 10)
+      probe.expectComplete()
+      source2.expectCancellation()
+    }
+
+    "eagerClose = true, other stream closed" in assertAllStagesStopped {
+      val probe = TestSubscriber.manualProbe[Int]()
+
+      val source1 = TestPublisher.probe[Int]()
+      val source2 = TestPublisher.probe[Int]()
+
+      Source
+        .fromPublisher(source1)
+        .interleave(Source.fromPublisher(source2), 2, eagerClose = true)
+        .runWith(Sink.fromSubscriber(probe))
+
+      probe.expectSubscription().request(10)
+
+      // just to make it extra clear that it eagerly pulls all inputs
+      source1.expectRequest()
+      source2.expectRequest()
+
+      source1.sendNext(0)
+      source2.sendNext(10)
+
+      source1.expectRequest()
+      source1.sendNext(1)
+
+      source2.expectRequest()
+      source2.sendNext(11)
+      source2.sendComplete()
+
+      probe.expectNext(0, 1, 10, 11)
+      probe.expectComplete()
+      source1.expectCancellation()
     }
 
     "work with segmentSize = 1" in assertAllStagesStopped {
@@ -113,8 +211,7 @@ class FlowInterleaveSpec extends BaseTwoStreamsSetup {
       val subscription2 = subscriber2.expectSubscription()
       subscription2.request(4)
       subscriber2.expectNextOrError(1, TestException).isLeft ||
-        subscriber2.expectNextOrError(2, TestException).isLeft ||
-        { subscriber2.expectError(TestException); true }
+      subscriber2.expectNextOrError(2, TestException).isLeft || { subscriber2.expectError(TestException); true }
     }
 
     "work with one delayed failed and one nonempty publisher" in {
@@ -127,8 +224,11 @@ class FlowInterleaveSpec extends BaseTwoStreamsSetup {
       val up2 = TestPublisher.manualProbe[Int]()
       val down = TestSubscriber.manualProbe[Int]()
 
-      val (graphSubscriber1, graphSubscriber2) = Source.asSubscriber[Int]
-        .interleaveMat(Source.asSubscriber[Int], 2)((_, _)).toMat(Sink.fromSubscriber(down))(Keep.left).run
+      val (graphSubscriber1, graphSubscriber2) = Source
+        .asSubscriber[Int]
+        .interleaveMat(Source.asSubscriber[Int], 2)((_, _))
+        .toMat(Sink.fromSubscriber(down))(Keep.left)
+        .run
 
       val downstream = down.expectSubscription()
       downstream.cancel()
@@ -136,6 +236,19 @@ class FlowInterleaveSpec extends BaseTwoStreamsSetup {
       up2.subscribe(graphSubscriber2)
       up1.expectSubscription().expectCancellation()
       up2.expectSubscription().expectCancellation()
+    }
+
+    "work in example" in {
+      //#interleave
+      import akka.stream.scaladsl.Source
+      import akka.stream.scaladsl.Sink
+
+      val sourceA = Source(List(1, 2, 3, 4))
+      val sourceB = Source(List(10, 20, 30, 40))
+
+      sourceA.interleave(sourceB, segmentSize = 2).runWith(Sink.foreach(println))
+      //prints 1, 2, 10, 20, 3, 4, 30, 40
+      //#interleave
     }
   }
 

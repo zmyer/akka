@@ -1,17 +1,18 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import akka.stream.testkit.StreamSpec
-import akka.stream.{ ActorMaterializer, ActorMaterializerSettings }
+import akka.stream.testkit.{ StreamSpec, TestPublisher }
+import akka.stream.{ AbruptTerminationException, ActorMaterializer, ActorMaterializerSettings }
+
 import scala.collection.immutable
-import scala.concurrent.{ Future, Await }
+import scala.concurrent.{ Await, Future }
 
 class SeqSinkSpec extends StreamSpec {
 
-  val settings = ActorMaterializerSettings(system)
-    .withInputBuffer(initialSize = 2, maxSize = 16)
+  val settings = ActorMaterializerSettings(system).withInputBuffer(initialSize = 2, maxSize = 16)
 
   implicit val mat = ActorMaterializer(settings)
 
@@ -25,9 +26,18 @@ class SeqSinkSpec extends StreamSpec {
 
     "return an empty Seq[T] from an empty Source" in {
       val input: immutable.Seq[Int] = Nil
-      val future: Future[immutable.Seq[Int]] = Source.fromIterator(() ⇒ input.iterator).runWith(Sink.seq)
+      val future: Future[immutable.Seq[Int]] = Source.fromIterator(() => input.iterator).runWith(Sink.seq)
       val result: immutable.Seq[Int] = Await.result(future, remainingOrDefault)
       result should be(input)
+    }
+
+    "fail the future on abrupt termination" in {
+      val mat = ActorMaterializer()
+      val probe = TestPublisher.probe()
+      val future: Future[immutable.Seq[Int]] =
+        Source.fromPublisher(probe).runWith(Sink.seq)(mat)
+      mat.shutdown()
+      future.failed.futureValue shouldBe an[AbruptTerminationException]
     }
   }
 }

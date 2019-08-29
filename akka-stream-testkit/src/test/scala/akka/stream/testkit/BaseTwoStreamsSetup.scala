@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.testkit
 
 import akka.stream.{ ActorMaterializer, ActorMaterializerSettings }
@@ -8,13 +9,12 @@ import akka.stream.scaladsl._
 import org.reactivestreams.Publisher
 import scala.collection.immutable
 import scala.util.control.NoStackTrace
-import akka.stream.testkit.Utils._
+import akka.stream.testkit.scaladsl.StreamTestKit._
 import akka.testkit.AkkaSpec
 
 abstract class BaseTwoStreamsSetup extends AkkaSpec {
 
-  val settings = ActorMaterializerSettings(system)
-    .withInputBuffer(initialSize = 2, maxSize = 2)
+  val settings = ActorMaterializerSettings(system).withInputBuffer(initialSize = 2, maxSize = 2)
 
   implicit val materializer = ActorMaterializer(settings)
 

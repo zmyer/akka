@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2018-2019 Lightbend Inc. <https://www.lightbend.com>
+ */
+
 package akka.actor.dispatch
 
 import java.util.concurrent.CountDownLatch
@@ -11,7 +15,7 @@ class DispatcherActorsSpec extends AkkaSpec {
   class SlowActor(finishedCounter: CountDownLatch) extends Actor {
 
     def receive = {
-      case x: Int ⇒ {
+      case _: Int => {
         Thread.sleep(50) // slow actor
         finishedCounter.countDown()
       }
@@ -20,7 +24,7 @@ class DispatcherActorsSpec extends AkkaSpec {
 
   class FastActor(finishedCounter: CountDownLatch) extends Actor {
     def receive = {
-      case x: Int ⇒ {
+      case _: Int => {
         finishedCounter.countDown()
       }
     }
@@ -34,20 +38,20 @@ class DispatcherActorsSpec extends AkkaSpec {
       val f = system.actorOf(Props(new FastActor(fFinished)))
 
       // send a lot of stuff to s
-      for (i ← 1 to 50) {
+      for (i <- 1 to 50) {
         s ! i
       }
 
       // send some messages to f
-      for (i ← 1 to 10) {
+      for (i <- 1 to 10) {
         f ! i
       }
 
       // now assert that f is finished while s is still busy
-      fFinished.await
+      fFinished.await()
       assert(sFinished.getCount > 0)
-      sFinished.await
-      assert(sFinished.getCount === 0)
+      sFinished.await()
+      assert(sFinished.getCount === 0L)
       system.stop(f)
       system.stop(s)
     }

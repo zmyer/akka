@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.persistence.journal
@@ -10,8 +10,7 @@ import com.typesafe.config.ConfigFactory
 
 class InmemEventAdaptersSpec extends AkkaSpec {
 
-  val config = ConfigFactory.parseString(
-    s"""
+  val config = ConfigFactory.parseString(s"""
       |akka.persistence.journal {
       |  plugin = "akka.persistence.journal.inmem"
       |
@@ -29,6 +28,7 @@ class InmemEventAdaptersSpec extends AkkaSpec {
       |      precise  = ${classOf[PreciseAdapter].getCanonicalName}
       |      reader  = ${classOf[ReaderAdapter].getCanonicalName}
       |      writer  = ${classOf[WriterAdapter].getCanonicalName}
+      |      another-reader = ${classOf[AnotherReaderAdapter].getCanonicalName}
       |    }
       |    event-adapter-bindings = {
       |      "${classOf[EventMarkerInterface].getCanonicalName}" = marker
@@ -36,6 +36,7 @@ class InmemEventAdaptersSpec extends AkkaSpec {
       |      "akka.persistence.journal.PreciseAdapterEvent" = precise
       |      "akka.persistence.journal.ReadMeEvent" = reader
       |      "akka.persistence.journal.WriteMeEvent" = writer
+      |      "akka.persistence.journal.ReadMeTwiceEvent" = [reader, another-reader]
       |    }
       |  }
       |}
@@ -67,8 +68,7 @@ class InmemEventAdaptersSpec extends AkkaSpec {
     }
 
     "fail with useful message when binding to not defined adapter" in {
-      val badConfig = ConfigFactory.parseString(
-        """
+      val badConfig = ConfigFactory.parseString("""
           |akka.persistence.journal.inmem {
           |  event-adapter-bindings {
           |    "java.lang.Integer" = undefined-adapter
@@ -99,6 +99,16 @@ class InmemEventAdaptersSpec extends AkkaSpec {
       val w: EventAdapter = adapters.get(classOf[WriteMeEvent])
       w.fromJournal(w.toJournal(WriteMeEvent()), "").events.head.toString should ===("to-WriteMeEvent()")
     }
+
+    "allow combining only the read-side (CombinedReadEventAdapter)" in {
+      val adapters = EventAdapters(extendedActorSystem, inmemConfig)
+
+      // combined-read-side only adapter
+      val r: EventAdapter = adapters.get(classOf[ReadMeTwiceEvent])
+      r.fromJournal(r.toJournal(ReadMeTwiceEvent()), "").events.map(_.toString) shouldBe Seq(
+        "from-ReadMeTwiceEvent()",
+        "again-ReadMeTwiceEvent()")
+    }
   }
 
 }
@@ -109,17 +119,19 @@ abstract class BaseTestAdapter extends EventAdapter {
   override def manifest(event: Any): String = ""
 }
 
-class ExampleEventAdapter extends BaseTestAdapter {
-}
-class MarkerInterfaceAdapter extends BaseTestAdapter {
-}
-class PreciseAdapter extends BaseTestAdapter {
-}
+class ExampleEventAdapter extends BaseTestAdapter {}
+class MarkerInterfaceAdapter extends BaseTestAdapter {}
+class PreciseAdapter extends BaseTestAdapter {}
 
 case class ReadMeEvent()
+case class ReadMeTwiceEvent()
 class ReaderAdapter extends ReadEventAdapter {
   override def fromJournal(event: Any, manifest: String): EventSeq =
     EventSeq("from-" + event)
+}
+class AnotherReaderAdapter extends ReadEventAdapter {
+  override def fromJournal(event: Any, manifest: String): EventSeq =
+    EventSeq("again-" + event)
 }
 
 case class WriteMeEvent()
@@ -131,4 +143,3 @@ class WriterAdapter extends WriteEventAdapter {
 trait EventMarkerInterface
 final case class SampleEvent() extends EventMarkerInterface
 final case class PreciseAdapterEvent() extends EventMarkerInterface
-

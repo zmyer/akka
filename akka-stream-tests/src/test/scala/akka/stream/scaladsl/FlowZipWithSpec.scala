@@ -1,14 +1,24 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
 import akka.stream.testkit.{ BaseTwoStreamsSetup, TestSubscriber }
 import org.reactivestreams.Publisher
+
 import scala.concurrent.duration._
 import akka.testkit.EventFilter
+import com.github.ghik.silencer.silent
 
+@silent // keep unused imports
 class FlowZipWithSpec extends BaseTwoStreamsSetup {
+
+//#zip-with
+  import akka.stream.scaladsl.Source
+  import akka.stream.scaladsl.Sink
+
+//#zip-with
 
   override type Outputs = Int
 
@@ -51,9 +61,9 @@ class FlowZipWithSpec extends BaseTwoStreamsSetup {
         subscription.request(2)
       }
       probe.expectError() match {
-        case a: java.lang.ArithmeticException ⇒ a.getMessage should be("/ by zero")
+        case a: java.lang.ArithmeticException => a.getMessage should be("/ by zero")
       }
-      probe.expectNoMsg(200.millis)
+      probe.expectNoMessage(200.millis)
     }
 
     commonTests()
@@ -90,6 +100,19 @@ class FlowZipWithSpec extends BaseTwoStreamsSetup {
       subscriber2.expectSubscriptionAndError(TestException)
     }
 
+    "work in fruits example" in {
+      //#zip-with
+      val sourceCount = Source(List("one", "two", "three"))
+      val sourceFruits = Source(List("apple", "orange", "banana"))
+
+      sourceCount
+        .zipWith(sourceFruits) { (countStr, fruitName) =>
+          s"$countStr $fruitName"
+        }
+        .runWith(Sink.foreach(println))
+      // this will print 'one apple', 'two orange', 'three banana'
+      //#zip-with
+    }
   }
 
 }

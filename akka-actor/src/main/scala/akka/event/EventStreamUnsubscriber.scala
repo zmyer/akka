@@ -1,11 +1,14 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.event
 
 import akka.actor._
 import akka.event.Logging.simpleName
 import java.util.concurrent.atomic.AtomicInteger
+
+import akka.dispatch.Dispatchers
 
 /**
  * INTERNAL API
@@ -23,27 +26,38 @@ protected[akka] class EventStreamUnsubscriber(eventStream: EventStream, debug: B
 
   import EventStreamUnsubscriber._
 
-  override def preStart() {
-    if (debug) eventStream.publish(Logging.Debug(simpleName(getClass), getClass, s"registering unsubscriber with $eventStream"))
-    eventStream initUnsubscriber self
+  override def preStart(): Unit = {
+    if (debug)
+      eventStream.publish(Logging.Debug(simpleName(getClass), getClass, s"registering unsubscriber with $eventStream"))
+    eventStream.initUnsubscriber(self)
   }
 
   def receive = {
-    case Register(actor) ⇒
-      if (debug) eventStream.publish(Logging.Debug(simpleName(getClass), getClass, s"watching $actor in order to unsubscribe from EventStream when it terminates"))
-      context watch actor
+    case Register(actor) =>
+      if (debug)
+        eventStream.publish(
+          Logging.Debug(
+            simpleName(getClass),
+            getClass,
+            s"watching $actor in order to unsubscribe from EventStream when it terminates"))
+      context.watch(actor)
 
-    case UnregisterIfNoMoreSubscribedChannels(actor) if eventStream.hasSubscriptions(actor) ⇒
+    case UnregisterIfNoMoreSubscribedChannels(actor) if eventStream.hasSubscriptions(actor) =>
     // do nothing
     // hasSubscriptions can be slow, but it's better for this actor to take the hit than the EventStream
 
-    case UnregisterIfNoMoreSubscribedChannels(actor) ⇒
-      if (debug) eventStream.publish(Logging.Debug(simpleName(getClass), getClass, s"unwatching $actor, since has no subscriptions"))
-      context unwatch actor
+    case UnregisterIfNoMoreSubscribedChannels(actor) =>
+      if (debug)
+        eventStream.publish(
+          Logging.Debug(simpleName(getClass), getClass, s"unwatching $actor, since has no subscriptions"))
+      context.unwatch(actor)
 
-    case Terminated(actor) ⇒
-      if (debug) eventStream.publish(Logging.Debug(simpleName(getClass), getClass, s"unsubscribe $actor from $eventStream, because it was terminated"))
-      eventStream unsubscribe actor
+    case Terminated(actor) =>
+      if (debug)
+        eventStream.publish(
+          Logging
+            .Debug(simpleName(getClass), getClass, s"unsubscribe $actor from $eventStream, because it was terminated"))
+      eventStream.unsubscribe(actor)
   }
 }
 
@@ -63,11 +77,12 @@ private[akka] object EventStreamUnsubscriber {
   final case class UnregisterIfNoMoreSubscribedChannels(actor: ActorRef)
 
   private def props(eventStream: EventStream, debug: Boolean) =
-    Props(classOf[EventStreamUnsubscriber], eventStream, debug)
+    Props(classOf[EventStreamUnsubscriber], eventStream, debug).withDispatcher(Dispatchers.InternalDispatcherId)
 
   def start(system: ActorSystem, stream: EventStream) = {
     val debug = system.settings.config.getBoolean("akka.actor.debug.event-stream")
-    system.asInstanceOf[ExtendedActorSystem]
+    system
+      .asInstanceOf[ExtendedActorSystem]
       .systemActorOf(props(stream, debug), "eventStreamUnsubscriber-" + unsubscribersCount.incrementAndGet())
   }
 

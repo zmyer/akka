@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.japi
@@ -7,6 +7,7 @@ package akka.japi
 import java.util.Collections.{ emptyList, singletonList }
 
 import akka.util.Collections.EmptyImmutableSeq
+import com.github.ghik.silencer.silent
 
 import scala.collection.immutable
 import scala.language.implicitConversions
@@ -16,6 +17,8 @@ import scala.util.control.NoStackTrace
 
 /**
  * A Function interface. Used to create first-class-functions is Java.
+ *
+ * This class is kept for compatibility, but for future API's please prefer [[akka.japi.function.Function]].
  */
 trait Function[T, R] {
   @throws(classOf[Exception])
@@ -24,6 +27,8 @@ trait Function[T, R] {
 
 /**
  * A Function interface. Used to create 2-arg first-class-functions is Java.
+ *
+ * This class is kept for compatibility, but for future API's please prefer [[akka.japi.function.Function2]].
  */
 trait Function2[T1, T2, R] {
   @throws(classOf[Exception])
@@ -32,6 +37,8 @@ trait Function2[T1, T2, R] {
 
 /**
  * A Procedure is like a Function, but it doesn't produce a return value.
+ *
+ * This class is kept for compatibility, but for future API's please prefer [[akka.japi.function.Procedure]].
  */
 trait Procedure[T] {
   @throws(classOf[Exception])
@@ -40,6 +47,8 @@ trait Procedure[T] {
 
 /**
  * An executable piece of code that takes no parameters and doesn't return any value.
+ *
+ * This class is kept for compatibility, but for future API's please prefer [[akka.japi.function.Effect]].
  */
 trait Effect {
   @throws(classOf[Exception])
@@ -48,6 +57,8 @@ trait Effect {
 
 /**
  * Java API: Defines a criteria and determines whether the parameter meets this criteria.
+ *
+ * This class is kept for compatibility, but for future API's please prefer [[java.util.function.Predicate]].
  */
 trait Predicate[T] {
   def test(param: T): Boolean
@@ -69,9 +80,13 @@ object Pair {
 
 /**
  * A constructor/factory, takes no parameters but creates a new value of type T every call.
+ *
+ * This class is kept for compatibility, but for future API's please prefer [[akka.japi.function.Creator]].
  */
+@silent("@SerialVersionUID has no effect")
 @SerialVersionUID(1L)
 trait Creator[T] extends Serializable {
+
   /**
    * This method must return a different instance upon every call.
    */
@@ -127,9 +142,16 @@ abstract class JavaPartialFunction[A, B] extends AbstractPartialFunction[A, B] {
   @throws(classOf[Exception])
   def apply(x: A, isCheck: Boolean): B
 
-  final def isDefinedAt(x: A): Boolean = try { apply(x, true); true } catch { case NoMatch ⇒ false }
-  final override def apply(x: A): B = try apply(x, false) catch { case NoMatch ⇒ throw new MatchError(x) }
-  final override def applyOrElse[A1 <: A, B1 >: B](x: A1, default: A1 ⇒ B1): B1 = try apply(x, false) catch { case NoMatch ⇒ default(x) }
+  final def isDefinedAt(x: A): Boolean =
+    try {
+      apply(x, true); true
+    } catch { case NoMatch => false }
+  final override def apply(x: A): B =
+    try apply(x, false)
+    catch { case NoMatch => throw new MatchError(x) }
+  final override def applyOrElse[A1 <: A, B1 >: B](x: A1, default: A1 => B1): B1 =
+    try apply(x, false)
+    catch { case NoMatch => default(x) }
 }
 
 /**
@@ -139,6 +161,7 @@ abstract class JavaPartialFunction[A, B] extends AbstractPartialFunction[A, B] {
  */
 sealed abstract class Option[A] extends java.lang.Iterable[A] {
   def get: A
+
   /**
    * Returns <code>a</code> if this is <code>some(a)</code> or <code>defaultValue</code> if
    * this is <code>none</code>.
@@ -151,6 +174,7 @@ sealed abstract class Option[A] extends java.lang.Iterable[A] {
 }
 
 object Option {
+
   /**
    * <code>Option</code> factory that creates <code>Some</code>
    */
@@ -171,8 +195,8 @@ object Option {
    * Converts a Scala Option to a Java Option
    */
   def fromScalaOption[T](scalaOption: scala.Option[T]): Option[T] = scalaOption match {
-    case scala.Some(r) ⇒ some(r)
-    case scala.None    ⇒ none
+    case scala.Some(r) => some(r)
+    case scala.None    => none
   }
 
   /**
@@ -219,15 +243,16 @@ object Util {
   /**
    * Turns an array into an immutable Scala sequence (by copying it).
    */
-  def immutableSeq[T](arr: Array[T]): immutable.Seq[T] = if ((arr ne null) && arr.length > 0) Vector(arr: _*) else Nil
+  def immutableSeq[T](arr: Array[T]): immutable.Seq[T] =
+    if ((arr ne null) && arr.length > 0) arr.toIndexedSeq else Nil
 
   /**
    * Turns an [[java.lang.Iterable]] into an immutable Scala sequence (by copying it).
    */
   def immutableSeq[T](iterable: java.lang.Iterable[T]): immutable.Seq[T] =
     iterable match {
-      case imm: immutable.Seq[_] ⇒ imm.asInstanceOf[immutable.Seq[T]]
-      case other ⇒
+      case imm: immutable.Seq[_] => imm.asInstanceOf[immutable.Seq[T]]
+      case other =>
         val i = other.iterator()
         if (i.hasNext) {
           val builder = new immutable.VectorBuilder[T]

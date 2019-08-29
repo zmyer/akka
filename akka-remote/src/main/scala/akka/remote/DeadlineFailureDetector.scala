@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import scala.concurrent.duration._
@@ -26,11 +27,10 @@ import akka.util.Helpers.ConfigOps
  * @param clock The clock, returning current time in milliseconds, but can be faked for testing
  *   purposes. It is only used for measuring intervals (duration).
  */
-class DeadlineFailureDetector(
-  val acceptableHeartbeatPause: FiniteDuration,
-  val heartbeatInterval:        FiniteDuration)(
-  implicit
-  clock: Clock) extends FailureDetector {
+class DeadlineFailureDetector(val acceptableHeartbeatPause: FiniteDuration, val heartbeatInterval: FiniteDuration)(
+    implicit
+    clock: Clock)
+    extends FailureDetector {
 
   /**
    * Constructor that reads parameters from config.
@@ -40,11 +40,6 @@ class DeadlineFailureDetector(
     this(
       acceptableHeartbeatPause = config.getMillisDuration("acceptable-heartbeat-pause"),
       heartbeatInterval = config.getMillisDuration("heartbeat-interval"))
-
-  // for backwards compatibility with 2.3.x
-  @deprecated("Use constructor with acceptableHeartbeatPause and heartbeatInterval", "2.4")
-  def this(acceptableHeartbeatPause: FiniteDuration)(implicit clock: Clock) =
-    this(acceptableHeartbeatPause, heartbeatInterval = 1.millis)(clock)
 
   require(acceptableHeartbeatPause >= Duration.Zero, "failure-detector.acceptable-heartbeat-pause must be >= 0 s")
   require(heartbeatInterval > Duration.Zero, "failure-detector.heartbeat-interval must be > 0 s")
@@ -67,4 +62,3 @@ class DeadlineFailureDetector(
   }
 
 }
-

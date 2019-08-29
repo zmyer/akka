@@ -1,28 +1,25 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.scaladsl
 
-import scala.concurrent.{ Future, Promise }
-import scala.concurrent.duration._
-import scala.util.control.NoStackTrace
-import akka.stream.ActorMaterializer
-import akka.stream.ActorMaterializerSettings
 import akka.stream.testkit._
-import akka.stream.testkit.Utils._
+import akka.stream.testkit.scaladsl.StreamTestKit._
+
+import scala.concurrent.duration._
+import scala.concurrent.Future
+import scala.concurrent.Promise
+import scala.util.control.NoStackTrace
 
 class FlowFromFutureSpec extends StreamSpec {
-
-  val settings = ActorMaterializerSettings(system)
-
-  implicit val materializer = ActorMaterializer(settings)
 
   "A Flow based on a Future" must {
     "produce one element from already successful Future" in assertAllStagesStopped {
       val c = TestSubscriber.manualProbe[Int]()
-      val p = Source.fromFuture(Future.successful(1)).runWith(Sink.asPublisher(true)).subscribe(c)
+      Source.fromFuture(Future.successful(1)).runWith(Sink.asPublisher(true)).subscribe(c)
       val sub = c.expectSubscription()
-      c.expectNoMsg(100.millis)
+      c.expectNoMessage(100.millis)
       sub.request(1)
       c.expectNext(1)
       c.expectComplete()
@@ -41,11 +38,11 @@ class FlowFromFutureSpec extends StreamSpec {
       Source.fromFuture(promise.future).runWith(Sink.asPublisher(true)).subscribe(c)
       val sub = c.expectSubscription()
       sub.request(1)
-      c.expectNoMsg(100.millis)
+      c.expectNoMessage(100.millis)
       promise.success(1)
       c.expectNext(1)
       c.expectComplete()
-      c.expectNoMsg(100.millis)
+      c.expectNoMessage(100.millis)
     }
 
     "produce one element when Future is completed but not before request" in {
@@ -54,7 +51,7 @@ class FlowFromFutureSpec extends StreamSpec {
       Source.fromFuture(promise.future).runWith(Sink.asPublisher(true)).subscribe(c)
       val sub = c.expectSubscription()
       promise.success(1)
-      c.expectNoMsg(200.millis)
+      c.expectNoMessage(200.millis)
       sub.request(1)
       c.expectNext(1)
       c.expectComplete()
@@ -88,9 +85,9 @@ class FlowFromFutureSpec extends StreamSpec {
       val sub = c.expectSubscription()
       sub.request(1)
       sub.cancel()
-      c.expectNoMsg(500.millis)
+      c.expectNoMessage(500.millis)
       promise.success(1)
-      c.expectNoMsg(200.millis)
+      c.expectNoMessage(200.millis)
     }
   }
 }

@@ -1,9 +1,10 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.dispatch
 
+import java.util
 import java.util.concurrent.{ ConcurrentHashMap, TimeUnit }
 
 import com.typesafe.config._
@@ -43,20 +44,20 @@ private[akka] class CachingConfig(_config: Config) extends Config {
   import CachingConfig._
 
   private val (config: Config, entryMap: ConcurrentHashMap[String, PathEntry]) = _config match {
-    case cc: CachingConfig ⇒ (cc.config, cc.entryMap)
-    case _                 ⇒ (_config, new ConcurrentHashMap[String, PathEntry])
+    case cc: CachingConfig => (cc.config, cc.entryMap)
+    case _                 => (_config, new ConcurrentHashMap[String, PathEntry])
   }
 
   private def getPathEntry(path: String): PathEntry = entryMap.get(path) match {
-    case null ⇒
+    case null =>
       val ne = Try { config.hasPath(path) } match {
-        case Failure(e)     ⇒ invalidPathEntry
-        case Success(false) ⇒ nonExistingPathEntry
-        case _ ⇒
+        case Failure(_)     => invalidPathEntry
+        case Success(false) => nonExistingPathEntry
+        case _ =>
           Try { config.getValue(path) } match {
-            case Failure(e) ⇒
+            case Failure(_) =>
               emptyPathEntry
-            case Success(v) ⇒
+            case Success(v) =>
               if (v.valueType() == ConfigValueType.STRING)
                 StringPathEntry(true, true, v.atKey("cached"), v.unwrapped().asInstanceOf[String])
               else
@@ -65,14 +66,14 @@ private[akka] class CachingConfig(_config: Config) extends Config {
       }
 
       entryMap.putIfAbsent(path, ne) match {
-        case null ⇒ ne
-        case e    ⇒ e
+        case null => ne
+        case e    => e
       }
 
-    case e ⇒ e
+    case e => e
   }
 
-  def checkValid(reference: Config, restrictToPaths: String*) {
+  def checkValid(reference: Config, restrictToPaths: String*): Unit = {
     config.checkValid(reference, restrictToPaths: _*)
   }
 
@@ -116,9 +117,9 @@ private[akka] class CachingConfig(_config: Config) extends Config {
 
   def getString(path: String) = {
     getPathEntry(path) match {
-      case StringPathEntry(_, _, _, string) ⇒
+      case StringPathEntry(_, _, _, string) =>
         string
-      case e ⇒ e.config.getString("cached")
+      case e => e.config.getString("cached")
     }
   }
 
@@ -180,6 +181,10 @@ private[akka] class CachingConfig(_config: Config) extends Config {
 
   def getDurationList(path: String) = config.getDurationList(path)
 
+  def getPeriod(path: String) = config.getPeriod(path)
+
+  def getTemporal(path: String) = config.getTemporal(path)
+
   def getIsNull(path: String): Boolean = config.getIsNull(path)
 
   def getMemorySize(path: String) = config.getMemorySize(path)
@@ -191,5 +196,10 @@ private[akka] class CachingConfig(_config: Config) extends Config {
   def resolveWith(source: Config, options: ConfigResolveOptions) = config.resolveWith(source, options)
 
   def resolveWith(source: Config) = config.resolveWith(source)
-}
 
+  override def getEnumList[T <: Enum[T]](enumClass: Class[T], path: String): util.List[T] =
+    config.getEnumList(enumClass, path)
+
+  override def getEnum[T <: Enum[T]](enumClass: Class[T], path: String): T = config.getEnum(enumClass, path)
+
+}

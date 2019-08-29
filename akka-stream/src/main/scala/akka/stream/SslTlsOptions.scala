@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream
 
 import javax.net.ssl._
@@ -16,10 +17,12 @@ import scala.collection.immutable
  * actively initiates the exchange.
  */
 object TLSRole {
+
   /**
    * Java API: obtain the [[Client]] singleton value.
    */
   def client: TLSRole = Client
+
   /**
    * Java API: obtain the [[Server]] singleton value.
    */
@@ -78,18 +81,22 @@ sealed abstract class TLSClosing {
   def ignoreComplete: Boolean
 }
 object TLSClosing {
+
   /**
    * Java API: obtain the [[EagerClose]] singleton value.
    */
   def eagerClose: TLSClosing = EagerClose
+
   /**
    * Java API: obtain the [[IgnoreCancel]] singleton value.
    */
   def ignoreCancel: TLSClosing = IgnoreCancel
+
   /**
    * Java API: obtain the [[IgnoreComplete]] singleton value.
    */
   def ignoreComplete: TLSClosing = IgnoreComplete
+
   /**
    * Java API: obtain the [[IgnoreBoth]] singleton value.
    */
@@ -135,7 +142,7 @@ case object IgnoreBoth extends IgnoreBoth
 object TLSProtocol {
 
   /**
-   * This is the supertype of all messages that the SslTls stage emits on the
+   * This is the supertype of all messages that the SslTls operator emits on the
    * plaintext side.
    */
   sealed trait SslTlsInbound
@@ -162,10 +169,12 @@ object TLSProtocol {
    * The Java API for getting session information is given by the SSLSession object,
    * the Scala API adapters are offered below.
    */
-  final case class SessionBytes(session: SSLSession, bytes: ByteString) extends SslTlsInbound with scaladsl.ScalaSessionAPI
+  final case class SessionBytes(session: SSLSession, bytes: ByteString)
+      extends SslTlsInbound
+      with scaladsl.ScalaSessionAPI
 
   /**
-   * This is the supertype of all messages that the SslTls stage accepts on its
+   * This is the supertype of all messages that the SslTls operator accepts on its
    * plaintext side.
    */
   sealed trait SslTlsOutbound
@@ -189,35 +198,37 @@ object TLSProtocol {
    * switches off client authentication.
    */
   case class NegotiateNewSession(
-    enabledCipherSuites: Option[immutable.Seq[String]],
-    enabledProtocols:    Option[immutable.Seq[String]],
-    clientAuth:          Option[TLSClientAuth],
-    sslParameters:       Option[SSLParameters]) extends SslTlsOutbound {
+      enabledCipherSuites: Option[immutable.Seq[String]],
+      enabledProtocols: Option[immutable.Seq[String]],
+      clientAuth: Option[TLSClientAuth],
+      sslParameters: Option[SSLParameters])
+      extends SslTlsOutbound {
 
     /**
      * Java API: Make a copy of this message with the given `enabledCipherSuites`.
      */
     @varargs
-    def withCipherSuites(s: String*) = copy(enabledCipherSuites = Some(s.toList))
+    def withCipherSuites(s: String*): NegotiateNewSession = copy(enabledCipherSuites = Some(s.toList))
 
     /**
      * Java API: Make a copy of this message with the given `enabledProtocols`.
      */
     @varargs
-    def withProtocols(p: String*) = copy(enabledProtocols = Some(p.toList))
+    def withProtocols(p: String*): NegotiateNewSession = copy(enabledProtocols = Some(p.toList))
 
     /**
      * Java API: Make a copy of this message with the given [[TLSClientAuth]] setting.
      */
-    def withClientAuth(ca: TLSClientAuth) = copy(clientAuth = Some(ca))
+    def withClientAuth(ca: TLSClientAuth): NegotiateNewSession = copy(clientAuth = Some(ca))
 
     /**
      * Java API: Make a copy of this message with the given [[SSLParameters]].
      */
-    def withParameters(p: SSLParameters) = copy(sslParameters = Some(p))
+    def withParameters(p: SSLParameters): NegotiateNewSession = copy(sslParameters = Some(p))
   }
 
   object NegotiateNewSession extends NegotiateNewSession(None, None, None, None) {
+
     /**
      * Java API: obtain the default value (which will leave the SSLEngine’s
      * settings unchanged).
@@ -225,6 +236,12 @@ object TLSProtocol {
     def withDefaults: NegotiateNewSession = this
 
   }
+
+  /**
+   * Java API: obtain the default value of [[NegotiateNewSession]] (which will leave the SSLEngine’s
+   * settings unchanged).
+   */
+  def negotiateNewSession: NegotiateNewSession = NegotiateNewSession
 
   /**
    * Send the given [[akka.util.ByteString]] across the encrypted session to the

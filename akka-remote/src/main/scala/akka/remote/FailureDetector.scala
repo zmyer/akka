@@ -1,6 +1,7 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.remote
 
 import java.util.concurrent.TimeUnit.NANOSECONDS
@@ -37,7 +38,7 @@ object FailureDetector {
    * time and is not related to any other notion of system or wall-clock time.
    */
   // Abstract class to be able to extend it from Java
-  abstract class Clock extends (() ⇒ Long)
+  abstract class Clock extends (() => Long)
 
   implicit val defaultClock = new Clock {
     def apply() = NANOSECONDS.toMillis(System.nanoTime)

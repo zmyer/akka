@@ -1,15 +1,21 @@
-/**
- * Copyright (C) 2014-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2014-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence
 
-import scala.collection.breakOut
 import scala.collection.immutable
 import scala.concurrent.duration.FiniteDuration
-import akka.actor.{ ActorSelection, ActorPath, NotInfluenceReceiveTimeout }
+
+import akka.actor.{ ActorPath, ActorSelection, NotInfluenceReceiveTimeout }
 import akka.persistence.serialization.Message
 import akka.actor.Cancellable
+import akka.actor.DeadLetterSuppression
+import akka.annotation.InternalApi
+import akka.persistence.AtLeastOnceDelivery.Internal.Delivery
+import akka.util.ccompat._
 
+@ccompatUsedUntil213
 object AtLeastOnceDelivery {
 
   /**
@@ -19,14 +25,16 @@ object AtLeastOnceDelivery {
    * with [[AtLeastOnceDeliveryLike#setDeliverySnapshot]].
    */
   @SerialVersionUID(1L)
-  case class AtLeastOnceDeliverySnapshot(currentDeliveryId: Long, unconfirmedDeliveries: immutable.Seq[UnconfirmedDelivery])
-    extends Message {
+  case class AtLeastOnceDeliverySnapshot(
+      currentDeliveryId: Long,
+      unconfirmedDeliveries: immutable.Seq[UnconfirmedDelivery])
+      extends Message {
 
     /**
      * Java API
      */
     def getUnconfirmedDeliveries: java.util.List[UnconfirmedDelivery] = {
-      import scala.collection.JavaConverters._
+      import akka.util.ccompat.JavaConverters._
       unconfirmedDeliveries.asJava
     }
 
@@ -37,11 +45,12 @@ object AtLeastOnceDelivery {
    */
   @SerialVersionUID(1L)
   case class UnconfirmedWarning(unconfirmedDeliveries: immutable.Seq[UnconfirmedDelivery]) {
+
     /**
      * Java API
      */
     def getUnconfirmedDeliveries: java.util.List[UnconfirmedDelivery] = {
-      import scala.collection.JavaConverters._
+      import akka.util.ccompat.JavaConverters._
       unconfirmedDeliveries.asJava
     }
   }
@@ -51,6 +60,7 @@ object AtLeastOnceDelivery {
    * and [[AtLeastOnceDeliverySnapshot]].
    */
   case class UnconfirmedDelivery(deliveryId: Long, destination: ActorPath, message: Any) {
+
     /**
      * Java API
      */
@@ -67,13 +77,13 @@ object AtLeastOnceDelivery {
    */
   private[akka] object Internal {
     case class Delivery(destination: ActorPath, message: Any, timestamp: Long, attempt: Int)
-    case object RedeliveryTick extends NotInfluenceReceiveTimeout
+    case object RedeliveryTick extends NotInfluenceReceiveTimeout with DeadLetterSuppression
   }
 
 }
 
 /**
- * Mix-in this trait with your `PersistentActor` to send messages with at-least-once
+ * Scala API: Mix-in this trait with your `PersistentActor` to send messages with at-least-once
  * delivery semantics to destinations. It takes care of re-sending messages when they
  * have not been confirmed within a configurable timeout. Use the [[AtLeastOnceDeliveryLike#deliver]] method to
  * send a message to a destination. Call the [[AtLeastOnceDeliveryLike#confirmDelivery]] method when the destination
@@ -104,8 +114,59 @@ object AtLeastOnceDelivery {
  * as a blob in your custom snapshot.
  *
  * @see [[AtLeastOnceDeliveryLike]]
+ * @see [[AbstractPersistentActorWithAtLeastOnceDelivery]] for Java API
  */
-trait AtLeastOnceDelivery extends PersistentActor with AtLeastOnceDeliveryLike
+trait AtLeastOnceDelivery extends PersistentActor with AtLeastOnceDeliveryLike {
+
+  /**
+   * Scala API: Send the message created by the `deliveryIdToMessage` function to
+   * the `destination` actor. It will retry sending the message until
+   * the delivery is confirmed with [[#confirmDelivery]]. Correlation
+   * between `deliver` and `confirmDelivery` is performed with the
+   * `deliveryId` that is provided as parameter to the `deliveryIdToMessage`
+   * function. The `deliveryId` is typically passed in the message to the
+   * destination, which replies with a message containing the same `deliveryId`.
+   *
+   * The `deliveryId` is a strictly monotonically increasing sequence number without
+   * gaps. The same sequence is used for all destinations of the actor, i.e. when sending
+   * to multiple destinations the destinations will see gaps in the sequence if no
+   * translation is performed.
+   *
+   * During recovery this method will not send out the message, but it will be sent
+   * later if no matching `confirmDelivery` was performed.
+   *
+   * This method will throw [[AtLeastOnceDelivery.MaxUnconfirmedMessagesExceededException]]
+   * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
+   */
+  def deliver(destination: ActorPath)(deliveryIdToMessage: Long => Any): Unit = {
+    internalDeliver(destination)(deliveryIdToMessage)
+  }
+
+  /**
+   * Scala API: Send the message created by the `deliveryIdToMessage` function to
+   * the `destination` actor. It will retry sending the message until
+   * the delivery is confirmed with [[#confirmDelivery]]. Correlation
+   * between `deliver` and `confirmDelivery` is performed with the
+   * `deliveryId` that is provided as parameter to the `deliveryIdToMessage`
+   * function. The `deliveryId` is typically passed in the message to the
+   * destination, which replies with a message containing the same `deliveryId`.
+   *
+   * The `deliveryId` is a strictly monotonically increasing sequence number without
+   * gaps. The same sequence is used for all destinations of the actor, i.e. when sending
+   * to multiple destinations the destinations will see gaps in the sequence if no
+   * translation is performed.
+   *
+   * During recovery this method will not send out the message, but it will be sent
+   * later if no matching `confirmDelivery` was performed.
+   *
+   * This method will throw [[AtLeastOnceDelivery.MaxUnconfirmedMessagesExceededException]]
+   * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
+   */
+  def deliver(destination: ActorSelection)(deliveryIdToMessage: Long => Any): Unit = {
+    internalDeliver(destination)(deliveryIdToMessage)
+  }
+
+}
 
 /**
  * @see [[AtLeastOnceDelivery]]
@@ -179,9 +240,16 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   private var unconfirmed = immutable.SortedMap.empty[Long, Delivery]
 
   private def startRedeliverTask(): Unit = {
-    val interval = redeliverInterval / 2
-    redeliverTask = Some(
-      context.system.scheduler.schedule(interval, interval, self, RedeliveryTick)(context.dispatcher))
+    if (redeliverTask.isEmpty) {
+      val interval = redeliverInterval / 2
+      redeliverTask = Some(
+        context.system.scheduler.scheduleWithFixedDelay(interval, interval, self, RedeliveryTick)(context.dispatcher))
+    }
+  }
+
+  private def cancelRedeliveryTask(): Unit = {
+    redeliverTask.foreach(_.cancel())
+    redeliverTask = None
   }
 
   private def nextDeliverySequenceNr(): Long = {
@@ -190,32 +258,18 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   }
 
   /**
-   * Scala API: Send the message created by the `deliveryIdToMessage` function to
-   * the `destination` actor. It will retry sending the message until
-   * the delivery is confirmed with [[#confirmDelivery]]. Correlation
-   * between `deliver` and `confirmDelivery` is performed with the
-   * `deliveryId` that is provided as parameter to the `deliveryIdToMessage`
-   * function. The `deliveryId` is typically passed in the message to the
-   * destination, which replies with a message containing the same `deliveryId`.
-   *
-   * The `deliveryId` is a strictly monotonically increasing sequence number without
-   * gaps. The same sequence is used for all destinations of the actor, i.e. when sending
-   * to multiple destinations the destinations will see gaps in the sequence if no
-   * translation is performed.
-   *
-   * During recovery this method will not send out the message, but it will be sent
-   * later if no matching `confirmDelivery` was performed.
-   *
-   * This method will throw [[AtLeastOnceDelivery.MaxUnconfirmedMessagesExceededException]]
-   * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
+   * INTERNAL API
    */
-  def deliver(destination: ActorPath)(deliveryIdToMessage: Long ⇒ Any): Unit = {
+  @InternalApi
+  private[akka] final def internalDeliver(destination: ActorPath)(deliveryIdToMessage: Long => Any): Unit = {
     if (unconfirmed.size >= maxUnconfirmedMessages)
       throw new MaxUnconfirmedMessagesExceededException(
         s"Too many unconfirmed messages, maximum allowed is [$maxUnconfirmedMessages]")
 
     val deliveryId = nextDeliverySequenceNr()
-    val now = if (recoveryRunning) { System.nanoTime() - redeliverInterval.toNanos } else System.nanoTime()
+    val now = if (recoveryRunning) {
+      System.nanoTime() - redeliverInterval.toNanos
+    } else System.nanoTime()
     val d = Delivery(destination, deliveryIdToMessage(deliveryId), now, attempt = 0)
 
     if (recoveryRunning)
@@ -225,31 +279,17 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   }
 
   /**
-   * Scala API: Send the message created by the `deliveryIdToMessage` function to
-   * the `destination` actor. It will retry sending the message until
-   * the delivery is confirmed with [[#confirmDelivery]]. Correlation
-   * between `deliver` and `confirmDelivery` is performed with the
-   * `deliveryId` that is provided as parameter to the `deliveryIdToMessage`
-   * function. The `deliveryId` is typically passed in the message to the
-   * destination, which replies with a message containing the same `deliveryId`.
-   *
-   * The `deliveryId` is a strictly monotonically increasing sequence number without
-   * gaps. The same sequence is used for all destinations of the actor, i.e. when sending
-   * to multiple destinations the destinations will see gaps in the sequence if no
-   * translation is performed.
-   *
-   * During recovery this method will not send out the message, but it will be sent
-   * later if no matching `confirmDelivery` was performed.
-   *
-   * This method will throw [[AtLeastOnceDelivery.MaxUnconfirmedMessagesExceededException]]
-   * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
+   * INTERNAL API
    */
-  def deliver(destination: ActorSelection)(deliveryIdToMessage: Long ⇒ Any): Unit = {
+  @InternalApi
+  private[akka] final def internalDeliver(destination: ActorSelection)(deliveryIdToMessage: Long => Any): Unit = {
     val isWildcardSelection = destination.pathString.contains("*")
-    require(!isWildcardSelection, "Delivering to wildcard actor selections is not supported by AtLeastOnceDelivery. " +
+    require(
+      !isWildcardSelection,
+      "Delivering to wildcard actor selections is not supported by AtLeastOnceDelivery. " +
       "Introduce an mediator Actor which this AtLeastOnceDelivery Actor will deliver the messages to," +
       "and will handle the logic of fan-out and collecting individual confirmations, until it can signal confirmation back to this Actor.")
-    deliver(ActorPath.fromString(destination.toSerializationFormat))(deliveryIdToMessage)
+    internalDeliver(ActorPath.fromString(destination.toSerializationFormat))(deliveryIdToMessage)
   }
 
   /**
@@ -261,6 +301,8 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   def confirmDelivery(deliveryId: Long): Boolean = {
     if (unconfirmed.contains(deliveryId)) {
       unconfirmed -= deliveryId
+      if (unconfirmed.isEmpty)
+        cancelRedeliveryTask()
       true
     } else false
   }
@@ -275,12 +317,11 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
     val deadline = now - redeliverInterval.toNanos
     var warnings = Vector.empty[UnconfirmedDelivery]
 
-    unconfirmed
-      .iterator
-      .filter { case (_, delivery) ⇒ delivery.timestamp <= deadline }
+    unconfirmed.iterator
+      .filter { case (_, delivery) => delivery.timestamp <= deadline }
       .take(redeliveryBurstLimit)
       .foreach {
-        case (deliveryId, delivery) ⇒
+        case (deliveryId, delivery) =>
           send(deliveryId, delivery, now)
 
           if (delivery.attempt == warnAfterNumberOfUnconfirmedAttempts)
@@ -294,6 +335,7 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   private def send(deliveryId: Long, d: Delivery, timestamp: Long): Unit = {
     context.actorSelection(d.destination) ! d.message
     unconfirmed = unconfirmed.updated(deliveryId, d.copy(timestamp = timestamp, attempt = d.attempt + 1))
+    startRedeliverTask()
   }
 
   /**
@@ -310,7 +352,9 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   def getDeliverySnapshot: AtLeastOnceDeliverySnapshot =
     AtLeastOnceDeliverySnapshot(
       deliverySequenceNr,
-      unconfirmed.map { case (deliveryId, d) ⇒ UnconfirmedDelivery(deliveryId, d.destination, d.message) }(breakOut))
+      unconfirmed.iterator
+        .map { case (deliveryId, d) => UnconfirmedDelivery(deliveryId, d.destination, d.message) }
+        .to(immutable.IndexedSeq))
 
   /**
    * If snapshot from [[#getDeliverySnapshot]] was saved it will be received during recovery
@@ -319,15 +363,15 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
   def setDeliverySnapshot(snapshot: AtLeastOnceDeliverySnapshot): Unit = {
     deliverySequenceNr = snapshot.currentDeliveryId
     val now = System.nanoTime()
-    unconfirmed = snapshot.unconfirmedDeliveries.map(d ⇒
-      d.deliveryId → Delivery(d.destination, d.message, now, 0))(breakOut)
+    unconfirmed = scala.collection.immutable.SortedMap.from(snapshot.unconfirmedDeliveries.iterator.map(d =>
+      d.deliveryId -> Delivery(d.destination, d.message, now, 0)))
   }
 
   /**
    * INTERNAL API
    */
   override protected[akka] def aroundPreRestart(reason: Throwable, message: Option[Any]): Unit = {
-    redeliverTask.foreach(_.cancel())
+    cancelRedeliveryTask()
     super.aroundPreRestart(reason, message)
   }
 
@@ -335,13 +379,15 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
    * INTERNAL API
    */
   override protected[akka] def aroundPostStop(): Unit = {
-    redeliverTask.foreach(_.cancel())
+    cancelRedeliveryTask()
     super.aroundPostStop()
   }
 
   override private[akka] def onReplaySuccess(): Unit = {
-    redeliverOverdue()
-    startRedeliverTask()
+    if (unconfirmed.nonEmpty) {
+      redeliverOverdue()
+      startRedeliverTask()
+    }
     super.onReplaySuccess()
   }
 
@@ -350,23 +396,28 @@ trait AtLeastOnceDeliveryLike extends Eventsourced {
    */
   override protected[akka] def aroundReceive(receive: Receive, message: Any): Unit =
     message match {
-      case RedeliveryTick ⇒
+      case RedeliveryTick =>
         redeliverOverdue()
 
-      case x ⇒
+      case _ =>
         super.aroundReceive(receive, message)
     }
 }
 
 /**
- * Java API: Use this class instead of `UntypedPersistentActor` to send messages
+ * Java API: compatible with lambda expressions
+ *
+ * Use this class instead of `AbstractPersistentActor` to send messages
  * with at-least-once delivery semantics to destinations.
  * Full documentation in [[AtLeastOnceDelivery]].
  *
  * @see [[AtLeastOnceDelivery]]
  * @see [[AtLeastOnceDeliveryLike]]
  */
-abstract class UntypedPersistentActorWithAtLeastOnceDelivery extends UntypedPersistentActor with AtLeastOnceDeliveryLike {
+abstract class AbstractPersistentActorWithAtLeastOnceDelivery
+    extends AbstractPersistentActor
+    with AtLeastOnceDeliveryLike {
+
   /**
    * Java API: Send the message created by the `deliveryIdToMessage` function to
    * the `destination` actor. It will retry sending the message until
@@ -388,7 +439,7 @@ abstract class UntypedPersistentActorWithAtLeastOnceDelivery extends UntypedPers
    * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
    */
   def deliver(destination: ActorPath, deliveryIdToMessage: akka.japi.Function[java.lang.Long, Object]): Unit =
-    super.deliver(destination)(id ⇒ deliveryIdToMessage.apply(id))
+    internalDeliver(destination)(id => deliveryIdToMessage.apply(id))
 
   /**
    * Java API: Send the message created by the `deliveryIdToMessage` function to
@@ -411,63 +462,5 @@ abstract class UntypedPersistentActorWithAtLeastOnceDelivery extends UntypedPers
    * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
    */
   def deliver(destination: ActorSelection, deliveryIdToMessage: akka.japi.Function[java.lang.Long, Object]): Unit =
-    super.deliver(destination)(id ⇒ deliveryIdToMessage.apply(id))
-}
-
-/**
- * Java API compatible with lambda expressions
- *
- * Use this class instead of `UntypedPersistentActor` to send messages
- * with at-least-once delivery semantics to destinations.
- * Full documentation in [[AtLeastOnceDelivery]].
- *
- * @see [[AtLeastOnceDelivery]]
- * @see [[AtLeastOnceDeliveryLike]]
- */
-abstract class AbstractPersistentActorWithAtLeastOnceDelivery extends AbstractPersistentActor with AtLeastOnceDeliveryLike {
-  /**
-   * Java API: Send the message created by the `deliveryIdToMessage` function to
-   * the `destination` actor. It will retry sending the message until
-   * the delivery is confirmed with [[#confirmDelivery]]. Correlation
-   * between `deliver` and `confirmDelivery` is performed with the
-   * `deliveryId` that is provided as parameter to the `deliveryIdToMessage`
-   * function. The `deliveryId` is typically passed in the message to the
-   * destination, which replies with a message containing the same `deliveryId`.
-   *
-   * The `deliveryId` is a strictly monotonically increasing sequence number without
-   * gaps. The same sequence is used for all destinations, i.e. when sending to
-   * multiple destinations the destinations will see gaps in the sequence if no
-   * translation is performed.
-   *
-   * During recovery this method will not send out the message, but it will be sent
-   * later if no matching `confirmDelivery` was performed.
-   *
-   * This method will throw [[AtLeastOnceDelivery.MaxUnconfirmedMessagesExceededException]]
-   * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
-   */
-  def deliver(destination: ActorPath, deliveryIdToMessage: akka.japi.Function[java.lang.Long, Object]): Unit =
-    super.deliver(destination)(id ⇒ deliveryIdToMessage.apply(id))
-
-  /**
-   * Java API: Send the message created by the `deliveryIdToMessage` function to
-   * the `destination` actor. It will retry sending the message until
-   * the delivery is confirmed with [[#confirmDelivery]]. Correlation
-   * between `deliver` and `confirmDelivery` is performed with the
-   * `deliveryId` that is provided as parameter to the `deliveryIdToMessage`
-   * function. The `deliveryId` is typically passed in the message to the
-   * destination, which replies with a message containing the same `deliveryId`.
-   *
-   * The `deliveryId` is a strictly monotonically increasing sequence number without
-   * gaps. The same sequence is used for all destinations, i.e. when sending to
-   * multiple destinations the destinations will see gaps in the sequence if no
-   * translation is performed.
-   *
-   * During recovery this method will not send out the message, but it will be sent
-   * later if no matching `confirmDelivery` was performed.
-   *
-   * This method will throw [[AtLeastOnceDelivery.MaxUnconfirmedMessagesExceededException]]
-   * if [[#numberOfUnconfirmed]] is greater than or equal to [[#maxUnconfirmedMessages]].
-   */
-  def deliver(destination: ActorSelection, deliveryIdToMessage: akka.japi.Function[java.lang.Long, Object]): Unit =
-    super.deliver(destination)(id ⇒ deliveryIdToMessage.apply(id))
+    internalDeliver(destination)(id => deliveryIdToMessage.apply(id))
 }

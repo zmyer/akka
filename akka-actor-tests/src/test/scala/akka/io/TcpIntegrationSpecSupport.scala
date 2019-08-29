@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2009-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2009-2019 Lightbend Inc. <https://www.lightbend.com>
  */
 
 package akka.io
@@ -9,12 +9,23 @@ import scala.collection.immutable
 import akka.testkit.{ AkkaSpec, TestProbe }
 import akka.actor.ActorRef
 import akka.io.Inet.SocketOption
-import akka.testkit.SocketUtil._
+import akka.testkit.SocketUtil.temporaryServerAddress
 import Tcp._
+import akka.actor.ActorSystem
+import akka.dispatch.ExecutionContexts
 
-trait TcpIntegrationSpecSupport { _: AkkaSpec ⇒
+trait TcpIntegrationSpecSupport { _: AkkaSpec =>
 
-  class TestSetup(shouldBindServer: Boolean = true) {
+  class TestSetup(shouldBindServer: Boolean = true, runClientInExtraSystem: Boolean = true) {
+    val clientSystem =
+      if (runClientInExtraSystem) {
+        val res = ActorSystem("TcpIntegrationSpec-client", system.settings.config)
+        // terminate clientSystem after server system
+        system.whenTerminated.onComplete { _ =>
+          res.terminate()
+        }(ExecutionContexts.sameThreadExecutionContext)
+        res
+      } else system
     val bindHandler = TestProbe()
     val endpoint = temporaryServerAddress()
 
@@ -27,13 +38,19 @@ trait TcpIntegrationSpecSupport { _: AkkaSpec ⇒
     }
 
     def establishNewClientConnection(): (TestProbe, ActorRef, TestProbe, ActorRef) = {
-      val connectCommander = TestProbe()
-      connectCommander.send(IO(Tcp), Connect(endpoint, options = connectOptions))
-      val Connected(`endpoint`, localAddress) = connectCommander.expectMsgType[Connected]
-      val clientHandler = TestProbe()
+      val connectCommander = TestProbe()(clientSystem)
+      connectCommander.send(IO(Tcp)(clientSystem), Connect(endpoint, options = connectOptions))
+      val localAddress = connectCommander.expectMsgType[Connected] match {
+        case Connected(`endpoint`, localAddress) => localAddress
+        case Connected(other, _)                 => fail(s"No match: $other")
+      }
+      val clientHandler = TestProbe()(clientSystem)
       connectCommander.sender() ! Register(clientHandler.ref)
 
-      val Connected(`localAddress`, `endpoint`) = bindHandler.expectMsgType[Connected]
+      bindHandler.expectMsgType[Connected] match {
+        case Connected(`localAddress`, `endpoint`) => //ok
+        case other                                 => fail(s"No match: ${other}")
+      }
       val serverHandler = TestProbe()
       bindHandler.sender() ! Register(serverHandler.ref)
 
@@ -47,10 +64,10 @@ trait TcpIntegrationSpecSupport { _: AkkaSpec ⇒
       }
 
     /** allow overriding socket options for server side channel */
-    def bindOptions: immutable.Traversable[SocketOption] = Nil
+    def bindOptions: immutable.Iterable[SocketOption] = Nil
 
     /** allow overriding socket options for client side channel */
-    def connectOptions: immutable.Traversable[SocketOption] = Nil
+    def connectOptions: immutable.Iterable[SocketOption] = Nil
   }
 
 }

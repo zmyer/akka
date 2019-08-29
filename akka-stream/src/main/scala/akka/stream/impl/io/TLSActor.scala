@@ -1,40 +1,41 @@
-/**
- * Copyright (C) 2015-2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2015-2019 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.stream.impl.io
 
 import java.nio.ByteBuffer
-import java.util
-import java.util.Collections
 import javax.net.ssl.SSLEngineResult.HandshakeStatus
 import javax.net.ssl.SSLEngineResult.HandshakeStatus._
 import javax.net.ssl.SSLEngineResult.Status._
 import javax.net.ssl._
+
 import akka.actor._
+import akka.annotation.InternalApi
 import akka.stream._
 import akka.stream.impl.FanIn.InputBunch
 import akka.stream.impl.FanOut.OutputBunch
 import akka.stream.impl._
 import akka.util.ByteString
-import com.typesafe.sslconfig.akka.AkkaSSLConfig
+
 import scala.annotation.tailrec
 import akka.stream.TLSProtocol._
+
+import scala.util.control.NonFatal
+import scala.util.{ Failure, Success, Try }
 
 /**
  * INTERNAL API.
  */
-object TLSActor {
+@InternalApi private[stream] object TLSActor {
 
   def props(
-    settings:     ActorMaterializerSettings,
-    sslContext:   SSLContext,
-    sslConfig:    Option[AkkaSSLConfig],
-    firstSession: NegotiateNewSession,
-    role:         TLSRole,
-    closing:      TLSClosing,
-    hostInfo:     Option[(String, Int)],
-    tracing:      Boolean                   = false): Props =
-    Props(new TLSActor(settings, sslContext, sslConfig, firstSession, role, closing, hostInfo, tracing)).withDeploy(Deploy.local)
+      maxInputBufferSize: Int,
+      createSSLEngine: ActorSystem => SSLEngine, // ActorSystem is only needed to support the AkkaSSLConfig legacy, see #21753
+      verifySession: (ActorSystem, SSLSession) => Try[Unit], // ActorSystem is only needed to support the AkkaSSLConfig legacy, see #21753
+      closing: TLSClosing,
+      tracing: Boolean = false): Props =
+    Props(new TLSActor(maxInputBufferSize, createSSLEngine, verifySession, closing, tracing)).withDeploy(Deploy.local)
 
   final val TransportIn = 0
   final val TransportOut = 0
@@ -46,20 +47,22 @@ object TLSActor {
 /**
  * INTERNAL API.
  */
-class TLSActor(
-  settings:          ActorMaterializerSettings,
-  sslContext:        SSLContext,
-  externalSslConfig: Option[AkkaSSLConfig],
-  firstSession:      NegotiateNewSession, role: TLSRole, closing: TLSClosing,
-  hostInfo: Option[(String, Int)], tracing: Boolean)
-  extends Actor with ActorLogging with Pump {
+@InternalApi private[stream] class TLSActor(
+    maxInputBufferSize: Int,
+    createSSLEngine: ActorSystem => SSLEngine, // ActorSystem is only needed to support the AkkaSSLConfig legacy, see #21753
+    verifySession: (ActorSystem, SSLSession) => Try[Unit], // ActorSystem is only needed to support the AkkaSSLConfig legacy, see #21753
+    closing: TLSClosing,
+    tracing: Boolean)
+    extends Actor
+    with ActorLogging
+    with Pump {
 
   import TLSActor._
 
   protected val outputBunch = new OutputBunch(outputCount = 2, self, this)
   outputBunch.markAllOutputs()
 
-  protected val inputBunch = new InputBunch(inputCount = 2, settings.maxInputBufferSize, this) {
+  protected val inputBunch = new InputBunch(inputCount = 2, maxInputBufferSize, this) {
     override def onError(input: Int, e: Throwable): Unit = fail(e)
   }
 
@@ -93,15 +96,15 @@ class TLSActor(
       if (buffer.isEmpty) {
         buffer = inputBunch.dequeue(idx) match {
           // this class handles both UserIn and TransportIn
-          case bs: ByteString ⇒ bs
-          case SendBytes(bs)  ⇒ bs
-          case n: NegotiateNewSession ⇒
+          case bs: ByteString => bs
+          case SendBytes(bs)  => bs
+          case n: NegotiateNewSession =>
             setNewSessionParameters(n)
             ByteString.empty
         }
-        if (tracing) log.debug(s"chopping from new chunk of ${buffer.size} into $name (${b.position})")
+        if (tracing) log.debug(s"chopping from new chunk of ${buffer.size} into $name (${b.position()})")
       } else {
-        if (tracing) log.debug(s"chopping from old chunk of ${buffer.size} into $name (${b.position})")
+        if (tracing) log.debug(s"chopping from old chunk of ${buffer.size} into $name (${b.position()})")
       }
       val copied = buffer.copyToBuffer(b)
       buffer = buffer.drop(copied)
@@ -147,43 +150,26 @@ class TLSActor(
   private val transportInChoppingBlock = new ChoppingBlock(TransportIn, "TransportIn")
   transportInChoppingBlock.prepare(transportInBuffer)
 
-  private val sslConfig = externalSslConfig.getOrElse(AkkaSSLConfig(context.system))
-  private val hostnameVerifier = sslConfig.hostnameVerifier
+  var lastHandshakeStatus: HandshakeStatus = null
+  var corkUser = true
 
-  val engine: SSLEngine = {
-    val e = hostInfo match {
-      case Some((hostname, port)) ⇒ sslContext.createSSLEngine(hostname, port)
-      case None                   ⇒ sslContext.createSSLEngine()
-    }
-    sslConfig.sslEngineConfigurator.configure(e, sslContext)
-    e.setUseClientMode(role == Client)
-    e
-  }
+  // The engine could also be instantiated in ActorMaterializerImpl but if creation fails
+  // during materialization it would be worse than failing later on.
+  val engine =
+    try createSSLEngine(context.system)
+    catch { case NonFatal(ex) => fail(ex, closeTransport = true); throw ex }
+
+  engine.beginHandshake()
+  lastHandshakeStatus = engine.getHandshakeStatus
 
   var currentSession = engine.getSession
-  applySessionParameters(firstSession)
-
-  def applySessionParameters(params: NegotiateNewSession): Unit = {
-    params.enabledCipherSuites foreach (cs ⇒ engine.setEnabledCipherSuites(cs.toArray))
-    params.enabledProtocols foreach (p ⇒ engine.setEnabledProtocols(p.toArray))
-    params.clientAuth match {
-      case Some(TLSClientAuth.None) ⇒ engine.setNeedClientAuth(false)
-      case Some(TLSClientAuth.Want) ⇒ engine.setWantClientAuth(true)
-      case Some(TLSClientAuth.Need) ⇒ engine.setNeedClientAuth(true)
-      case _                        ⇒ // do nothing
-    }
-
-    // configure Server Name Indication unless ssl-config disabled it (in which case we already logged many warnings)
-    applySNI(params)
-
-    engine.beginHandshake()
-    lastHandshakeStatus = engine.getHandshakeStatus
-  }
 
   def setNewSessionParameters(params: NegotiateNewSession): Unit = {
     if (tracing) log.debug(s"applying $params")
     currentSession.invalidate()
-    applySessionParameters(params)
+    TlsUtils.applySessionParameters(engine, params)
+    engine.beginHandshake()
+    lastHandshakeStatus = engine.getHandshakeStatus
     corkUser = true
   }
 
@@ -197,7 +183,7 @@ class TLSActor(
    *  - inbound close initiated, outbound still open
    *  - fully closed
    *
-   * Upon reaching the last state we obviously just shut down. In addition to
+   * Upon reaching the last state we just shut down. In addition to
    * these user-data states, the engine may at any point in time also be
    * handshaking. This is mostly transparent, but it has an influence on the
    * outbound direction:
@@ -210,9 +196,6 @@ class TLSActor(
    * These conditions lead to the introduction of a synthetic TransferState
    * representing the Engine.
    */
-
-  var lastHandshakeStatus: HandshakeStatus = _
-  var corkUser = true
 
   val engineNeedsWrap = new TransferState {
     def isReady = lastHandshakeStatus == NEED_WRAP
@@ -242,7 +225,7 @@ class TLSActor(
   val outboundHalfClosed = engineNeedsWrap && outputBunch.demandAvailableFor(TransportOut)
   val inboundHalfClosed = transportInChoppingBlock && engineInboundOpen
 
-  val bidirectional = TransferPhase(outbound || inbound) { () ⇒
+  val bidirectional = TransferPhase(outbound || inbound) { () =>
     if (tracing) log.debug("bidirectional")
     val continue = doInbound(isOutboundClosed = false, inbound)
     if (continue) {
@@ -251,30 +234,30 @@ class TLSActor(
     }
   }
 
-  val flushingOutbound = TransferPhase(outboundHalfClosed) { () ⇒
+  val flushingOutbound = TransferPhase(outboundHalfClosed) { () =>
     if (tracing) log.debug("flushingOutbound")
     try doWrap()
-    catch { case ex: SSLException ⇒ nextPhase(completedPhase) }
+    catch { case _: SSLException => nextPhase(completedPhase) }
   }
 
-  val awaitingClose = TransferPhase(inputBunch.inputsAvailableFor(TransportIn) && engineInboundOpen) { () ⇒
+  val awaitingClose = TransferPhase(inputBunch.inputsAvailableFor(TransportIn) && engineInboundOpen) { () =>
     if (tracing) log.debug("awaitingClose")
     transportInChoppingBlock.chopInto(transportInBuffer)
     try doUnwrap(ignoreOutput = true)
-    catch { case ex: SSLException ⇒ nextPhase(completedPhase) }
+    catch { case _: SSLException => nextPhase(completedPhase) }
   }
 
-  val outboundClosed = TransferPhase(outboundHalfClosed || inbound) { () ⇒
+  val outboundClosed = TransferPhase(outboundHalfClosed || inbound) { () =>
     if (tracing) log.debug("outboundClosed")
     val continue = doInbound(isOutboundClosed = true, inbound)
     if (continue && outboundHalfClosed.isReady) {
       if (tracing) log.debug("outboundClosed continue")
       try doWrap()
-      catch { case ex: SSLException ⇒ nextPhase(completedPhase) }
+      catch { case _: SSLException => nextPhase(completedPhase) }
     }
   }
 
-  val inboundClosed = TransferPhase(outbound || inboundHalfClosed) { () ⇒
+  val inboundClosed = TransferPhase(outbound || inboundHalfClosed) { () =>
     if (tracing) log.debug("inboundClosed")
     val continue = doInbound(isOutboundClosed = false, inboundHalfClosed)
     if (continue) {
@@ -291,7 +274,8 @@ class TLSActor(
     if (inputBunch.isDepleted(TransportIn) && transportInChoppingBlock.isEmpty) {
       if (tracing) log.debug("closing inbound")
       try engine.closeInbound()
-      catch { case ex: SSLException ⇒ outputBunch.enqueue(UserOut, SessionTruncated) }
+      catch { case _: SSLException => outputBunch.enqueue(UserOut, SessionTruncated) }
+      lastHandshakeStatus = engine.getHandshakeStatus
       completeOrFlush()
       false
     } else if (inboundState != inboundHalfClosed && outputBunch.isCancelled(UserOut)) {
@@ -311,17 +295,17 @@ class TLSActor(
         doUnwrap()
         true
       } catch {
-        case ex: SSLException ⇒
+        case ex: SSLException =>
           if (tracing) log.debug(s"SSLException during doUnwrap: $ex")
           fail(ex, closeTransport = false)
-          engine.closeInbound()
-          completeOrFlush()
+          engine.closeInbound() // we don't need to add lastHandshakeStatus check here because
+          completeOrFlush() // it doesn't make any sense to write anything to the network anymore
           false
       }
     } else true
 
   private def doOutbound(isInboundClosed: Boolean): Unit =
-    if (inputBunch.isDepleted(UserIn) && userInChoppingBlock.isEmpty) {
+    if (inputBunch.isDepleted(UserIn) && userInChoppingBlock.isEmpty && mayCloseOutbound) {
       if (!isInboundClosed && closing.ignoreComplete) {
         if (tracing) log.debug("ignoring closeOutbound")
       } else {
@@ -337,11 +321,21 @@ class TLSActor(
       if (userHasData.isReady) userInChoppingBlock.chopInto(userInBuffer)
       try doWrap()
       catch {
-        case ex: SSLException ⇒
+        case ex: SSLException =>
           if (tracing) log.debug(s"SSLException during doWrap: $ex")
           fail(ex, closeTransport = false)
           completeOrFlush()
       }
+    }
+
+  /**
+   * In JDK 8 it is not allowed to call `closeOutbound` before the handshake is done or otherwise
+   * an IllegalStateException might be thrown when the next handshake packet arrives.
+   */
+  private def mayCloseOutbound: Boolean =
+    lastHandshakeStatus match {
+      case HandshakeStatus.NOT_HANDSHAKING | HandshakeStatus.FINISHED => true
+      case _                                                          => false
     }
 
   def flushToTransport(): Unit = {
@@ -368,18 +362,21 @@ class TLSActor(
   private def doWrap(): Unit = {
     val result = engine.wrap(userInBuffer, transportOutBuffer)
     lastHandshakeStatus = result.getHandshakeStatus
-    if (tracing) log.debug(s"wrap: status=${result.getStatus} handshake=$lastHandshakeStatus remaining=${userInBuffer.remaining} out=${transportOutBuffer.position}")
+    if (tracing)
+      log.debug(
+        s"wrap: status=${result.getStatus} handshake=$lastHandshakeStatus remaining=${userInBuffer.remaining} out=${transportOutBuffer
+          .position()}")
     if (lastHandshakeStatus == FINISHED) handshakeFinished()
     runDelegatedTasks()
     result.getStatus match {
-      case OK ⇒
+      case OK =>
         flushToTransport()
         userInChoppingBlock.putBack(userInBuffer)
-      case CLOSED ⇒
+      case CLOSED =>
         flushToTransport()
         if (engine.isInboundDone) nextPhase(completedPhase)
         else nextPhase(awaitingClose)
-      case s ⇒ fail(new IllegalStateException(s"unexpected status $s in doWrap()"))
+      case s => fail(new IllegalStateException(s"unexpected status $s in doWrap()"))
     }
   }
 
@@ -388,30 +385,33 @@ class TLSActor(
     val result = engine.unwrap(transportInBuffer, userOutBuffer)
     if (ignoreOutput) userOutBuffer.clear()
     lastHandshakeStatus = result.getHandshakeStatus
-    if (tracing) log.debug(s"unwrap: status=${result.getStatus} handshake=$lastHandshakeStatus remaining=${transportInBuffer.remaining} out=${userOutBuffer.position}")
+    if (tracing)
+      log.debug(
+        s"unwrap: status=${result.getStatus} handshake=$lastHandshakeStatus remaining=${transportInBuffer.remaining} out=${userOutBuffer
+          .position()}")
     runDelegatedTasks()
     result.getStatus match {
-      case OK ⇒
+      case OK =>
         result.getHandshakeStatus match {
-          case NEED_WRAP ⇒ flushToUser()
-          case FINISHED ⇒
+          case NEED_WRAP => flushToUser()
+          case FINISHED =>
             flushToUser()
             handshakeFinished()
             transportInChoppingBlock.putBack(transportInBuffer)
-          case _ ⇒
+          case _ =>
             if (transportInBuffer.hasRemaining) doUnwrap()
             else flushToUser()
         }
-      case CLOSED ⇒
+      case CLOSED =>
         flushToUser()
         if (engine.isOutboundDone) nextPhase(completedPhase)
         else nextPhase(flushingOutbound)
-      case BUFFER_UNDERFLOW ⇒
+      case BUFFER_UNDERFLOW =>
         flushToUser()
-      case BUFFER_OVERFLOW ⇒
+      case BUFFER_OVERFLOW =>
         flushToUser()
         transportInChoppingBlock.putBack(transportInBuffer)
-      case s ⇒ fail(new IllegalStateException(s"unexpected status $s in doUnwrap()"))
+      case s => fail(new IllegalStateException(s"unexpected status $s in doUnwrap()"))
     }
   }
 
@@ -433,12 +433,12 @@ class TLSActor(
     if (tracing) log.debug("handshake finished")
     val session = engine.getSession
 
-    hostInfo.map(_._1) match {
-      case Some(hostname) if !hostnameVerifier.verify(hostname, session) ⇒
-        fail(new ConnectionException(s"Hostname verification failed! Expected session to be for $hostname"), closeTransport = true)
-      case _ ⇒
+    verifySession(context.system, session) match {
+      case Success(()) =>
         currentSession = session
         corkUser = false
+      case Failure(ex) =>
+        fail(ex, closeTransport = true)
     }
   }
 
@@ -457,6 +457,7 @@ class TLSActor(
     pump()
   }
 
+  // FIXME: what happens if this actor dies unexpectedly?
   override def postStop(): Unit = {
     if (tracing) log.debug("postStop")
     super.postStop()
@@ -470,33 +471,36 @@ class TLSActor(
     if (tracing) log.debug(s"STOP Outbound Closed: ${engine.isOutboundDone} Inbound closed: ${engine.isInboundDone}")
     context.stop(self)
   }
+}
 
-  // Additional ssl-config related setup
-
-  // since setting a custom HostnameVerified (in JDK8, update 60 still) disables SNI
-  // see here: https://docs.oracle.com/javase/8/docs/technotes/guides/security/jsse/JSSERefGuide.html#SNIExamples
-  // resolves: https://github.com/akka/akka/issues/19287
-  private def applySNI(params: NegotiateNewSession): Unit = {
-    for {
-      sslParams ← params.sslParameters
-      (hostname, _) ← hostInfo
-      if !sslConfig.config.loose.disableSNI
-    } yield {
-      // first copy the *mutable* SLLParameters before modifying to prevent race condition in `setServerNames`
-      val clone = new SSLParameters()
-      clone.setCipherSuites(sslParams.getCipherSuites)
-      clone.setProtocols(sslParams.getProtocols)
-      clone.setWantClientAuth(sslParams.getWantClientAuth)
-      clone.setNeedClientAuth(sslParams.getNeedClientAuth)
-      clone.setEndpointIdentificationAlgorithm(sslParams.getEndpointIdentificationAlgorithm)
-      clone.setAlgorithmConstraints(sslParams.getAlgorithmConstraints)
-      clone.setSNIMatchers(sslParams.getSNIMatchers)
-      clone.setUseCipherSuitesOrder(sslParams.getUseCipherSuitesOrder)
-
-      // apply the changes
-      clone.setServerNames(Collections.singletonList(new SNIHostName(hostname)))
-      engine.setSSLParameters(clone)
+/**
+ * INTERNAL API
+ */
+@InternalApi private[akka] object TlsUtils {
+  def applySessionParameters(engine: SSLEngine, sessionParameters: NegotiateNewSession): Unit = {
+    sessionParameters.enabledCipherSuites.foreach(cs => engine.setEnabledCipherSuites(cs.toArray))
+    sessionParameters.enabledProtocols.foreach(p => engine.setEnabledProtocols(p.toArray))
+    sessionParameters.clientAuth match {
+      case Some(TLSClientAuth.None) => engine.setNeedClientAuth(false)
+      case Some(TLSClientAuth.Want) => engine.setWantClientAuth(true)
+      case Some(TLSClientAuth.Need) => engine.setNeedClientAuth(true)
+      case _                        => // do nothing
     }
+
+    sessionParameters.sslParameters.foreach(engine.setSSLParameters)
   }
 
+  def cloneParameters(old: SSLParameters): SSLParameters = {
+    val newParameters = new SSLParameters()
+    newParameters.setAlgorithmConstraints(old.getAlgorithmConstraints)
+    newParameters.setCipherSuites(old.getCipherSuites)
+    newParameters.setEndpointIdentificationAlgorithm(old.getEndpointIdentificationAlgorithm)
+    newParameters.setNeedClientAuth(old.getNeedClientAuth)
+    newParameters.setProtocols(old.getProtocols)
+    newParameters.setServerNames(old.getServerNames)
+    newParameters.setSNIMatchers(old.getSNIMatchers)
+    newParameters.setUseCipherSuitesOrder(old.getUseCipherSuitesOrder)
+    newParameters.setWantClientAuth(old.getWantClientAuth)
+    newParameters
+  }
 }

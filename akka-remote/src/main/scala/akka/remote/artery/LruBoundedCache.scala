@@ -1,43 +1,11 @@
-/**
- * Copyright (C) 2016 Lightbend Inc. <http://www.lightbend.com>
+/*
+ * Copyright (C) 2016-2019 Lightbend Inc. <https://www.lightbend.com>
  */
-package akka.remote.artery
 
-import akka.util.{ OptionVal, Unsafe }
+package akka.remote.artery
 
 import scala.annotation.tailrec
 import scala.reflect.ClassTag
-
-/**
- * INTERNAL API
- */
-private[remote] object FastHash {
-
-  // Fast hash based on the 128 bit Xorshift128+ PRNG. Mixes in character bits into the random generator state.
-  def ofString(s: String): Int = {
-    val chars = Unsafe.instance.getObject(s, EnvelopeBuffer.StringValueFieldOffset).asInstanceOf[Array[Char]]
-    var s0: Long = 391408
-    var s1: Long = 601258
-    var i = 0
-
-    while (i < chars.length) {
-      var x = s0 ^ chars(i).toLong // Mix character into PRNG state
-      var y = s1
-
-      // Xorshift128+ round
-      s0 = y
-      x ^= x << 23
-      y ^= (y >>> 26)
-      x ^= (x >>> 17)
-      s1 = x ^ y
-
-      i += 1
-    }
-
-    (s0 + s1).toInt
-  }
-
-}
 
 /**
  * INTERNAL API
@@ -55,7 +23,9 @@ private[akka] case class CacheStatistics(entries: Int, maxProbeDistance: Int, av
  * to kick out entires that are considered old. The implementation tries to keep the map close to full, only evicting
  * old entries when needed.
  */
-private[akka] abstract class LruBoundedCache[K: ClassTag, V <: AnyRef: ClassTag](capacity: Int, evictAgeThreshold: Int) {
+private[akka] abstract class LruBoundedCache[K: ClassTag, V <: AnyRef: ClassTag](
+    capacity: Int,
+    evictAgeThreshold: Int) {
   require(capacity > 0, "Capacity must be larger than zero")
   require((capacity & (capacity - 1)) == 0, "Capacity must be power of two")
   require(evictAgeThreshold <= capacity, "Age threshold must be less than capacity.")
@@ -67,7 +37,7 @@ private[akka] abstract class LruBoundedCache[K: ClassTag, V <: AnyRef: ClassTag]
 
   private[this] val keys = Array.ofDim[K](capacity)
   private[this] val values = Array.ofDim[V](capacity)
-  private[this] val hashes = Array.ofDim[Int](capacity)
+  private[this] val hashes = new Array[Int](capacity)
   private[this] val epochs = Array.fill[Int](capacity)(epoch - evictAgeThreshold) // Guarantee existing "values" are stale
 
   final def get(k: K): Option[V] = {
@@ -216,9 +186,9 @@ private[akka] abstract class LruBoundedCache[K: ClassTag, V <: AnyRef: ClassTag]
 
   override def toString =
     s"LruBoundedCache(" +
-      s" values = ${values.mkString("[", ",", "]")}," +
-      s" hashes = ${hashes.map(_ & Mask).mkString("[", ",", "]")}," +
-      s" epochs = ${epochs.mkString("[", ",", "]")}," +
-      s" distances = ${(0 until hashes.length).map(probeDistanceOf).mkString("[", ",", "]")}," +
-      s" $epoch)"
+    s" values = ${values.mkString("[", ",", "]")}," +
+    s" hashes = ${hashes.map(_ & Mask).mkString("[", ",", "]")}," +
+    s" epochs = ${epochs.mkString("[", ",", "]")}," +
+    s" distances = ${hashes.indices.map(probeDistanceOf).mkString("[", ",", "]")}," +
+    s" $epoch)"
 }
